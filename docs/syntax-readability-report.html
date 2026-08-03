@@ -1,0 +1,1483 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Relatório de análise da sintaxe atual do SpectraLang e proposta de melhorias de legibilidade.">
+  <title>SpectraLang — relatório de legibilidade da sintaxe</title>
+  <style>
+    :root {
+      --paper: #f4f0e7;
+      --paper-deep: #ebe4d7;
+      --ink: #17231e;
+      --ink-soft: #4c5b54;
+      --ink-faint: #7c8982;
+      --line: #d8d1c4;
+      --line-dark: #35453d;
+      --panel: #fffdf8;
+      --night: #17231e;
+      --night-soft: #22322a;
+      --accent: #cb684b;
+      --accent-soft: #f0c6b6;
+      --good: #397e61;
+      --warn: #a06a2f;
+      --danger: #a84f45;
+      --mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --display: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --radius: 18px;
+      --shadow: 0 18px 45px rgba(23, 35, 30, .08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(23, 35, 30, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23, 35, 30, .035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 42px 42px;
+      font-family: var(--sans);
+      line-height: 1.55;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: -1;
+      background: radial-gradient(circle at 72% 8%, rgba(203, 104, 75, .10), transparent 27rem);
+    }
+
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; }
+    code, pre, .mono { font-family: var(--mono); }
+    ::selection { background: var(--accent-soft); color: var(--ink); }
+
+    .skip-link {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 20;
+      padding: 9px 13px;
+      color: var(--panel);
+      background: var(--night);
+      border-radius: 9px;
+      transform: translateY(-160%);
+    }
+    .skip-link:focus { transform: translateY(0); }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 228px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .rail {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      padding: 28px 20px 22px;
+      border-right: 1px solid var(--line);
+      background: rgba(244, 240, 231, .86);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 42px;
+      text-decoration: none;
+    }
+    .brand-mark {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      color: var(--panel);
+      background: var(--night);
+      border-radius: 9px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: -.08em;
+    }
+    .brand-text {
+      display: grid;
+      gap: 1px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+    .brand-text small {
+      color: var(--ink-faint);
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: .06em;
+    }
+
+    .rail-label {
+      margin: 0 0 11px;
+      color: var(--ink-faint);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .rail nav { display: grid; gap: 3px; }
+    .rail nav a {
+      display: flex;
+      gap: 9px;
+      align-items: baseline;
+      padding: 8px 9px;
+      color: var(--ink-soft);
+      border-left: 2px solid transparent;
+      font-size: 12px;
+      text-decoration: none;
+      transition: color .25s ease, border-color .25s ease, transform .25s ease;
+    }
+    .rail nav a span {
+      color: var(--ink-faint);
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+    .rail nav a:hover,
+    .rail nav a.active {
+      color: var(--ink);
+      border-left-color: var(--accent);
+      transform: translateX(3px);
+    }
+    .rail-note {
+      position: absolute;
+      right: 20px;
+      bottom: 22px;
+      left: 20px;
+      padding-top: 15px;
+      border-top: 1px solid var(--line);
+      color: var(--ink-faint);
+      font-size: 11px;
+    }
+    .rail-note strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ink-soft);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    main { min-width: 0; }
+    .content {
+      width: min(1220px, calc(100% - 72px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr);
+      gap: clamp(34px, 6vw, 92px);
+      align-items: end;
+      min-height: min(760px, 86vh);
+      padding: 72px 0 80px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      margin: 0 0 24px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before {
+      content: "";
+      display: block;
+      width: 24px;
+      height: 1px;
+      background: currentColor;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      max-width: 720px;
+      margin-bottom: 24px;
+      font-family: var(--display);
+      font-size: clamp(42px, 6.6vw, 88px);
+      font-weight: 700;
+      letter-spacing: -.075em;
+      line-height: .94;
+    }
+    h1 em { color: var(--accent); font-style: normal; }
+    .hero-lede {
+      max-width: 625px;
+      margin-bottom: 30px;
+      color: var(--ink-soft);
+      font-size: clamp(17px, 2vw, 21px);
+      line-height: 1.48;
+    }
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 27px;
+      padding: 4px 9px;
+      color: var(--ink-soft);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .02em;
+    }
+    .tag.accent {
+      color: var(--accent);
+      border-color: var(--accent-soft);
+      background: rgba(240, 198, 182, .23);
+    }
+
+    .hero-code {
+      position: relative;
+      overflow: hidden;
+      padding: 24px 25px 26px;
+      color: #eaf0eb;
+      background: var(--night);
+      border: 1px solid #2d3d34;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      transform: translateY(10px);
+      animation: lift-in .75s cubic-bezier(.16, 1, .3, 1) both;
+    }
+    .hero-code::before {
+      content: "CURRENT SURFACE / 2026-08-03";
+      display: block;
+      margin-bottom: 20px;
+      color: #9eb3a6;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .11em;
+    }
+    .hero-code pre { margin: 0; overflow: auto; font-size: 12px; line-height: 1.8; }
+    .hero-code .kw { color: #e8b29f; }
+    .hero-code .name { color: #b8d9c8; }
+    .hero-code .str { color: #decf9e; }
+    .hero-code .comment { color: #71847a; }
+    .hero-code .line-mark {
+      position: absolute;
+      right: 21px;
+      top: 20px;
+      color: #71847a;
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+
+    .section { padding: 96px 0; border-bottom: 1px solid var(--line); }
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(180px, .38fr) minmax(0, 1fr);
+      gap: 34px;
+      align-items: start;
+      margin-bottom: 42px;
+    }
+    .section-index {
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .12em;
+    }
+    h2 {
+      max-width: 780px;
+      margin-bottom: 12px;
+      font-size: clamp(30px, 4.2vw, 54px);
+      letter-spacing: -.065em;
+      line-height: 1.02;
+    }
+    .section-intro {
+      max-width: 760px;
+      margin-bottom: 0;
+      color: var(--ink-soft);
+      font-size: 16px;
+    }
+    h3 {
+      margin-bottom: 10px;
+      font-size: 18px;
+      letter-spacing: -.025em;
+      line-height: 1.2;
+    }
+    .small-copy { color: var(--ink-soft); font-size: 13px; }
+    .micro {
+      color: var(--ink-faint);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .verdict {
+      display: grid;
+      grid-template-columns: minmax(0, 1.16fr) minmax(250px, .84fr);
+      gap: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 8px 26px rgba(23, 35, 30, .04);
+    }
+    .verdict-main { padding: 33px 34px 36px; }
+    .verdict-main h3 { max-width: 620px; font-size: 30px; letter-spacing: -.055em; }
+    .verdict-main h3 em { color: var(--accent); font-style: normal; }
+    .verdict-side {
+      display: grid;
+      gap: 17px;
+      align-content: center;
+      padding: 30px;
+      color: #eaf0eb;
+      background: var(--night);
+    }
+    .verdict-side .micro { color: #91a69a; }
+    .verdict-side p { margin-bottom: 0; color: #cfdbd2; font-size: 13px; }
+
+    .signal-grid {
+      display: grid;
+      grid-template-columns: 1.2fr .9fr .9fr 1.1fr;
+      gap: 0;
+      margin-top: 28px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .signal {
+      min-height: 120px;
+      padding: 19px 18px 16px 0;
+      border-right: 1px solid var(--line);
+    }
+    .signal + .signal { padding-left: 18px; }
+    .signal:last-child { border-right: 0; }
+    .signal .value {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .signal strong { display: block; margin-bottom: 3px; font-size: 12px; }
+    .signal p { margin-bottom: 0; color: var(--ink-soft); font-size: 11px; line-height: 1.35; }
+
+    .surface-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    table { width: 100%; border-collapse: collapse; min-width: 690px; }
+    th, td { padding: 15px 17px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    th {
+      color: var(--ink-faint);
+      background: rgba(235, 228, 215, .54);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    td { color: var(--ink-soft); font-size: 12px; }
+    td:first-child { color: var(--ink); font-weight: 700; }
+    td code { color: var(--ink); font-size: 11px; }
+    .status {
+      display: inline-flex;
+      white-space: nowrap;
+      padding: 3px 7px;
+      border-radius: 999px;
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .status.keep { color: var(--good); background: rgba(57, 126, 97, .12); }
+    .status.change { color: var(--accent); background: rgba(203, 104, 75, .13); }
+    .status.audit { color: var(--warn); background: rgba(160, 106, 47, .13); }
+    .status.defer { color: var(--ink-soft); background: rgba(76, 91, 84, .12); }
+
+    .diag-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .diag {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 17px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 253, 248, .68);
+      transition: transform .3s cubic-bezier(.16, 1, .3, 1), border-color .3s ease, background .3s ease;
+    }
+    .diag:hover { border-color: var(--accent-soft); background: var(--panel); transform: translateY(-3px); }
+    .diag-no {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      color: var(--accent);
+      border: 1px solid var(--accent-soft);
+      border-radius: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .diag h3 { margin-bottom: 7px; font-size: 16px; }
+    .diag p { margin-bottom: 10px; color: var(--ink-soft); font-size: 13px; }
+    .diag .recommendation { margin-bottom: 0; color: var(--ink); font-size: 12px; }
+    .diag .recommendation strong { color: var(--accent); }
+    .diag-meta { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-bottom: 9px; }
+    .priority {
+      color: var(--ink-soft);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .source-link {
+      color: var(--ink-faint);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-decoration: underline;
+      text-decoration-color: var(--line);
+      text-underline-offset: 3px;
+    }
+    .source-link:hover { color: var(--accent); text-decoration-color: var(--accent); }
+
+    .compare-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+    .filter-button {
+      cursor: pointer;
+      padding: 7px 10px;
+      color: var(--ink-soft);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: transparent;
+      font-family: var(--mono);
+      font-size: 10px;
+      transition: color .2s ease, border-color .2s ease, background .2s ease, transform .2s ease;
+    }
+    .filter-button:hover { transform: translateY(-1px); }
+    .filter-button.active { color: var(--panel); border-color: var(--night); background: var(--night); }
+    .filter-note { margin-left: auto; color: var(--ink-faint); font-size: 11px; }
+    .comparison-list { display: grid; gap: 20px; }
+    .comparison {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 8px 26px rgba(23, 35, 30, .035);
+    }
+    .comparison.is-hidden { display: none; }
+    .comparison-head {
+      display: flex;
+      gap: 14px;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 17px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .comparison-head h3 { margin: 0; font-size: 16px; }
+    .comparison-head p { margin: 0; color: var(--ink-faint); font-size: 11px; }
+    .comparison-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    .code-side { min-width: 0; padding: 0; }
+    .code-side + .code-side { border-left: 1px solid var(--line); }
+    .code-label {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 12px 17px;
+      color: var(--ink-faint);
+      background: rgba(235, 228, 215, .54);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .code-label .dot { display: block; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); }
+    .code-side.future .code-label { color: var(--accent); background: rgba(240, 198, 182, .20); }
+    .code-side.future .code-label .dot { background: var(--accent); }
+    pre.code-block {
+      margin: 0;
+      min-height: 160px;
+      padding: 18px 18px 20px;
+      overflow: auto;
+      color: #dbe7de;
+      background: var(--night);
+      font-size: 11px;
+      line-height: 1.72;
+      tab-size: 4;
+    }
+    .code-side.future pre.code-block { background: var(--night-soft); }
+    .code-block .kw { color: #efb59e; }
+    .code-block .type { color: #b8d9c8; }
+    .code-block .fn { color: #e5d29b; }
+    .code-block .str { color: #e5d29b; }
+    .code-block .comment { color: #789084; }
+    .code-block .accent-code { color: #f0c6b6; }
+    .code-block .op { color: #cadccf; }
+    .compare-note {
+      padding: 13px 18px 15px;
+      color: var(--ink-soft);
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+    }
+    .compare-note strong { color: var(--accent); }
+
+    .proposal {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(250px, .85fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+    .proposal-main, .proposal-side { padding: 26px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .proposal-main { box-shadow: var(--shadow); }
+    .proposal-main h3, .proposal-side h3 { margin-bottom: 18px; }
+    .proposal-main pre { margin: 0; overflow: auto; color: #dbe7de; background: var(--night); border-radius: 12px; padding: 21px; font-size: 11px; line-height: 1.8; }
+    .proposal-main pre .kw { color: #efb59e; }
+    .proposal-main pre .type { color: #b8d9c8; }
+    .proposal-main pre .str { color: #e5d29b; }
+    .proposal-side { background: rgba(255, 253, 248, .65); }
+    .rule-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+    .rule-list li { display: grid; grid-template-columns: 25px minmax(0, 1fr); gap: 9px; padding: 11px 0; border-bottom: 1px solid var(--line); color: var(--ink-soft); font-size: 12px; }
+    .rule-list li:last-child { border-bottom: 0; }
+    .rule-list b { color: var(--accent); font-family: var(--mono); }
+    .rule-list strong { display: block; margin-bottom: 2px; color: var(--ink); font-size: 12px; }
+
+    .roadmap-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .roadmap-card { padding: 22px; border-top: 3px solid var(--line); background: rgba(255, 253, 248, .72); }
+    .roadmap-card.p0 { border-top-color: var(--accent); }
+    .roadmap-card.p1 { border-top-color: var(--warn); }
+    .roadmap-card.p2 { border-top-color: var(--good); }
+    .roadmap-card .micro { display: block; margin-bottom: 12px; }
+    .roadmap-card h3 { font-size: 17px; }
+    .roadmap-card p { margin-bottom: 12px; color: var(--ink-soft); font-size: 12px; }
+    .roadmap-card ul { margin: 0; padding-left: 16px; color: var(--ink-soft); font-size: 12px; }
+    .roadmap-card li + li { margin-top: 7px; }
+
+    .migration {
+      display: grid;
+      grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+      gap: 28px;
+      align-items: start;
+    }
+    .migration-copy p { color: var(--ink-soft); font-size: 14px; }
+    .migration-copy p:last-child { margin-bottom: 0; }
+    .steps { display: grid; gap: 0; }
+    .step { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 15px; padding: 0 0 20px; }
+    .step:last-child { padding-bottom: 0; }
+    .step-index { display: grid; width: 30px; height: 30px; place-items: center; color: var(--accent); border: 1px solid var(--accent-soft); border-radius: 50%; font-family: var(--mono); font-size: 10px; font-weight: 700; }
+    .step h3 { margin: 2px 0 4px; font-size: 14px; }
+    .step p { margin: 0; color: var(--ink-soft); font-size: 12px; }
+
+    .do-not {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(250px, .74fr);
+      gap: 18px;
+    }
+    .do-not-panel { padding: 26px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .do-not-panel.dark { color: #dbe7de; background: var(--night); border-color: var(--night); }
+    .do-not-panel.dark h3 { color: #f1c0ad; }
+    .do-not-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+    .do-not-list li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 9px; color: var(--ink-soft); font-size: 12px; }
+    .do-not-list b { color: var(--accent); font-family: var(--mono); }
+    .do-not-panel.dark .do-not-list li { color: #b8c9bd; }
+    .do-not-panel.dark .do-not-list b { color: #efb59e; }
+
+    .gates-table { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+    .gates-table table { min-width: 720px; }
+    .check { color: var(--good); font-family: var(--mono); font-size: 12px; font-weight: 700; }
+    .source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; border-top: 1px solid var(--line); }
+    .source-row { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 9px; padding: 15px 0; border-bottom: 1px solid var(--line); }
+    .source-row b { color: var(--accent); font-family: var(--mono); font-size: 11px; }
+    .source-row p { margin: 0; color: var(--ink-soft); font-size: 12px; }
+    .source-row p strong { color: var(--ink); }
+    .source-row p a { color: var(--ink); text-decoration-color: var(--line); text-underline-offset: 3px; }
+    .source-row p a:hover { color: var(--accent); }
+
+    footer { padding: 42px 0 70px; color: var(--ink-faint); font-size: 11px; }
+    footer .footer-line { display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; padding-top: 17px; border-top: 1px solid var(--line); }
+    footer strong { color: var(--ink-soft); font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+
+    .copy-button {
+      float: right;
+      cursor: pointer;
+      margin: -4px 0 0 10px;
+      padding: 5px 8px;
+      color: #a7b9ac;
+      border: 1px solid #42554a;
+      border-radius: 6px;
+      background: transparent;
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .copy-button:hover { color: #f1c0ad; border-color: #c37b62; }
+
+    @keyframes lift-in {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(10px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+    @media (max-width: 1060px) {
+      .shell { grid-template-columns: 190px minmax(0, 1fr); }
+      .content { width: min(100% - 46px, 940px); }
+      .hero { gap: 40px; }
+      .signal-grid { grid-template-columns: repeat(2, 1fr); }
+      .signal:nth-child(2) { border-right: 0; }
+      .signal:nth-child(n + 3) { border-top: 1px solid var(--line); }
+    }
+    @media (max-width: 760px) {
+      .shell { display: block; }
+      .rail { position: relative; z-index: 5; width: 100%; height: auto; padding: 16px 18px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .brand { margin-bottom: 14px; }
+      .rail-label, .rail-note { display: none; }
+      .rail nav { display: flex; gap: 2px; overflow-x: auto; padding-bottom: 2px; }
+      .rail nav a { flex: 0 0 auto; padding: 6px 8px; border-left: 0; border-bottom: 2px solid transparent; font-size: 11px; }
+      .rail nav a:hover, .rail nav a.active { border-bottom-color: var(--accent); transform: none; }
+      .hero { grid-template-columns: 1fr; min-height: auto; padding: 55px 0 56px; }
+      h1 { max-width: 620px; font-size: clamp(43px, 13vw, 74px); }
+      .hero-code { transform: none; }
+      .section { padding: 67px 0; }
+      .section-head { grid-template-columns: 1fr; gap: 11px; margin-bottom: 29px; }
+      .verdict, .proposal, .migration, .do-not { grid-template-columns: 1fr; }
+      .verdict-side { min-height: 190px; }
+      .diag-grid, .source-grid { grid-template-columns: 1fr; }
+      .comparison-body { grid-template-columns: 1fr; }
+      .code-side + .code-side { border-top: 1px solid var(--line); border-left: 0; }
+      .comparison-head { align-items: start; flex-direction: column; }
+      .filter-note { width: 100%; margin-left: 0; }
+      .roadmap-grid { grid-template-columns: 1fr; }
+      .signal-grid { grid-template-columns: 1fr 1fr; }
+      .signal { min-height: 137px; }
+    }
+    @media (max-width: 480px) {
+      .content { width: calc(100% - 32px); }
+      .hero-code, .verdict-main, .verdict-side, .proposal-main, .proposal-side, .do-not-panel { padding: 20px; }
+      .signal-grid { grid-template-columns: 1fr; }
+      .signal, .signal + .signal { padding: 16px 0; border-right: 0; }
+      .signal + .signal { border-top: 1px solid var(--line); }
+      .signal:nth-child(2) { border-right: 0; }
+      pre.code-block, .proposal-main pre { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#overview">Pular para o relatório</a>
+  <div class="shell">
+    <aside class="rail" aria-label="Navegação do relatório">
+      <a class="brand" href="#top">
+        <span class="brand-mark">S/</span>
+        <span class="brand-text">SpectraLang<small>syntax review</small></span>
+      </a>
+      <p class="rail-label">Neste relatório</p>
+      <nav>
+        <a href="#overview"><span>01</span> Veredito</a>
+        <a href="#surface"><span>02</span> Superfície atual</a>
+        <a href="#friction"><span>03</span> Fricções</a>
+        <a href="#simulations"><span>04</span> Lado a lado</a>
+        <a href="#contract"><span>05</span> Contrato proposto</a>
+        <a href="#plan"><span>06</span> Prioridades</a>
+        <a href="#evidence"><span>07</span> Evidências</a>
+      </nav>
+      <div class="rail-note">
+        <strong>Escopo</strong>
+        Sintaxe de fonte, ergonomia de leitura, migração e consistência do tooling.
+      </div>
+    </aside>
+
+    <main id="top">
+      <div class="content">
+        <header class="hero">
+          <div>
+            <p class="eyebrow">Relatório de design de linguagem</p>
+            <h1>Mais clareza por linha. <em>Menos dialetos.</em></h1>
+            <p class="hero-lede">A sintaxe atual do SpectraLang já tem um núcleo expressivo e familiar. O maior ganho de legibilidade não virá de inventar mais recursos, mas de escolher uma única forma para cada conceito e tornar visíveis as decisões que hoje ficam implícitas.</p>
+            <div class="hero-meta" aria-label="Metadados da análise">
+              <span class="tag accent">análise em 03 ago 2026</span>
+              <span class="tag">código + testes + docs + VS Code</span>
+              <span class="tag">sem mudança de roadmap</span>
+            </div>
+          </div>
+          <div class="hero-code" aria-label="Amostra da superfície atual">
+            <span class="line-mark">01—08</span>
+            <pre><code><span class="kw">module</span> <span class="name">app.orders</span>;
+
+<span class="kw">import</span> std.io;
+<span class="kw">import</span> std.math <span class="kw">as</span> math;
+<span class="kw">import</span> { println, print } <span class="kw">from</span> std.io;
+
+<span class="kw">pub fn</span> <span class="name">main</span>() <span class="op">-&gt;</span> <span class="name">int</span> {
+    <span class="kw">let</span> total = 0;
+    <span class="kw">for</span> item <span class="kw">of</span> orders {
+        total = total + item.amount;
+    }
+}</code></pre>
+          </div>
+        </header>
+
+        <section class="section" id="overview">
+          <div class="section-head">
+            <div class="section-index">01 / Veredito</div>
+            <div>
+              <h2>O problema é a variação, não a ambição.</h2>
+              <p class="section-intro">O compilador suporta uma superfície considerável: módulos, imports, funções, structs, enums, traits, generics, padrões, `if let`, `while let`, `match`, loops, closures e `async/await`. Essa riqueza é válida; o custo aparece quando formas equivalentes coexistem sem uma hierarquia clara.</p>
+            </div>
+          </div>
+
+          <div class="verdict">
+            <div class="verdict-main">
+              <p class="micro">Recomendação central</p>
+              <h3>Adotar um perfil de escrita chamado <em>Spectra Readable</em>.</h3>
+              <p class="small-copy">O perfil não precisa remover imediatamente a sintaxe legada. Ele define uma forma canônica para o formatter, exige diagnósticos que expliquem a forma recomendada e transforma aliases em compatibilidade temporária.</p>
+              <div class="signal-grid">
+                <div class="signal">
+                  <span class="value">3</span>
+                  <strong>famílias de import</strong>
+                  <p>módulo, alias e named import têm gramáticas diferentes.</p>
+                </div>
+                <div class="signal">
+                  <span class="value">2</span>
+                  <strong>conectores de loop</strong>
+                  <p>`in` e `of` têm a mesma semântica hoje.</p>
+                </div>
+                <div class="signal">
+                  <span class="value">2</span>
+                  <strong>aliases de if</strong>
+                  <p>`elif` e `elseif` ocupam o mesmo papel.</p>
+                </div>
+                <div class="signal">
+                  <span class="value">8</span>
+                  <strong>keywords sem parser</strong>
+                  <p>vocabulário reservado aumenta ruído no editor e nos diagnósticos.</p>
+                </div>
+              </div>
+            </div>
+            <div class="verdict-side">
+              <p class="micro">Leitura executiva</p>
+              <p><strong>Preservar:</strong> chaves, tipos explícitos quando importam, `match` como expressão, named fields, f-strings e `async/await`.</p>
+              <p><strong>Mudar primeiro:</strong> convenções únicas, mutabilidade visível, imports consistentes e contrato de documentação.</p>
+              <p><strong>Adiar:</strong> uma nova linguagem de classes, sintaxe significativa por indentação e açúcar sem ganho semântico.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="surface">
+          <div class="section-head">
+            <div class="section-index">02 / Superfície</div>
+            <div>
+              <h2>O que já existe, e onde a leitura pesa.</h2>
+              <p class="section-intro">A tabela abaixo distingue capacidade real do frontend, qualidade de leitura e a ação sugerida. “Auditar contrato” significa que a forma pode ser mantida, mas a referência, o formatter e a extensão precisam dizer a mesma coisa que o lexer/parser atuais.</p>
+            </div>
+          </div>
+          <div class="surface-table-wrap">
+            <table>
+              <thead>
+                <tr><th>Área</th><th>Superfície atual</th><th>Carga de leitura</th><th>Ação</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Arquivo e módulo</td>
+                  <td><code>module app.core;</code> é consumido no início do parse; paths usam pontos.</td>
+                  <td>Boilerplate previsível, mas a obrigatoriedade é pouco amigável para snippets e o contrato diverge entre docs.</td>
+                  <td><span class="status audit">auditar</span></td>
+                </tr>
+                <tr>
+                  <td>Imports</td>
+                  <td><code>import std.io;</code>, alias com <code>as</code>, nomes com <code>{ ... } from ...</code> e re-export com <code>pub import</code>.</td>
+                  <td>Três ordens mentais para o mesmo ato e mistura de estilo Python/TypeScript/Rust.</td>
+                  <td><span class="status change">unificar</span></td>
+                </tr>
+                <tr>
+                  <td>Declarações</td>
+                  <td><code>fn</code>, <code>struct</code>, <code>enum</code>, <code>trait</code>, <code>impl</code>, <code>type</code>, <code>const</code>, <code>static</code>.</td>
+                  <td>Base pequena e reconhecível. Parâmetros e retornos podem omitir tipos mesmo em uma linguagem estática.</td>
+                  <td><span class="status keep">preservar + regra</span></td>
+                </tr>
+                <tr>
+                  <td>Mutabilidade</td>
+                  <td><code>let x = 1;</code> pode ser reatribuído; <code>mut</code> é usado principalmente nos receivers.</td>
+                  <td>O nome <code>let</code> sugere imutabilidade para leitores de Rust/Swift, enquanto a mudança aparece longe da declaração.</td>
+                  <td><span class="status change">tornar explícita</span></td>
+                </tr>
+                <tr>
+                  <td>Condicionais</td>
+                  <td><code>if / elif / elseif / else</code>, <code>unless</code> e <code>if let</code>.</td>
+                  <td>Aliases sem ganho e duas leituras para negação; `unless` é útil, mas perigoso em predicados longos.</td>
+                  <td><span class="status change">canonizar</span></td>
+                </tr>
+                <tr>
+                  <td>Loops</td>
+                  <td><code>while</code>, <code>do ... while</code>, <code>for x in</code>, <code>for x of</code>, <code>loop</code>.</td>
+                  <td><code>in</code> e <code>of</code> não comunicam diferença semântica porque hoje não existe uma.</td>
+                  <td><span class="status change">uma forma</span></td>
+                </tr>
+                <tr>
+                  <td>Branching</td>
+                  <td><code>match</code> é expressão; <code>switch</code> usa <code>case</code> e bloco.</td>
+                  <td>Dois constructos sobrepostos, além de uma nomenclatura de fallback que alterna entre `else` e `default`.</td>
+                  <td><span class="status change">definir papéis</span></td>
+                </tr>
+                <tr>
+                  <td>Paths</td>
+                  <td>Módulos usam <code>.</code>; enum variants e paths qualificados usam <code>::</code>; members usam <code>.</code>.</td>
+                  <td>O leitor precisa lembrar se está navegando em namespace, tipo ou valor.</td>
+                  <td><span class="status change">normalizar</span></td>
+                </tr>
+                <tr>
+                  <td>Tooling</td>
+                  <td>Formatter e language service existem; VS Code destaca keywords além do parser.</td>
+                  <td>Uma keyword colorida parece suportada. A referência também contém itens antigos sobre strings e comentários.</td>
+                  <td><span class="status audit">fonte única</span></td>
+                </tr>
+                <tr>
+                  <td>Literais</td>
+                  <td>strings, chars, f-strings, arrays, tuplas e ranges; identificadores continuam ASCII.</td>
+                  <td>Boa base. Separadores numéricos, raw/multiline strings e Unicode ainda não têm contrato único.</td>
+                  <td><span class="status defer">segunda onda</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section" id="friction">
+          <div class="section-head">
+            <div class="section-index">03 / Fricções</div>
+            <div>
+              <h2>Doze ajustes com impacto desigual.</h2>
+              <p class="section-intro">A prioridade combina frequência de leitura, risco de migração e dependência do compilador. P0 é higiene do contrato; P1 muda a sensação da linguagem; P2 é expansão útil, não urgente.</p>
+            </div>
+          </div>
+
+          <div class="diag-grid">
+            <article class="diag">
+              <div class="diag-no">01</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P0</span><span class="status change">alto retorno</span></div>
+                <h3>Uma gramática de import</h3>
+                <p>O parser trata import de módulo, alias e named import por caminhos diferentes. O named import ainda reconhece `from` como identifier literal.</p>
+                <p class="recommendation"><strong>Proposta:</strong> manter `import`, adotar `import std::io::{println, print};` e permitir alias na mesma posição. Um único formato também simplifica formatter e completions.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">02</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P0</span><span class="status change">alto retorno</span></div>
+                <h3>Escolher `in` ou `of`</h3>
+                <p>A implementação armazena os dois forms com a mesma semântica. Duas palavras fazem o leitor procurar uma distinção que não existe.</p>
+                <p class="recommendation"><strong>Proposta:</strong> canonizar `for item in collection`; aceitar `of` por uma janela de compatibilidade e emitir aviso de migração.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">03</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P0</span><span class="status change">alto retorno</span></div>
+                <h3>Remover aliases condicionais</h3>
+                <p>`elif` e `elseif` chegam ao mesmo vetor de AST. O código de usuário e a gramática do editor ficam mais fáceis de ensinar com uma só escolha.</p>
+                <p class="recommendation"><strong>Proposta:</strong> preferir `else if` como composição explícita; se a equipe preferir concisão, manter apenas `elif`. Não manter três formas.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">04</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P0</span><span class="status audit">contrato</span></div>
+                <h3>Resolver keywords sem parser</h3>
+                <p>`class`, `export`, `cond`, `foreach`, `repeat`, `until`, `yield` e `goto` são reservadas no lexer, mas não são uma superfície utilizável.</p>
+                <p class="recommendation"><strong>Proposta:</strong> retirar do conjunto reservado enquanto não houver design, ou produzir diagnóstico deliberado “reservado para futura versão”. O editor deve consumir a mesma lista.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">05</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P1</span><span class="status change">semântica visível</span></div>
+                <h3>Marcar mutação na origem</h3>
+                <p>Hoje a documentação define todo local como reatribuível. Isso torna `let` um marcador neutro, apesar de parecer imutável para parte do público.</p>
+                <p class="recommendation"><strong>Proposta:</strong> adotar `let` imutável e `let mut` reatribuível, usando a keyword que já existe para receivers. Formatter e lint podem migrar declarações com atribuição posterior.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">06</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P1</span><span class="status change">papéis claros</span></div>
+                <h3>Fazer `match` ser a branch de valores</h3>
+                <p>`match` já é expressão e suporta padrões, guards e OR-patterns no frontend atual. `switch` repete parte do espaço e usa `case`/`else`.</p>
+                <p class="recommendation"><strong>Proposta:</strong> tornar `match` o constructo canônico; preservar `switch` como alias temporário ou reservá-lo para um futuro switch de condições, mas não manter os dois sobrepostos.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">07</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P1</span><span class="status change">namespace</span></div>
+                <h3>Escolher um separador de namespace</h3>
+                <p>Paths de módulo usam pontos, enquanto `Option::Some` e paths de enum usam `::`; ponto também é acesso de campo e método.</p>
+                <p class="recommendation"><strong>Proposta:</strong> usar `::` para módulos, tipos e variantes; reservar `.` para valores, fields e methods. A distinção visual passa a carregar significado.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">08</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P1</span><span class="status audit">visibilidade</span></div>
+                <h3>Não descartar `pub impl` silenciosamente</h3>
+                <p>A auditoria do parser registra que `pub impl` cai no parse de impl inerente e a visibilidade é descartada no AST.</p>
+                <p class="recommendation"><strong>Proposta:</strong> ou preservar a visibilidade no modelo, ou rejeitar `pub impl` com uma mensagem que explique que a visibilidade pertence aos métodos e ao tipo.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">09</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P1</span><span class="status keep">regra de estilo</span></div>
+                <h3>Tipos explícitos no limite público</h3>
+                <p>Parâmetros e retorno podem ser omitidos e viram `Unknown`/`unit` em partes do frontend. Isso é confortável localmente, mas esconde contrato em APIs.</p>
+                <p class="recommendation"><strong>Proposta:</strong> exigir tipos em `pub` e `async fn` públicos; permitir inferência em helpers privados com lint opcional para APIs internas.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">10</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P1</span><span class="status keep">preservar com critério</span></div>
+                <h3>Reduzir a ambiguidade do retorno implícito</h3>
+                <p>Blocos são expressões e a última expressão sem `;` pode retornar valor. É elegante para funções puras, mas pode esconder a intenção em funções longas.</p>
+                <p class="recommendation"><strong>Proposta:</strong> manter a capacidade; recomendar `return` explícito em funções públicas, efeitos e branches complexos. Um lint pode sinalizar tail expression com efeitos.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">11</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P2</span><span class="status defer">expansão</span></div>
+                <h3>Fechar o contrato de literais</h3>
+                <p>O lexer atual suporta escapes, f-strings e comentários de bloco, enquanto documentos antigos ainda afirmam o contrário. Números avançados e Unicode seguem adiados.</p>
+                <p class="recommendation"><strong>Proposta:</strong> primeiro alinhar docs/formatter/highlighter; depois adicionar separadores numéricos, exponentes, raw strings e multiline strings com testes de recuperação.</p>
+              </div>
+            </article>
+            <article class="diag">
+              <div class="diag-no">12</div>
+              <div>
+                <div class="diag-meta"><span class="priority">P2</span><span class="status defer">API</span></div>
+                <h3>Reduzir a cerimônia da stdlib</h3>
+                <p>Exemplos de API HTTP têm muitos named imports, handles e funções livres; a sintaxe de linguagem não está errada, mas a leitura fica dominada pelo plumbing.</p>
+                <p class="recommendation"><strong>Proposta:</strong> tratar como design de biblioteca: namespaces coerentes, construtores nomeados e métodos de domínio, sem contaminar a gramática central com açúcar específico de HTTP.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="simulations">
+          <div class="section-head">
+            <div class="section-index">04 / Simulações</div>
+            <div>
+              <h2>O mesmo programa com uma leitura mais previsível.</h2>
+              <p class="section-intro">Os exemplos à direita não são um patch pronto. São uma proposta de direção: menor número de formas, contratos visíveis e convenções que o formatter consegue impor. Use os filtros para separar mudanças de alta prioridade.</p>
+            </div>
+          </div>
+          <div class="compare-toolbar" aria-label="Filtrar simulações">
+            <button class="filter-button active" type="button" data-filter="all">todas</button>
+            <button class="filter-button" type="button" data-filter="p0">P0</button>
+            <button class="filter-button" type="button" data-filter="p1">P1</button>
+            <button class="filter-button" type="button" data-filter="p2">P2</button>
+            <span class="filter-note">esquerda = atual · direita = direção recomendada</span>
+          </div>
+
+          <div class="comparison-list">
+            <article class="comparison" data-priority="p0">
+              <div class="comparison-head"><h3>01. Módulo e imports</h3><p>uma ordem, um separador</p></div>
+              <div class="comparison-body">
+                <div class="code-side">
+                  <div class="code-label"><span class="dot"></span> atual</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-01-current">copiar</button><code id="code-01-current"><span class="kw">module</span> app.orders;
+
+<span class="kw">import</span> std.io;
+<span class="kw">import</span> std.math <span class="kw">as</span> math;
+<span class="kw">import</span> { println, print } <span class="kw">from</span> std.io;
+<span class="kw">pub import</span> { println } <span class="kw">from</span> std.io;</code></pre>
+                </div>
+                <div class="code-side future">
+                  <div class="code-label"><span class="dot"></span> proposta</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-01-future">copiar</button><code id="code-01-future"><span class="kw">module</span> app<span class="accent-code">::</span>orders;
+
+<span class="kw">import</span> std<span class="accent-code">::</span>io;
+<span class="kw">import</span> std<span class="accent-code">::</span>math <span class="kw">as</span> math;
+<span class="kw">import</span> std<span class="accent-code">::</span>io<span class="accent-code">::</span>{ println, print };
+<span class="kw">pub import</span> std<span class="accent-code">::</span>io<span class="accent-code">::</span>{ println };</code></pre>
+                </div>
+              </div>
+              <div class="compare-note"><strong>Por que melhora:</strong> `.` fica para valores; `::` comunica namespace/tipo. A named import deixa de inverter a ordem e o caso especial de `from` some do parser.</div>
+            </article>
+
+            <article class="comparison" data-priority="p0">
+              <div class="comparison-head"><h3>02. Iteração</h3><p>não diferenciar o que é igual</p></div>
+              <div class="comparison-body">
+                <div class="code-side">
+                  <div class="code-label"><span class="dot"></span> atual</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-02-current">copiar</button><code id="code-02-current"><span class="kw">for</span> item <span class="kw">in</span> orders {
+    println(item);
+}
+
+<span class="kw">for</span> item <span class="kw">of</span> orders {
+    println(item);
+}</code></pre>
+                </div>
+                <div class="code-side future">
+                  <div class="code-label"><span class="dot"></span> proposta</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-02-future">copiar</button><code id="code-02-future"><span class="kw">for</span> item <span class="kw">in</span> orders {
+    println(item);
+}</code></pre>
+                </div>
+              </div>
+              <div class="compare-note"><strong>Compatibilidade:</strong> aceitar `of` por uma release, emitir warning e formatar para `in`. Se no futuro houver diferença entre valores e chaves, introduzir outra forma somente junto com semântica real.</div>
+            </article>
+
+            <article class="comparison" data-priority="p0">
+              <div class="comparison-head"><h3>03. Condicionais</h3><p>composição explícita</p></div>
+              <div class="comparison-body">
+                <div class="code-side">
+                  <div class="code-label"><span class="dot"></span> atual</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-03-current">copiar</button><code id="code-03-current"><span class="kw">if</span> score &gt; 90 {
+    grade = <span class="str">"A"</span>;
+} <span class="kw">elif</span> score &gt; 70 {
+    grade = <span class="str">"B"</span>;
+} <span class="kw">elseif</span> score &gt; 50 {
+    grade = <span class="str">"C"</span>;
+} <span class="kw">else</span> {
+    grade = <span class="str">"D"</span>;
+}</code></pre>
+                </div>
+                <div class="code-side future">
+                  <div class="code-label"><span class="dot"></span> proposta</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-03-future">copiar</button><code id="code-03-future"><span class="kw">let</span> grade = <span class="kw">if</span> score &gt; 90 {
+    <span class="str">"A"</span>
+} <span class="kw">else if</span> score &gt; 70 {
+    <span class="str">"B"</span>
+} <span class="kw">else if</span> score &gt; 50 {
+    <span class="str">"C"</span>
+} <span class="kw">else</span> {
+    <span class="str">"D"</span>
+};</code></pre>
+                </div>
+              </div>
+              <div class="compare-note"><strong>Escolha:</strong> a simulação usa `else if`; se a equipe valorizar a forma curta, troque por `elif` e elimine `elseif`. O ponto principal é ter uma forma canônica, não qual palavra vence.</div>
+            </article>
+
+            <article class="comparison" data-priority="p1">
+              <div class="comparison-head"><h3>04. Mutabilidade</h3><p>a declaração anuncia o custo</p></div>
+              <div class="comparison-body">
+                <div class="code-side">
+                  <div class="code-label"><span class="dot"></span> atual</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-04-current">copiar</button><code id="code-04-current"><span class="kw">let</span> total = 0;
+<span class="kw">for</span> item <span class="kw">in</span> items {
+    total = total + item.value;
+}</code></pre>
+                </div>
+                <div class="code-side future">
+                  <div class="code-label"><span class="dot"></span> proposta</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-04-future">copiar</button><code id="code-04-future"><span class="kw">let mut</span> total = 0;
+<span class="kw">for</span> item <span class="kw">in</span> items {
+    total = total + item.value;
+}</code></pre>
+                </div>
+              </div>
+              <div class="compare-note"><strong>Impacto:</strong> é uma mudança semântica, portanto deve ser introduzida com lint/migração. O benefício é local: o leitor sabe que `total` mudará sem procurar atribuições posteriores.</div>
+            </article>
+
+            <article class="comparison" data-priority="p1">
+              <div class="comparison-head"><h3>05. `match` em vez de dois branching models</h3><p>um constructo para valor</p></div>
+              <div class="comparison-body">
+                <div class="code-side">
+                  <div class="code-label"><span class="dot"></span> atual</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-05-current">copiar</button><code id="code-05-current"><span class="kw">switch</span> status {
+    <span class="kw">case</span> 200 =&gt; {
+        message = <span class="str">"ok"</span>;
+    }
+    <span class="kw">else</span> =&gt; {
+        message = <span class="str">"erro"</span>;
+    }
+}</code></pre>
+                </div>
+                <div class="code-side future">
+                  <div class="code-label"><span class="dot"></span> proposta</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-05-future">copiar</button><code id="code-05-future"><span class="kw">let</span> message = <span class="kw">match</span> status {
+    200 =&gt; <span class="str">"ok"</span>,
+    _ =&gt; <span class="str">"erro"</span>,
+};</code></pre>
+                </div>
+              </div>
+              <div class="compare-note"><strong>Regra:</strong> `match` é a escolha para classificação por padrão e retorna valor. `if` continua sendo a escolha para condições booleanas. `switch` só deve sobreviver se ganhar uma semântica diferente.</div>
+            </article>
+
+            <article class="comparison" data-priority="p1">
+              <div class="comparison-head"><h3>06. Contrato de função</h3><p>inferência dentro, clareza na borda</p></div>
+              <div class="comparison-body">
+                <div class="code-side">
+                  <div class="code-label"><span class="dot"></span> atual</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-06-current">copiar</button><code id="code-06-current"><span class="kw">fn</span> <span class="fn">find_first_even</span>(numbers) {
+    <span class="kw">for</span> number <span class="kw">in</span> numbers {
+        <span class="kw">if</span> number % 2 == 0 {
+            <span class="kw">return</span> number;
+        }
+    }
+    <span class="kw">return</span> -1;
+}</code></pre>
+                </div>
+                <div class="code-side future">
+                  <div class="code-label"><span class="dot"></span> proposta</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-06-future">copiar</button><code id="code-06-future"><span class="kw">fn</span> <span class="fn">find_first_even</span>(numbers: [<span class="type">int</span>]) <span class="op">-&gt;</span> <span class="type">Option</span>&lt;<span class="type">int</span>&gt; {
+    <span class="kw">for</span> number <span class="kw">in</span> numbers {
+        <span class="kw">if</span> number % 2 == 0 {
+            <span class="kw">return</span> <span class="type">Option</span>::Some(number);
+        }
+    }
+    <span class="type">Option</span>::None
+}</code></pre>
+                </div>
+              </div>
+              <div class="compare-note"><strong>Aplicação:</strong> exigir esse nível de contrato em símbolos públicos e async. Em helpers locais, a inferência continua sendo uma boa ferramenta contra ruído.</div>
+            </article>
+
+            <article class="comparison" data-priority="p1">
+              <div class="comparison-head"><h3>07. Retorno implícito</h3><p>elegante quando a intenção é óbvia</p></div>
+              <div class="comparison-body">
+                <div class="code-side">
+                  <div class="code-label"><span class="dot"></span> atual</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-07-current">copiar</button><code id="code-07-current"><span class="kw">fn</span> <span class="fn">classify</span>(n: <span class="type">int</span>) <span class="op">-&gt;</span> <span class="type">string</span> {
+    <span class="kw">if</span> n &lt; 0 {
+        <span class="str">"negative"</span>
+    } <span class="kw">else</span> {
+        <span class="str">"non-negative"</span>
+    }
+}</code></pre>
+                </div>
+                <div class="code-side future">
+                  <div class="code-label"><span class="dot"></span> proposta de estilo</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-07-future">copiar</button><code id="code-07-future"><span class="kw">fn</span> <span class="fn">classify</span>(n: <span class="type">int</span>) <span class="op">-&gt;</span> <span class="type">string</span> {
+    <span class="kw">return if</span> n &lt; 0 {
+        <span class="str">"negative"</span>
+    } <span class="kw">else</span> {
+        <span class="str">"non-negative"</span>
+    };
+}</code></pre>
+                </div>
+              </div>
+              <div class="compare-note"><strong>Importante:</strong> a proposta não precisa tornar `return if` obrigatório. Ela mostra uma convenção para APIs públicas e branches longos; o tail expression continua disponível em funções pequenas e puras.</div>
+            </article>
+
+            <article class="comparison" data-priority="p2">
+              <div class="comparison-head"><h3>08. Dados e separadores</h3><p>escaneabilidade em listas longas</p></div>
+              <div class="comparison-body">
+                <div class="code-side">
+                  <div class="code-label"><span class="dot"></span> atual aceito</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-08-current">copiar</button><code id="code-08-current"><span class="kw">enum</span> <span class="type">Shape</span> {
+    Circle { radius: <span class="type">float</span> }
+    Rect { width: <span class="type">float</span>, height: <span class="type">float</span> }
+}</code></pre>
+                </div>
+                <div class="code-side future">
+                  <div class="code-label"><span class="dot"></span> proposta canônica</div>
+                  <pre class="code-block"><button class="copy-button" type="button" data-copy-target="code-08-future">copiar</button><code id="code-08-future"><span class="kw">enum</span> <span class="type">Shape</span> {
+    Circle { radius: <span class="type">float</span> },
+    Rect {
+        width: <span class="type">float</span>,
+        height: <span class="type">float</span>,
+    },
+}</code></pre>
+                </div>
+              </div>
+              <div class="compare-note"><strong>Regra de formatter:</strong> em listas multilinha, vírgula final obrigatória; em listas curtas, a ferramenta pode manter uma linha. Isso melhora diffs sem exigir novo parser.</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="contract">
+          <div class="section-head">
+            <div class="section-index">05 / Contrato</div>
+            <div>
+              <h2>Um perfil legível que cabe no compilador atual.</h2>
+              <p class="section-intro">A proposta abaixo é intencionalmente conservadora. Ela não troca chaves por indentação nem cria uma DSL para cada domínio. Define uma pequena camada de estilo que pode ser validada no parser, semantic checker, formatter, LSP e exemplos.</p>
+            </div>
+          </div>
+          <div class="proposal">
+            <div class="proposal-main">
+              <p class="micro">Amostra integrada</p>
+              <h3>Como ficaria um módulo de aplicação</h3>
+              <pre><code><span class="kw">module</span> app<span class="accent-code">::</span>orders;
+
+<span class="kw">import</span> std<span class="accent-code">::</span>io<span class="accent-code">::</span>{ println };
+<span class="kw">import</span> std<span class="accent-code">::</span>result<span class="accent-code">::</span>{ Result };
+
+<span class="kw">struct</span> <span class="type">Order</span> {
+    id: <span class="type">int</span>,
+    amount: <span class="type">float</span>,
+}
+
+<span class="kw">pub fn</span> <span class="fn">total_for_customer</span>(
+    orders: [<span class="type">Order</span>],
+) <span class="op">-&gt;</span> <span class="type">float</span> {
+    <span class="kw">let mut</span> total = 0.0;
+
+    <span class="kw">for</span> order <span class="kw">in</span> orders {
+        total = total + order.amount;
+    }
+
+    total
+}
+
+<span class="kw">pub fn</span> <span class="fn">main</span>() <span class="op">-&gt;</span> <span class="type">int</span> {
+    <span class="kw">let</span> message = <span class="kw">match</span> load_orders() {
+        <span class="type">Result</span>::Ok(orders) =&gt; f<span class="str">"Total: {total_for_customer(orders)}"</span>,
+        <span class="type">Result</span>::Err(error) =&gt; f<span class="str">"Falha: {error}"</span>,
+    };
+
+    println(message);
+    0
+}</code></pre>
+            </div>
+            <div class="proposal-side">
+              <p class="micro">Regras do perfil</p>
+              <ul class="rule-list">
+                <li><b>01</b><span><strong>Um conceito, uma forma.</strong> `else if`, `for ... in`, `match` e imports com o mesmo desenho.</span></li>
+                <li><b>02</b><span><strong>Mutation visible.</strong> `let mut` anuncia reatribuição na primeira leitura.</span></li>
+                <li><b>03</b><span><strong>Public boundaries explicit.</strong> Tipos de parâmetros e retornos são obrigatórios em APIs públicas.</span></li>
+                <li><b>04</b><span><strong>Namespace readable.</strong> `::` separa módulos/tipos; `.` navega em valores.</span></li>
+                <li><b>05</b><span><strong>Tail expression intentional.</strong> Permitida, mas `return` é recomendado quando há efeitos ou branches complexos.</span></li>
+                <li><b>06</b><span><strong>Formatter is the final authority.</strong> Indentação, vírgulas e quebra de linha não dependem de gosto local.</span></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="plan">
+          <div class="section-head">
+            <div class="section-index">06 / Prioridades</div>
+            <div>
+              <h2>Sequência recomendada: contrato antes de açúcar.</h2>
+              <p class="section-intro">As mudanças devem ser empilhadas para que uma decisão não obrigue outra. O formatter e os diagnostics são parte da feature: uma sintaxe só é legível quando a ferramenta a apresenta e corrige de modo consistente.</p>
+            </div>
+          </div>
+          <div class="roadmap-grid">
+            <article class="roadmap-card p0">
+              <span class="micro">P0 / imediato</span>
+              <h3>Higiene e canonização</h3>
+              <p>Baixo risco semântico e alto retorno para leitura diária.</p>
+              <ul>
+                <li>Escolher `else if` ou `elif` e remover o alias restante da forma canônica.</li>
+                <li>Canonizar `for ... in`; warning para `of`.</li>
+                <li>Definir um único import e um único fallback de `match`.</li>
+                <li>Gerar keywords do editor a partir de uma fonte verificável.</li>
+                <li>Corrigir docs que dizem que block comments/escapes não existem.</li>
+              </ul>
+            </article>
+            <article class="roadmap-card p1">
+              <span class="micro">P1 / próxima fase</span>
+              <h3>Intenção visível</h3>
+              <p>Mudanças que melhoram o primeiro e o décimo olhar, mas exigem migração.</p>
+              <ul>
+                <li>Adicionar `let mut` para locals reatribuíveis e lint de migração.</li>
+                <li>Exigir tipos em símbolos públicos e async públicos.</li>
+                <li>Escolher `match` como branch por valor; definir destino de `switch`.</li>
+                <li>Normalizar paths com `::` e preservar `.` para values.</li>
+                <li>Resolver explicitamente o contrato de `pub impl`.</li>
+              </ul>
+            </article>
+            <article class="roadmap-card p2">
+              <span class="micro">P2 / expansão</span>
+              <h3>Expressividade controlada</h3>
+              <p>Recursos válidos, mas que não devem competir com a correção do núcleo.</p>
+              <ul>
+                <li>Separadores numéricos, exponentes, hex/binário e suffixes.</li>
+                <li>Raw strings e strings multilinha com escapes previsíveis.</li>
+                <li>Unicode identifiers com regra XID e normalização documentada.</li>
+                <li>Açúcar de API em bibliotecas, não na gramática geral.</li>
+                <li>Classes somente depois de existir um modelo semântico completo.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="migration" style="margin-top: 36px;">
+            <div class="migration-copy">
+              <p class="micro">Migração sem ruptura abrupta</p>
+              <h3>Como preservar o ecossistema</h3>
+              <p>O compilador pode continuar aceitando formas legadas por uma janela de compatibilidade, mas deve produzir uma recomendação de código estável e autoformatável. A migração deixa de depender de memória individual.</p>
+              <p>Para `let mut`, a transição precisa ser explicitamente semântica: analisar atribuições posteriores, oferecer quick fix e manter uma flag de compatibilidade somente durante o período de adoção.</p>
+            </div>
+            <div class="steps">
+              <div class="step"><span class="step-index">01</span><div><h3>Especificar a forma canônica</h3><p>Atualizar gramática, AST, reference, snippets e exemplos com a mesma decisão.</p></div></div>
+              <div class="step"><span class="step-index">02</span><div><h3>Aceitar e avisar</h3><p>Aliases antigos continuam parseáveis, mas recebem warning com código, exemplo e quick fix.</p></div></div>
+              <div class="step"><span class="step-index">03</span><div><h3>Formatar automaticamente</h3><p>`spectralang fmt` escreve a forma canônica; `--check` garante que o repositório não regrida.</p></div></div>
+              <div class="step"><span class="step-index">04</span><div><h3>Remover só depois da evidência</h3><p>Retirar alias apenas quando exemplos, fixtures, documentação e projetos externos estiverem migrados.</p></div></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="not-change">
+          <div class="section-head">
+            <div class="section-index">07 / Limites</div>
+            <div>
+              <h2>O que eu não mudaria agora.</h2>
+              <p class="section-intro">Legibilidade não é sinônimo de familiaridade com uma linguagem específica. Algumas características já criam uma identidade clara e não justificam o risco de uma troca apenas estética.</p>
+            </div>
+          </div>
+          <div class="do-not">
+            <div class="do-not-panel">
+              <ul class="do-not-list">
+                <li><b>—</b><span><strong>Não remover chaves.</strong> Elas tornam visível o escopo e mantêm `if`, `match`, closures e async uniformes.</span></li>
+                <li><b>—</b><span><strong>Não adotar indentação significativa.</strong> O projeto já tem parser resiliente e formatter baseado em braces; uma troca aumentaria o custo de diagnóstico.</span></li>
+                <li><b>—</b><span><strong>Não trocar `fn` por `def`/`function`.</strong> `fn` é curto, consistente com function types e já está no centro da linguagem.</span></li>
+                <li><b>—</b><span><strong>Não remover `match`, `if let`, `while let` ou `?`.</strong> São precisamente os recursos que reduzem nesting em código de dados/erro.</span></li>
+                <li><b>—</b><span><strong>Não adicionar ternário.</strong> Um `if` expression com blocos preserva a mesma forma para statement e valor.</span></li>
+              </ul>
+            </div>
+            <div class="do-not-panel dark">
+              <p class="micro">Princípio de contenção</p>
+              <h3>Clareza nasce de invariantes.</h3>
+              <ul class="do-not-list">
+                <li><b>01</b><span>O leitor reconhece a categoria pela primeira palavra.</span></li>
+                <li><b>02</b><span>O formatter reforça a mesma forma em todos os arquivos.</span></li>
+                <li><b>03</b><span>O diagnóstico sugere código que o compilador realmente aceita.</span></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="gates">
+          <div class="section-head">
+            <div class="section-index">08 / Gates</div>
+            <div>
+              <h2>Critérios para transformar proposta em linguagem.</h2>
+              <p class="section-intro">Nenhuma alteração de sintaxe deve ser chamada de concluída apenas porque o parser a aceita. O caminho completo precisa continuar legível, tipado, formatado e executável.</p>
+            </div>
+          </div>
+          <div class="gates-table">
+            <table>
+              <thead><tr><th>Gate</th><th>Evidência mínima</th><th>Por que importa</th></tr></thead>
+              <tbody>
+                <tr><td><span class="check">01</span> Lexer</td><td>Tokens canônicos, aliases marcados, spans corretos, sem keyword fantasma.</td><td>O editor e o parser partem do mesmo vocabulário.</td></tr>
+                <tr><td><span class="check">02</span> Parser + AST</td><td>Um teste `.spectra` por forma nova e snapshot do AST.</td><td>Evita que uma mudança de superfície seja só aceitação parcial.</td></tr>
+                <tr><td><span class="check">03</span> Semantic</td><td>Bindings, visibilidade, tipos públicos, patterns e erros de migração.</td><td>Legibilidade também é saber o que o código significa.</td></tr>
+                <tr><td><span class="check">04</span> Midend/backend</td><td>Execução via caminho normal para branches, loops, return e aggregates afetados.</td><td>Uma sintaxe familiar não pode quebrar a execução real.</td></tr>
+                <tr><td><span class="check">05</span> Formatter</td><td>Forma canônica em `fmt`, `fmt --check`, diff explicável e trailing commas.</td><td>Sem canonização, a convenção vira apenas texto de documentação.</td></tr>
+                <tr><td><span class="check">06</span> LSP/VS Code</td><td>Highlight, snippets, inlay hints e quick fixes alinhados ao compiler.</td><td>O primeiro contato do usuário é o editor, não o arquivo do parser.</td></tr>
+                <tr><td><span class="check">07</span> Migração</td><td>Fixtures legadas passam, warnings têm código estável e docs mostram antes/depois.</td><td>Reduz custo de adoção e permite medir a limpeza do ecossistema.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section" id="evidence">
+          <div class="section-head">
+            <div class="section-index">09 / Evidências</div>
+            <div>
+              <h2>A base factual desta leitura.</h2>
+              <p class="section-intro">A análise foi feita sobre o working tree atual. Os caminhos abaixo são os pontos de entrada usados para verificar a sintaxe, sem editar código ou documentos do projeto.</p>
+            </div>
+          </div>
+          <div class="source-grid">
+            <div class="source-row"><b>01</b><p><strong>Keywords e tokens.</strong> <a href="../compiler/src/token.rs">compiler/src/token.rs:5–71, 73–145, 221–255</a> registra aliases e palavras reservadas.</p></div>
+            <div class="source-row"><b>02</b><p><strong>Lexer.</strong> <a href="../compiler/src/lexer/mod.rs">compiler/src/lexer/mod.rs:39–90, 92–219, 235–500</a> mostra comentários, escapes, números, identifiers e operadores.</p></div>
+            <div class="source-row"><b>03</b><p><strong>Module/import.</strong> <a href="../compiler/src/parser/module.rs">compiler/src/parser/module.rs:10–146</a> consome o header obrigatório e as três formas principais de import.</p></div>
+            <div class="source-row"><b>04</b><p><strong>Functions/items.</strong> <a href="../compiler/src/parser/item.rs">compiler/src/parser/item.rs:15–138, 293–429, 599–762, 1405–1461</a> cobre visibilidade, funções, blocks, impls e declarações.</p></div>
+            <div class="source-row"><b>05</b><p><strong>Statements.</strong> <a href="../compiler/src/parser/statement.rs">compiler/src/parser/statement.rs:13–163, 217–425</a> confirma `if let`, loops, `for in/of`, do-while e switch.</p></div>
+            <div class="source-row"><b>06</b><p><strong>Expressions/patterns.</strong> <a href="../compiler/src/parser/expression.rs">compiler/src/parser/expression.rs:237–428, 430–777, 890–1084</a> cobre calls, paths, closures, if/unless, match e guards.</p></div>
+            <div class="source-row"><b>07</b><p><strong>AST semantics.</strong> <a href="../compiler/src/ast/mod.rs">compiler/src/ast/mod.rs:140–187, 287–339, 407–537, 654–671</a> mostra que `in/of` compartilham representação e que blocks/expressions são centrais.</p></div>
+            <div class="source-row"><b>08</b><p><strong>Inlay hints.</strong> <a href="../compiler/src/language_service.rs">compiler/src/language_service.rs:492–575</a> já oferece tipos inferidos para `let`, base útil para visibilidade progressiva.</p></div>
+            <div class="source-row"><b>09</b><p><strong>Editor.</strong> <a href="../tools/vscode-extension/syntaxes/spectra.tmLanguage.json">tools/vscode-extension/syntaxes/spectra.tmLanguage.json:177–205</a> destaca keywords além do parser atual.</p></div>
+            <div class="source-row"><b>10</b><p><strong>Editor config.</strong> <a href="../tools/vscode-extension/language-configuration.json">tools/vscode-extension/language-configuration.json:1–31</a> já anuncia block comments e formas numéricas que precisam ser conferidas contra o lexer.</p></div>
+            <div class="source-row"><b>11</b><p><strong>Referência atualizada.</strong> <a href="../docs/reference/02-fundamentos.md">docs/reference/02-fundamentos.md:78</a> documenta mutabilidade local implícita; <a href="../docs/reference/04-avancado.md">docs/reference/04-avancado.md:859–922</a> documenta tail expressions.</p></div>
+            <div class="source-row"><b>12</b><p><strong>Auditorias.</strong> <a href="../docs/frontend/frontend-coverage-audit.md">docs/frontend/frontend-coverage-audit.md:19–123</a> e <a href="../docs/frontend/parser-coverage-audit.md">docs/frontend/parser-coverage-audit.md:10–69</a> listam cobertura, deferred keywords e gaps.</p></div>
+          </div>
+          <details style="margin-top: 28px;">
+            <summary class="micro" style="cursor: pointer;">Nota sobre divergências documentais</summary>
+            <p class="small-copy" style="max-width: 780px; margin-top: 13px;">Há referências congeladas de 2025 que dizem que escapes e block comments ainda não existem, enquanto o lexer atual trata ambos. Há também auditorias com status de guards/OR-patterns que não coincide com o parser presente. Para uma futura implementação, a precedência deve ser código e testes, depois `roadmap/roadmap.toml`, backlog e referências — sem atualizar roadmap nesta análise ordinária.</p>
+          </details>
+        </section>
+
+        <footer>
+          <div class="footer-line">
+            <span><strong>SpectraLang / syntax readability report</strong><br>Documento de análise e proposta. Não altera a gramática por si só.</span>
+            <span class="mono">working tree · 03.08.2026</span>
+          </div>
+        </footer>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const navLinks = [...document.querySelectorAll('.rail nav a')];
+      const sections = navLinks
+        .map(link => document.querySelector(link.getAttribute('href')))
+        .filter(Boolean);
+
+      const setActive = id => {
+        navLinks.forEach(link => link.classList.toggle('active', link.getAttribute('href') === `#${id}`));
+      };
+
+      if ('IntersectionObserver' in window) {
+        const observer = new IntersectionObserver(entries => {
+          const visible = entries
+            .filter(entry => entry.isIntersecting)
+            .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+          if (visible) setActive(visible.target.id);
+        }, { rootMargin: '-18% 0px -64% 0px', threshold: [0, .2, .55] });
+        sections.forEach(section => observer.observe(section));
+      }
+
+      document.querySelectorAll('[data-filter]').forEach(button => {
+        button.addEventListener('click', () => {
+          const filter = button.dataset.filter;
+          document.querySelectorAll('[data-filter]').forEach(item => item.classList.toggle('active', item === button));
+          document.querySelectorAll('.comparison').forEach(card => {
+            card.classList.toggle('is-hidden', filter !== 'all' && card.dataset.priority !== filter);
+          });
+        });
+      });
+
+      document.querySelectorAll('[data-copy-target]').forEach(button => {
+        button.addEventListener('click', async () => {
+          const target = document.getElementById(button.dataset.copyTarget);
+          if (!target) return;
+          const text = target.textContent;
+          try {
+            await navigator.clipboard.writeText(text);
+            const original = button.textContent;
+            button.textContent = 'copiado';
+            window.setTimeout(() => { button.textContent = original; }, 1200);
+          } catch {
+            button.textContent = 'selecione';
+            window.setTimeout(() => { button.textContent = 'copiar'; }, 1200);
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
