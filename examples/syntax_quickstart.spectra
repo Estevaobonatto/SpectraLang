@@ -1,0 +1,20 @@
+module syntax_quickstart
+from std.io import println
+func welcome(name: string) returns string {
+    return f"Ola, {name}!"
+}
+public func main() returns int {
+    let name    = "SpectraLang"
+    let message = welcome(name)
+    println(message)
+    let total = 0
+    for item in [1, 2, 3] {
+        total = total + item
+    }
+    if total > 5 and not total == 0 {
+        println("sintaxe clara")
+    } else {
+        println("continue explorando")
+    }
+    return 0
+}
