@@ -1,9 +1,9 @@
-module tensor_static_rank_assignment_mismatch;
+module tensor_static_rank_assignment_mismatch
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let matrix: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 2.0], [3.0, 4.0]];
-    let vector: Tensor<float, rank1, dim4, row_major, cpu> = matrix;
-    return tensor.len(vector);
+public func main() returns int {
+    let matrix: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 2.0], [3.0, 4.0]]
+    let vector: Tensor<float, rank1, dim4, row_major, cpu>       = matrix
+    return tensor.len(vector)
 }

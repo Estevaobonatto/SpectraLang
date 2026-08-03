@@ -1,44 +1,44 @@
 // AI reference example: deterministic data preprocessing pipeline.
-module ai_data_preprocessing_pipeline;
+module ai_data_preprocessing_pipeline
 
-import std.concurrent as concurrent;
-import std.tensor as tensor;
-import std.ml as ml;
-import std.fs as fs;
+import std.concurrent as concurrent
+import std.tensor as tensor
+import std.ml as ml
+import std.fs as fs
 
-pub fn main() -> int {
-    concurrent.reset();
-    tensor.free_all();
+public func main() returns int {
+    concurrent.reset()
+    tensor.free_all()
 
-    let channel = concurrent.channel_new();
-    concurrent.channel_send(channel, 1);
-    concurrent.channel_send(channel, 2);
-    concurrent.channel_send(channel, 3);
-    concurrent.channel_send(channel, 4);
+    let channel = concurrent.channel_new()
+    concurrent.channel_send(channel, 1)
+    concurrent.channel_send(channel, 2)
+    concurrent.channel_send(channel, 3)
+    concurrent.channel_send(channel, 4)
 
     if concurrent.channel_len(channel) != 4 {
-        return 1;
+        return 1
     }
     if concurrent.pipeline_sum(1, 100, 4) != 5050 {
-        return 2;
+        return 2
     }
 
-    let raw = tensor.full_f(4, 1.0);
-    let features = tensor.reshape(raw, 4, 1);
-    let labels = tensor.full_f(4, 1.0);
-    let dataset = ml.dataset_from_tensors(features, labels, 4);
-    let loader = ml.dataloader_new(dataset, 2, 7);
+    let raw      = tensor.full_f(4, 1.0)
+    let features = tensor.reshape(raw, 4, 1)
+    let labels   = tensor.full_f(4, 1.0)
+    let dataset  = ml.dataset_from_tensors(features, labels, 4)
+    let loader   = ml.dataloader_new(dataset, 2, 7)
     if ml.dataloader_batch_count(loader) != 2 {
-        return 3;
+        return 3
     }
 
-    let batch = ml.dataloader_batch_features(loader, 0);
+    let batch = ml.dataloader_batch_features(loader, 0)
     if tensor.len(batch) != 2 {
-        return 4;
+        return 4
     }
 
-    fs.fs_write("target/ai-examples/data_preprocessing_pipeline.txt", "spectralang data preprocessing pipeline\nrecords=4\nbatches=2\n");
+    fs.fs_write("target/ai-examples/data_preprocessing_pipeline.txt", "spectralang data preprocessing pipeline\nrecords=4\nbatches=2\n")
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

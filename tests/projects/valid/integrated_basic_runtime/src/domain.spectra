@@ -1,40 +1,40 @@
-module domain;
+module domain
 
-pub struct Account {
-    pub id: string,
-    pub balance: int,
+public record Account {
+    public id: string,
+    public balance: int,
 }
 
-pub enum AccountStatus {
+public enum AccountStatus {
     Empty,
     Low,
     Funded,
 }
 
 impl Account {
-    pub fn new(id: string, balance: int) -> Account {
-        return Account { id: id, balance: balance };
+    public func new(id: string, balance: int) returns Account {
+        return Account { id: id, balance: balance }
     }
 
-    pub fn deposit(&self, amount: int) -> Account {
-        return Account { id: self.id, balance: self.balance + amount };
+    public func deposit( & self, amount: int) returns Account {
+        return Account { id: self.id, balance: self.balance + amount }
     }
 }
 
-pub fn classify(balance: int) -> AccountStatus {
+public func classify(balance: int) returns AccountStatus {
     if balance == 0 {
-        return AccountStatus::Empty;
+        return AccountStatus::Empty
     }
     if balance < 10 {
-        return AccountStatus::Low;
+        return AccountStatus::Low
     }
-    return AccountStatus::Funded;
+    return AccountStatus::Funded
 }
 
-pub fn status_code(status: AccountStatus) -> int {
+public func status_code(status: AccountStatus) returns int {
     return match status {
-        AccountStatus::Empty => 0,
-        AccountStatus::Low => 1,
-        AccountStatus::Funded => 2
-    };
+        when AccountStatus::Empty then 0,
+        when AccountStatus::Low then 1,
+        when AccountStatus::Funded then 2
+    }
 }

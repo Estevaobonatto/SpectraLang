@@ -1,117 +1,104 @@
-module rest_sqlite_crud_validation;
+module rest_sqlite_crud_validation
 
-import {
-    SqliteConnection,
-    SqliteStatement,
-    open,
-    close,
-    prepare,
-    bind_int,
-    bind_text,
-    step,
-    column_int,
-    column_text,
-    reset,
-    finalize,
-    begin,
-    commit,
-    rollback,
-} from std.api.db.sqlite;
+from std.api.db.sqlite import SqliteConnection, SqliteStatement, open, close, prepare, bind_int, bind_text, step, column_int, column_text, reset, finalize, begin, commit, rollback
 
-import {
-    Server,
-    new,
-    listen,
-    serve,
-    shutdown,
-    local_port,
-    state,
-} from std.api.server;
+from std.api.server import Server, new, listen, serve, shutdown, local_port, state
 
-import {
-    Router,
-    Route,
-    router,
-    get,
-    post,
-    put,
-    delete,
-    route_id,
-} from std.api.routing;
+from std.api.routing import Router, Route, router, get, post, put, delete, route_id
 
-import {
-    HandlerHandle,
-    json,
-    register_sync,
-    dispatch_sync,
-} from std.api.handler;
+from std.api.handler import HandlerHandle, json, register_sync, dispatch_sync
 
-import {
-    Request,
-    Response,
-    method_get,
-    method_post,
-    method_put,
-    method_delete,
-    request,
-    response_status,
-} from std.api.http;
+from std.api.http import Request, Response, method_get, method_post, method_put, method_delete, request, response_status
 
-pub fn main() -> int {
-    let database: SqliteConnection = open("target/r2511-sqlite-fixture.sqlite");
-    let schema: SqliteStatement = prepare(database, "CREATE TABLE IF NOT EXISTS todos(id INTEGER PRIMARY KEY, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0, priority INTEGER NOT NULL DEFAULT 0)");
-    if step(schema) != 2 { return 10; }
-    if finalize(schema) != true { return 11; }
+public func main() returns int {
+    let database: SqliteConnection = open("target/r2511-sqlite-fixture.sqlite")
+    let schema: SqliteStatement = prepare(database, "CREATE TABLE IF NOT EXISTS todos(id INTEGER PRIMARY KEY, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0, priority INTEGER NOT NULL DEFAULT 0)")
+    if step(schema) != 2 { return 10
+    }
+    if finalize(schema) != true { return 11
+    }
 
-    if begin(database) != true { return 12; }
-    let insert: SqliteStatement = prepare(database, "INSERT OR REPLACE INTO todos(id,title,completed,priority) VALUES(?1,?2,?3,?4)");
-    if bind_int(insert, 0, 1) != true { return 13; }
-    if bind_text(insert, 1, "fixture") != true { return 14; }
-    if bind_int(insert, 2, 0) != true { return 15; }
-    if bind_int(insert, 3, 1) != true { return 16; }
-    if step(insert) != 2 { return 17; }
-    if finalize(insert) != true { return 18; }
-    if commit(database) != true { return 19; }
+    if begin(database) != true { return 12
+    }
+    let insert: SqliteStatement = prepare(database, "INSERT OR REPLACE INTO todos(id,title,completed,priority) VALUES(?1,?2,?3,?4)")
+    if bind_int(insert, 0, 1) != true { return 13
+    }
+    if bind_text(insert, 1, "fixture") != true { return 14
+    }
+    if bind_int(insert, 2, 0) != true { return 15
+    }
+    if bind_int(insert, 3, 1) != true { return 16
+    }
+    if step(insert) != 2 { return 17
+    }
+    if finalize(insert) != true { return 18
+    }
+    if commit(database) != true { return 19
+    }
 
-    let query: SqliteStatement = prepare(database, "SELECT id,title FROM todos WHERE id=?1");
-    if bind_int(query, 0, 1) != true { return 20; }
-    if step(query) != 1 { return 21; }
-    if column_int(query, 0) != 1 { return 22; }
-    if column_text(query, 1) != "fixture" { return 23; }
-    if reset(query) != true { return 24; }
-    if finalize(query) != true { return 25; }
+    let query: SqliteStatement = prepare(database, "SELECT id,title FROM todos WHERE id=?1")
+    if bind_int(query, 0, 1) != true { return 20
+    }
+    if step(query) != 1 { return 21
+    }
+    if column_int(query, 0) != 1 { return 22
+    }
+    if column_text(query, 1) != "fixture" { return 23
+    }
+    if reset(query) != true { return 24
+    }
+    if finalize(query) != true { return 25
+    }
 
-    if begin(database) != true { return 26; }
-    let rollback_statement: SqliteStatement = prepare(database, "INSERT INTO todos(id,title) VALUES(?1,?2)");
-    if bind_int(rollback_statement, 0, 2) != true { return 27; }
-    if bind_text(rollback_statement, 1, "rollback") != true { return 28; }
-    if step(rollback_statement) != 2 { return 29; }
-    if finalize(rollback_statement) != true { return 30; }
-    if rollback(database) != true { return 31; }
+    if begin(database) != true { return 26
+    }
+    let rollback_statement: SqliteStatement = prepare(database, "INSERT INTO todos(id,title) VALUES(?1,?2)")
+    if bind_int(rollback_statement, 0, 2) != true { return 27
+    }
+    if bind_text(rollback_statement, 1, "rollback") != true { return 28
+    }
+    if step(rollback_statement) != 2 { return 29
+    }
+    if finalize(rollback_statement) != true { return 30
+    }
+    if rollback(database) != true { return 31
+    }
 
-    let routes: Router = router();
-    let list_route: Route = get(routes, "/todos");
-    let create_route: Route = post(routes, "/todos");
-    let update_route: Route = put(routes, "/todos/{id:\\d+}");
-    let delete_route: Route = delete(routes, "/todos/{id:\\d+}");
-    if route_id(list_route) == 0 || route_id(create_route) == 0 { return 32; }
-    if route_id(update_route) == 0 || route_id(delete_route) == 0 { return 33; }
-    let response: Response = json("{\"id\":1,\"title\":\"fixture\",\"completed\":false,\"priority\":1}");
-    let list_handler: HandlerHandle = register_sync(route_id(list_route), response);
-    if response_status(dispatch_sync(list_handler, request(method_get(), "/todos"))) != 200 { return 34; }
-    let create_handler: HandlerHandle = register_sync(route_id(create_route), response);
-    if response_status(dispatch_sync(create_handler, request(method_post(), "/todos"))) != 200 { return 35; }
-    let update_handler: HandlerHandle = register_sync(route_id(update_route), response);
-    if response_status(dispatch_sync(update_handler, request(method_put(), "/todos/1"))) != 200 { return 36; }
-    let delete_handler: HandlerHandle = register_sync(route_id(delete_route), response);
-    if response_status(dispatch_sync(delete_handler, request(method_delete(), "/todos/1"))) != 200 { return 37; }
+    let routes: Router      = router()
+    let list_route: Route   = get(routes, "/todos")
+    let create_route: Route = post(routes, "/todos")
+    let update_route: Route = put(routes, "/todos/{id:\\d+}")
+    let delete_route: Route = delete(routes, "/todos/{id:\\d+}")
+    if route_id(list_route) == 0 or route_id(create_route) == 0 { return 32
+    }
+    if route_id(update_route) == 0 or route_id(delete_route) == 0 { return 33
+    }
+    let response: Response = json("{\"id\":1,\"title\":\"fixture\",\"completed\":false,\"priority\":1}")
+    let list_handler: HandlerHandle = register_sync(route_id(list_route), response)
+    if response_status(dispatch_sync(list_handler, request(method_get(), "/todos"))) != 200 { return 34
+    }
+    let create_handler: HandlerHandle = register_sync(route_id(create_route), response)
+    if response_status(dispatch_sync(create_handler, request(method_post(), "/todos"))) != 200 { return 35
+    }
+    let update_handler: HandlerHandle = register_sync(route_id(update_route), response)
+    if response_status(dispatch_sync(update_handler, request(method_put(), "/todos/1"))) != 200 { return 36
+    }
+    let delete_handler: HandlerHandle = register_sync(route_id(delete_route), response)
+    if response_status(dispatch_sync(delete_handler, request(method_delete(), "/todos/1"))) != 200 { return 37
+    }
 
-    let server: Server = new();
-    if listen(server, 0) != true { return 40; }
-    if block_on(serve(server, routes)) != 1 { return 41; }
-    if local_port(server) <= 0 { return 42; }
-    if shutdown(server) != true { return 43; }
-    if state(server) != 3 { return 44; }
-    if close(database) != true { return 45; }
-    return 0;
+    let server: Server = new()
+    if listen(server, 0) != true { return 40
+    }
+    if block_on(serve(server, routes)) != 1 { return 41
+    }
+    if local_port(server) <= 0 { return 42
+    }
+    if shutdown(server) != true { return 43
+    }
+    if state(server) != 3 { return 44
+    }
+    if close(database) != true { return 45
+    }
+    return 0
 }

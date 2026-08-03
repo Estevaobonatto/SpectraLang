@@ -4,7 +4,7 @@ use crate::{
         Statement, StatementKind, SwitchCase, SwitchStatement, WhileLetStatement, WhileLoop,
     },
     span::span_union,
-    token::{Keyword, Operator, TokenKind},
+    token::{Keyword, TokenKind},
 };
 
 use super::Parser;
@@ -88,12 +88,12 @@ impl Parser {
             }
             crate::token::TokenKind::Keyword(Keyword::Break) => {
                 self.advance(); // consume 'break'
-                self.consume_symbol(';', "Expected ';' after 'break'")?;
+                self.consume_statement_terminator("Expected a line break after 'break'")?;
                 StatementKind::Break
             }
             crate::token::TokenKind::Keyword(Keyword::Continue) => {
                 self.advance(); // consume 'continue'
-                self.consume_symbol(';', "Expected ';' after 'continue'")?;
+                self.consume_statement_terminator("Expected a line break after 'continue'")?;
                 StatementKind::Continue
             }
             _ => {
@@ -123,7 +123,7 @@ impl Parser {
                     };
 
                     let value = self.parse_expression()?;
-                    self.consume_symbol(';', "Expected ';' after assignment")?;
+                    self.consume_statement_terminator("Expected a line break after assignment")?;
 
                     StatementKind::Assignment(crate::ast::AssignmentStatement {
                         target,
@@ -133,16 +133,15 @@ impl Parser {
                 } else {
                     // Expression statement
 
-                    // Only require semicolon if the expression is not a block-ending structure
-                    // or if this is not the last expression in a block (next token is not '}')
-                    let requires_semicolon = !matches!(
+                    // Block expressions terminate with their closing brace;
+                    // all other statements use a source line break.
+                    let requires_terminator = !matches!(
                         expr.kind,
                         crate::ast::ExpressionKind::If { .. }
-                            | crate::ast::ExpressionKind::Unless { .. }
                     ) && !self.check_symbol('}');
 
-                    if requires_semicolon {
-                        self.consume_symbol(';', "Expected ';' after expression")?;
+                    if requires_terminator {
+                        self.consume_statement_terminator("Expected a line break after expression")?;
                     }
 
                     StatementKind::Expression(expr)
@@ -235,7 +234,7 @@ impl Parser {
             None
         };
 
-        self.consume_symbol(';', "Expected ';' after let statement")?;
+        self.consume_statement_terminator("Expected a line break after let statement")?;
 
         Ok(StatementKind::Let(LetStatement {
             pattern,
@@ -253,13 +252,13 @@ impl Parser {
             .map(|t| t.span)
             .unwrap_or(self.current().span);
 
-        let value = if !self.check_symbol(';') {
+        let value = if !self.statement_ends_before_current() {
             Some(self.parse_expression()?)
         } else {
             None
         };
 
-        self.consume_symbol(';', "Expected ';' after return statement")?;
+        self.consume_statement_terminator("Expected a line break after return statement")?;
 
         Ok(StatementKind::Return(ReturnStatement {
             span: start_span,
@@ -287,7 +286,7 @@ impl Parser {
     }
 
     fn parse_for_statement(&mut self) -> Result<StatementKind, ()> {
-        // Expect: for <iterator> in/of <iterable> { <body> }
+        // Expect: for <iterator> in <iterable> { <body> }
         let start_span = self
             .tokens
             .get(self.position.saturating_sub(1))
@@ -296,11 +295,10 @@ impl Parser {
 
         let (iterator, _) = self.consume_identifier("Expected iterator variable name")?;
 
-        // Accept 'in' or 'of' — both have identical semantics
-        if self.check_keyword(Keyword::In) || self.check_keyword(Keyword::Of) {
+        if self.check_keyword(Keyword::In) {
             self.advance();
         } else {
-            self.error("Expected 'in' or 'of' after iterator variable");
+            self.error("Expected 'in' after iterator variable");
             return Err(());
         }
 
@@ -349,7 +347,7 @@ impl Parser {
 
         let condition = self.parse_expression()?;
         let end_span = condition.span;
-        self.consume_symbol(';', "Expected ';' after do-while condition")?;
+        self.consume_statement_terminator("Expected a line break after do-while condition")?;
 
         Ok(StatementKind::DoWhile(DoWhileLoop {
             body,
@@ -377,13 +375,11 @@ impl Parser {
                 self.advance(); // consume 'case'
                 let pattern = self.parse_expression()?;
 
-                // Aceita ':' ou '=>' como separador
+                // Case bodies use a colon before their block.
                 if self.check_symbol(':') {
                     self.advance();
-                } else if matches!(self.current().kind, TokenKind::Operator(Operator::FatArrow)) {
-                    self.advance(); // consume '=>'
                 } else {
-                    self.error("Expected ':' or '=>' after case pattern");
+                    self.error("Expected ':' after case pattern");
                     return Err(());
                 }
 
@@ -398,11 +394,9 @@ impl Parser {
             } else if self.check_keyword(Keyword::Else) {
                 self.advance(); // consume 'else'
 
-                // Aceita ':' ou '=>'
+                // The default branch may use a colon before its block.
                 if self.check_symbol(':') {
                     self.advance();
-                } else if matches!(self.current().kind, TokenKind::Operator(Operator::FatArrow)) {
-                    self.advance(); // consume '=>'
                 }
 
                 default = Some(self.parse_block()?);

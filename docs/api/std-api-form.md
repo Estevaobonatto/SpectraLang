@@ -15,7 +15,7 @@ request bodies for Spectra API programs.
 `parse(input)` accepts the raw request body without the media type header:
 
 ```spectra
-let form = parse("name=Ada+Lovelace&tags[]=math&tags[]=api");
+let form = parse("name=Ada+Lovelace&tags[]=math&tags[]=api")
 ```
 
 The parser follows `application/x-www-form-urlencoded` rules:
@@ -37,9 +37,9 @@ Bracket notation is normalized for binding:
 Repeated values are addressable by index:
 
 ```spectra
-let tag_count = count(form, "tags");
-let first_tag = value(form, "tags", 0);
-let city = first(form, "profile.city");
+let tag_count = count(form, "tags")
+let first_tag = value(form, "tags", 0)
+let city = first(form, "profile.city")
 ```
 
 Scalar coercion helpers return typed values and record typed errors through
@@ -57,11 +57,11 @@ Bindings are schema-driven until package-level native extern declarations
 and reflection over user structs are available:
 
 ```spectra
-let s0 = schema();
-let s1 = schema_field(s0, "name", type_string(), true, false);
-let s2 = schema_field(s1, "age", type_int(), true, false);
-let s3 = schema_field(s2, "tags", type_string(), false, true);
-let binding = bind(form, s3);
+let s0 = schema()
+let s1 = schema_field(s0, "name", type_string(), true, false)
+let s2 = schema_field(s1, "age", type_int(), true, false)
+let s3 = schema_field(s2, "tags", type_string(), false, true)
+let binding = bind(form, s3)
 ```
 
 `binding_ok(binding)` reports whether all fields passed validation.

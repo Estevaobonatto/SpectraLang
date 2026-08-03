@@ -6,25 +6,25 @@ eager reverse-mode autodiff over float tensor handles.
 ## Minimal Training Step
 
 ```spectra
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-fn train_step(x: int, target: int, weight: int, bias: int) -> int {
-    let prediction = ml.linear(x, weight, bias);
-    let loss = ml.mse_loss(prediction, target);
-    tensor.backward(loss);
-    ml.sgd_step(weight, 0.1);
-    ml.sgd_step(bias, 0.1);
-    return 0;
+func train_step(x: int, target: int, weight: int, bias: int) returns int {
+    let prediction = ml.linear(x, weight, bias)
+    let loss = ml.mse_loss(prediction, target)
+    tensor.backward(loss)
+    ml.sgd_step(weight, 0.1)
+    ml.sgd_step(bias, 0.1)
+    return 0
 }
 ```
 
 ## Make Parameters Trainable
 
 ```spectra
-let weight0 = tensor.requires_grad(tensor.full_f(1, 0.0), true);
-let weight = tensor.reshape(weight0, 1, 1);
-let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+let weight0 = tensor.requires_grad(tensor.full_f(1, 0.0), true)
+let weight = tensor.reshape(weight0, 1, 1)
+let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true)
 ```
 
 ## Inference Mode
@@ -32,9 +32,9 @@ let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true);
 Disable gradient tracking for inference-only examples:
 
 ```spectra
-tensor.set_grad_enabled(false);
+tensor.set_grad_enabled(false)
 // inference work
-tensor.set_grad_enabled(true);
+tensor.set_grad_enabled(true)
 ```
 
 ## Gradient Lifecycle

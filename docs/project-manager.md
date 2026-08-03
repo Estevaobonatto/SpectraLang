@@ -38,13 +38,13 @@
 - [x] Parser completo (expressões, statements, items)
 - [x] Sistema de tipos: Int, Float, Bool, String, Char, Unit, Array, Tuple, Struct, Enum
 - [x] Funções com parâmetros tipados e retorno
-- [x] Generics e polimorfismo paramétrico (`fn foo<T>()`)
+- [x] Generics e polimorfismo paramétrico (`func foo<T>()`)
 - [x] Traits e implementações (`trait Printable`, `impl Printable for Type`)
 - [x] Herança de traits (trait hierarquias)
 - [x] Match exaustivo com padrões (Wildcard, Literal, Identifier, EnumVariant)
 - [x] Loops: `while`, `do-while`, `for-in`, `loop`
-- [x] `if`, `elif`, `else`, `unless`
-- [x] Structs com fields e métodos (`impl`)
+- [x] `if`, `else if`, `else`, `if not`
+- [x] Records com fields e métodos (`impl`)
 - [x] Enums com variantes unit e tuple
 - [x] Tuplas e destructuring básico
 - [x] Arrays com acesso por índice
@@ -56,10 +56,10 @@
 - [x] Backend Cranelift JIT funcional
 - [x] Lint básico (variáveis não usadas, etc.)
 - [x] Monomorphization de generics
-- [x] Visibilidade `pub` / `internal` / privado
+- [x] Visibilidade `public` / `internal` / privado
 - [x] Sistema de módulos multi-arquivo (registry, ModuleExports, cross-module calls)
 - [x] Módulos stdlib virtuais (`std.io`, `std.math`, `std.collections`)
-- [x] `pub import` para re-exportação e `internal` para visibilidade de pacote
+- [x] `public from ... import ...` para re-exportação e `internal` para visibilidade de pacote
 - [x] Configuração de projeto via `spectra.toml`
 
 ---
@@ -70,30 +70,30 @@
 
 ### 🔤 Char Literals
 ```spectra
-let c: char = 'a';
-let newline = '\n';
-let tab = '\t';
+let c: char = 'a'
+let newline = '\n'
+let tab = '\t'
 ```
 - **Arquivo**: `compiler/src/token.rs`, `compiler/src/lexer/mod.rs`, `compiler/src/ast/mod.rs`
 - **Status**: ✅ Front-end concluído e validado em exemplo dedicado
 
 ### 📝 String Interpolation (f-strings)
 ```spectra
-let name = "World";
-let msg = f"Hello, {name}!";
-let calc = f"2 + 2 = {2 + 2}";
+let name = "World"
+let msg = f"Hello, {name}!"
+let calc = f"2 + 2 = {2 + 2}"
 ```
 - **Arquivo**: `compiler/src/token.rs`, `compiler/src/lexer/mod.rs`, `compiler/src/parser/expression.rs`
 - **Status**: ✅ Front-end concluído e validado em exemplo dedicado
 
 ### λ Closures/Lambdas
 ```spectra
-let double = |x: int| x * 2;
-let add = |a, b| a + b;
-let greet = || println("Hello!");
+let double = |x: int| x * 2
+let add = |a, b| a + b
+let greet = || println("Hello!")
 
 // Em argumentos de função:
-let nums = [1, 2, 3];
+let nums = [1, 2, 3]
 // (quando stdlib estiver pronta)
 // let doubled = nums.map(|x| x * 2);
 ```
@@ -102,9 +102,9 @@ let nums = [1, 2, 3];
 
 ### ❓ Operador `?` (Try/Propagate)
 ```spectra
-fn read_config() -> Result<Config, Error> {
-    let data = read_file("config.json")?;
-    let config = parse_json(data)?;
+func read_config() returns Result<Config, Error> {
+    let data = read_file("config.json")?
+    let config = parse_json(data)?
     Ok(config)
 }
 ```
@@ -113,9 +113,12 @@ fn read_config() -> Result<Config, Error> {
 
 ### 🔀 Range Operator
 ```spectra
-let r = 0..10;      // exclusivo: 0, 1, ..., 9
-let r2 = 0..=10;    // inclusivo: 0, 1, ..., 10
-for i in 0..5 { println(i); }
+let r = 0..10
+      // exclusivo: 0, 1, ..., 9
+let r2 = 0..=10
+    // inclusivo: 0, 1, ..., 10
+for i in 0..5 { println(i)
+ }
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/expression.rs`
 - **Status**: ✅ Implementado e validado em exemplo dedicado
@@ -123,11 +126,11 @@ for i in 0..5 { println(i); }
 ### 🔍 if let / while let
 ```spectra
 if let Option::Some(value) = maybe_value {
-    println(value);
+    println(value)
 }
 
 while let Option::Some(next) = iterator.next() {
-    process(next);
+    process(next)
 }
 ```
 - **Arquivo**: `compiler/src/ast/mod.rs`, `compiler/src/parser/statement.rs`
@@ -149,16 +152,19 @@ enum Shape {
 Imports nomeados, aliased e re-exports funcionam end-to-end com stdlib virtual integrada.
 
 ```spectra
-import std.io;                             // stdlib virtual — expõe print, println, etc.
-import math.utils as utils;                // alias de módulo
-import { sin, cos, tan } from math.trig;  // named imports
-pub import path.to.Module;                // re-exportar para consumidores externos
+import std.io
+                             // stdlib virtual — expõe print, println, etc.
+import math.utils as utils
+                // alias de módulo
+from math.trig import sin, cos, tan  // named imports
+public import path.to.Module
+                // re-exportar para consumidores externos
 
-internal fn helper() -> int { 42 }        // visível só no mesmo pacote (mesmo name em spectra.toml)
+internal func helper() returns int { 42 }        // visível só no mesmo pacote (mesmo name em spectra.toml)
 ```
 
 - **Arquivos**: `compiler/src/parser/module.rs`, `compiler/src/semantic/module_registry.rs`, `compiler/src/semantic/builtin_modules.rs`, `midend/src/lowering.rs`, `tools/spectra-cli/src/config.rs`, `tools/spectra-cli/src/discovery.rs`
-- **Status**: ✅ Implementado end-to-end — multi-arquivo, cross-module calls, stdlib virtual, `pub import`, `internal`, `spectra.toml`, auto-descoberta de fontes e ordenação topológica. Validado com `examples/test_multi_a.spectra` + `test_multi_b.spectra` (`square(7)` → 49).
+- **Status**: ✅ Implementado end-to-end — multi-arquivo, cross-module calls, stdlib virtual, `public from ... import ...`, `internal`, `spectra.toml`, auto-descoberta de fontes e ordenação topológica. Validado com `examples/test_multi_a.spectra` + `test_multi_b.spectra` (`square(7)` → 49).
 
 **Componentes do sistema de módulos:**
 
@@ -168,7 +174,7 @@ internal fn helper() -> int { 42 }        // visível só no mesmo pacote (mesmo
 | `ModuleExports` | `compiler/src/semantic/module_registry.rs` | Funções/tipos exportados por um módulo |
 | Stdlib virtual | `compiler/src/semantic/builtin_modules.rs` | `std.io`, `std.math`, `std.collections` pré-registrados |
 | `internal` keyword | `compiler/src/token.rs` | Visibilidade de pacote (acesso somente por módulos do mesmo `[project].name`) |
-| `pub import` | `compiler/src/parser/module.rs` | Re-exporta um módulo importado para consumidores externos |
+| `public from ... import ...` | `compiler/src/parser/module.rs` | Re-exporta símbolos importados para consumidores externos |
 | `spectra.toml` | `tools/spectra-cli/src/config.rs` | Configuração de projeto com `[project]` section |
 | Auto-descoberta | `tools/spectra-cli/src/discovery.rs` | Coleta `.spectra`/`.spc` de `src_dirs` recursivamente |
 | Ordenação | `tools/spectra-cli/src/project.rs` | Topological sort de módulos por grafo de dependências |
@@ -214,21 +220,21 @@ entry = "main.spectra"
 `Option<T>` e `Result<T, E>` agora são tipos **built-in pré-registrados** — nenhuma declaração de enum necessária.
 
 ```spectra
-fn divide(a: int, b: int) -> Result<int, string> {
+func divide(a: int, b: int) returns Result<int, string> {
     if b == 0 { Result::Err("cannot divide by zero") }
     else { Result::Ok(a / b) }
 }
 
-fn find_positive(x: int) -> Option<int> {
+func find_positive(x: int) returns Option<int> {
     if x > 0 { Option::Some(x) }
     else { Option::None }
 }
 
-fn main() -> int {
+func main() returns int {
     if let Result::Ok(v) = divide(10, 2) { ... }
     if let Option::Some(n) = find_positive(7) { ... }
     while let Option::Some(n) = get_next() { ... }
-    return 0;
+    return 0
 }
 ```
 
@@ -242,42 +248,42 @@ fn main() -> int {
 
 ### ✅ std.string — Módulo de manipulação de strings
 
-Funções disponíveis via `import std.string;` (chamadas com prefixo qualificado `std.string.fn()` ou como nome simples `fn()`):
+Funções disponíveis via `import std.string` (chamadas com prefixo qualificado `std.string.func()` ou como nome simples `func()`):
 
 | Função | Assinatura | Descrição |
 |--------|-----------|-----------|
-| `len` | `(s: string) -> int` | Comprimento em bytes |
-| `trim` | `(s: string) -> string` | Remove espaços das extremidades |
-| `to_upper` | `(s: string) -> string` | Converte para maiúsculas |
-| `to_lower` | `(s: string) -> string` | Converte para minúsculas |
-| `contains` | `(s, sub: string) -> bool` | Verifica se sub-string está presente |
-| `starts_with` | `(s, prefix: string) -> bool` | Verifica prefixo |
-| `ends_with` | `(s, suffix: string) -> bool` | Verifica sufixo |
-| `concat` | `(a, b: string) -> string` | Concatena duas strings |
-| `repeat_str` | `(s: string, n: int) -> string` | Repete string n vezes |
-| `char_at` | `(s: string, i: int) -> int` | Código do caractere na posição i |
+| `len` | `func(s: string) returns int` | Comprimento em bytes |
+| `trim` | `func(s: string) returns string` | Remove espaços das extremidades |
+| `to_upper` | `func(s: string) returns string` | Converte para maiúsculas |
+| `to_lower` | `func(s: string) returns string` | Converte para minúsculas |
+| `contains` | `func(s, sub: string) returns bool` | Verifica se sub-string está presente |
+| `starts_with` | `func(s, prefix: string) returns bool` | Verifica prefixo |
+| `ends_with` | `func(s, suffix: string) returns bool` | Verifica sufixo |
+| `concat` | `func(a, b: string) returns string` | Concatena duas strings |
+| `repeat_str` | `func(s: string, n: int) returns string` | Repete string n vezes |
+| `char_at` | `func(s: string, i: int) returns int` | Código do caractere na posição i |
 
 - **Validado:** `examples/test_beta_stdlib_string.spectra` — PASSA (`main() returned 0`)
 
 ### ✅ std.convert — Módulo de conversão de tipos
 
-Funções disponíveis via `import std.convert;`:
+Funções disponíveis via `import std.convert`:
 
 | Função | Assinatura | Descrição |
 |--------|-----------|-----------|
-| `int_to_string` | `(v: int) -> string` | Inteiro para string |
-| `float_to_string` | `(v: float) -> string` | Float para string |
-| `bool_to_string` | `(v: bool) -> string` | Bool para string |
-| `string_to_int` | `(s: string) -> int` | String para inteiro (0 se inválido) |
-| `string_to_float` | `(s: string) -> float` | String para float (0.0 se inválido) |
-| `int_to_float` | `(v: int) -> float` | Inteiro para float |
-| `float_to_int` | `(v: float) -> int` | Float para inteiro (trunca) |
+| `int_to_string` | `func(v: int) returns string` | Inteiro para string |
+| `float_to_string` | `func(v: float) returns string` | Float para string |
+| `bool_to_string` | `func(v: bool) returns string` | Bool para string |
+| `string_to_int` | `func(s: string) returns int` | String para inteiro (0 se inválido) |
+| `string_to_float` | `func(s: string) returns float` | String para float (0.0 se inválido) |
+| `int_to_float` | `func(v: int) returns float` | Inteiro para float |
+| `float_to_int` | `func(v: float) returns int` | Float para inteiro (trunca) |
 
 - **Validado:** coberto em `examples/test_beta_stdlib_string.spectra`
 
 ### ✅ Chamadas qualificadas a módulos stdlib
 
-Identificadores de namespace de módulo (`std`, `std.string`, etc.) são agora reconhecidos pelo analisador semântico quando o módulo foi importado. Chamadas qualificadas como `std.string.len(x)` são aceitas como equivalente a `len(x)` após `import std.string;`.
+Identificadores de namespace de módulo (`std`, `std.string`, etc.) são agora reconhecidos pelo analisador semântico quando o módulo foi importado. Chamadas qualificadas como `std.string.len(x)` são aceitas como equivalente a `len(x)` após `import std.string`.
 
 **Infraestrutura:**
 - `module_namespaces: HashSet<String>` em `SemanticAnalyzer` — populado ao processar imports
@@ -304,18 +310,18 @@ Identificadores de namespace de módulo (`std`, `std.string`, etc.) são agora r
 ```spectra
 // Hierarquia de erros nativa
 trait Error {
-    fn message(self) -> string;
-    fn cause(self) -> Option<Error>;
+    func message(self) returns string
+    func cause(self) returns Option<Error>
 }
 
 // Erros customizados
-struct ParseError {
+record ParseError {
     message: string,
     line: int,
 }
 impl Error for ParseError {
-    fn message(self) -> string { self.message }
-    fn cause(self) -> Option<Error> { None }
+    func message(self) returns string { self.message }
+    func cause(self) returns Option<Error> { None }
 }
 ```
 
@@ -327,34 +333,34 @@ impl Error for ParseError {
 
 ### async/await
 ```spectra
-async fn fetch_data(url: string) -> string {
+async func fetch_data(url: string) returns string {
     // Simulates async I/O
     await read_url(url)
 }
 
-fn main() {
-    let result = await fetch_data("https://example.com");
-    println(result);
+func main() {
+    let result = await fetch_data("https://example.com")
+    println(result)
 }
 ```
 
 ### Channels (CSP style, inspirado em Go)
 ```spectra
-let (sender, receiver) = channel<int>();
+let (sender, receiver) = channel<int>()
 
 spawn {
-    sender.send(42);
-};
+    sender.send(42)
+}
 
-let value = receiver.recv()?;
-println(value);
+let value = receiver.recv()?
+println(value)
 ```
 
 ### Primitivas de Sync
 ```spectra
-let mutex = Mutex::new(0);
-let guard = mutex.lock();
-*guard = 42;
+let mutex = Mutex::new(0)
+let guard = mutex.lock()
+*guard = 42
 // Released when guard goes out of scope (via GC hooks)
 ```
 
@@ -366,23 +372,24 @@ let guard = mutex.lock();
 
 ### Macros de expressão
 ```spectra
-macro_rules! vec {
-    ($($x:expr),*) => {
+macro_rulesnot  vec {
+    when ($($x:expr),*) then {
         {
-            let mut v = [];
-            $(v.push($x);)*
+            let mut v = []
+            $(v.push($x)
+)*
             v
         }
-    };
+    }
 }
 
-let nums = vec![1, 2, 3, 4, 5];
+let nums = vecnot [1, 2, 3, 4, 5]
 ```
 
 ### Derive
 ```spectra
 #[derive(Debug, Clone, Eq, Hash)]
-struct Point {
+record Point {
     x: int,
     y: int,
 }
@@ -390,8 +397,8 @@ struct Point {
 
 ### Reflexão básica (em avaliação)
 ```spectra
-let type_name = typeof(value);
-let fields = reflect::fields<MyStruct>();
+let type_name = typeof(value)
+let fields = reflect::fields<MyStruct>()
 ```
 
 ---
@@ -441,8 +448,8 @@ spectra-http = "0.5"
 | `if let` / `while let` | Syntax | Média | ✅ Implementado |
 | Struct enum variants `Variant { field: T }` | Syntax | Média | ✅ Implementado |
 | Import aliasing `import x as y` | Syntax | Baixa | ✅ Implementado |
-| Named imports `import { a, b } from x` | Syntax | Baixa | ✅ Implementado |
-| `pub import` / `internal` / multi-módulos | Syntax/Infra | Alta | ✅ Implementado |
+| Named imports `from x import a, b` | Syntax | Baixa | ✅ Implementado |
+| `public from ... import ...` / `internal` / multi-módulos | Syntax/Infra | Alta | ✅ Implementado |
 | `Result<T,E>` built-in | Stdlib | Alta | Enum + methods |
 | `Option<T>` built-in | Stdlib | Média | Enum + methods |
 | `std.string` métodos | Stdlib | Média | Runtime FFI |
@@ -490,7 +497,7 @@ spectra-http = "0.5"
 | Traits | Estáticos (vtable-free) | Resolvidos em compile-time, sem overhead |
 | Strings | UTF-8 heap-allocated | Compatibilidade universal, boas primitivas |
 | Números | `int` = i64, `float` = f64 | Simplificação deliberada (sem u8, i32, etc.) |
-| Módulos | Registry centralizado, 3 níveis de visibilidade | `pub` (global), `internal` (pacote), privado; stdlib como módulos virtuais pré-registrados |
+| Módulos | Registry centralizado, 3 níveis de visibilidade | `public` (global), `internal` (pacote), privado; stdlib como módulos virtuais pré-registrados |
 | JIT multi-módulo | `CodeGenerator` persistido entre módulos | Mantém `function_map` com FuncIds para linking cross-module |
 
 ---

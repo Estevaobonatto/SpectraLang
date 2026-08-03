@@ -8,6 +8,7 @@
     { "include": "#characters" },
     { "include": "#numbers" },
     { "include": "#std_api" },
+    { "include": "#legacy_syntax" },
     { "include": "#keywords" },
     { "include": "#types" },
     { "include": "#operators" }
@@ -117,7 +118,7 @@
       "patterns": [
         {
           "name": "meta.declaration.function.spectra",
-          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(func)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.declaration.function.spectra" },
             "2": { "name": "entity.name.function.spectra" }
@@ -125,7 +126,7 @@
         },
         {
           "name": "meta.declaration.type.spectra",
-          "match": "\\b(struct|enum|trait|module)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(record|enum|trait|module)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.declaration.type.spectra" },
             "2": { "name": "entity.name.type.spectra" }
@@ -141,11 +142,23 @@
         }
       ]
     },
+    "legacy_syntax": {
+      "patterns": [
+        {
+          "name": "invalid.deprecated.spectra",
+          "match": "\\b(?:fn|struct|pub|elif|elseif|unless|of)\\b"
+        },
+        {
+          "name": "invalid.deprecated.spectra",
+          "match": "->|=>|;"
+        }
+      ]
+    },
     "operators": {
       "patterns": [
         {
           "name": "keyword.operator.assignment.spectra",
-          "match": "=|=>"
+          "match": "="
         },
         {
           "name": "keyword.operator.comparison.spectra",
@@ -153,7 +166,7 @@
         },
         {
           "name": "keyword.operator.logical.spectra",
-          "match": "&&|\\|\\|"
+          "match": "&&|\\|\\||\\b(?:and|or|not)\\b"
         },
         {
           "name": "keyword.operator.arithmetic.spectra",
@@ -169,7 +182,7 @@
         },
         {
           "name": "keyword.operator.other.spectra",
-          "match": "->|\\?|!|&"
+          "match": "\\?|!|&"
         }
       ]
     },
@@ -177,15 +190,15 @@
       "patterns": [
         {
           "name": "keyword.control.spectra",
-          "match": "\\b(?:if|elif|elseif|else|unless|match|switch|case|cond|while|do|for|foreach|in|of|repeat|until|loop|return|break|continue|yield|goto|let|await)\\b"
+          "match": "\\b(?:if|else|match|switch|case|when|then|otherwise|cond|while|do|for|in|repeat|until|loop|return|break|continue|yield|goto|let|await)\\b"
         },
         {
           "name": "keyword.declaration.spectra",
-          "match": "\\b(?:module|import|export|fn|async|struct|enum|impl|class|trait)\\b"
+          "match": "\\b(?:module|from|import|as|export|func|async|returns|record|enum|impl|class|trait)\\b"
         },
         {
           "name": "storage.modifier.spectra",
-          "match": "\\b(?:pub|mut|internal|Self|self)\\b"
+          "match": "\\b(?:public|mut|internal|Self|self)\\b"
         },
         {
           "name": "constant.language.boolean.spectra",

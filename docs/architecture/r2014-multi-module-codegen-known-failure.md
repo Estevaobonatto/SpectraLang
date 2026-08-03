@@ -34,7 +34,7 @@ Fix:
   definitions for downstream midend layout registration
 - fall back to source order for named enum patterns if field-order metadata is
   unavailable
-- emit concrete `ConstInt 0` sentinels for value-less reachable `if`/`unless`
+- emit concrete `ConstInt 0` sentinels for value-less reachable `if`/`if not`
   expression merges instead of raw `next_value()` IDs
 - verify undefined IR operands before backend generation
 
@@ -43,7 +43,7 @@ The source uses multiple modules with:
 - cross-module struct construction and method calls
 - enum tuple and struct payload variants
 - trait implementation and concrete trait-method dispatch
-- `match`, `while let`, `unless`, and mutable loop state
+- `match`, `while let`, `if not`, and mutable loop state
 - package/project compilation through the normal CLI path
 
 The project now lives at

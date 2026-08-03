@@ -38,7 +38,7 @@ def main() -> int:
     )
     require_contains(
         ROOT / "compiler" / "tests" / "snapshots" / "parser_ast.snap",
-        ["async fn Private fetch() -> unit", "async_block(", "async_lambda("],
+        ["async func Private fetch() returns unit", "async_block(", "async_lambda("],
     )
     require_contains(
         ROOT / "docs" / "diagnostics" / "error-code-reference.md",

@@ -1,7 +1,7 @@
 use crate::{
     ast::{TypeAnnotation, TypeAnnotationKind},
     span::span_union,
-    token::{Keyword, Operator, TokenKind},
+    token::{Keyword, TokenKind},
 };
 
 use super::Parser;
@@ -33,10 +33,10 @@ impl Parser {
             });
         }
 
-        // Function type: fn(T1, T2) -> ReturnType
-        if matches!(&self.current().kind, TokenKind::Keyword(Keyword::Fn)) {
-            self.advance(); // consume 'fn'
-            self.consume_symbol('(', "Expected '(' after 'fn' in function type")?;
+        // Function type: func(T1, T2) returns ReturnType
+        if self.check_function_keyword() {
+            self.advance(); // consume 'func'
+            self.consume_symbol('(', "Expected '(' after 'func' in function type")?;
             let mut params = Vec::new();
             while !self.check_symbol(')') && !self.is_at_end() {
                 params.push(self.parse_type_annotation()?);
@@ -47,9 +47,8 @@ impl Parser {
                 }
             }
             self.consume_symbol(')', "Expected ')' after function parameter types")?;
-            let return_type =
-                if matches!(&self.current().kind, TokenKind::Operator(Operator::Arrow)) {
-                    self.advance(); // consume '->'
+            let return_type = if self.check_keyword(Keyword::Returns) {
+                    self.advance(); // consume 'returns'
                     self.parse_type_annotation()?
                 } else {
                     TypeAnnotation {
@@ -239,8 +238,7 @@ impl Parser {
                             | TokenKind::Symbol('=')    // let binding
                             | TokenKind::Symbol(',')    // parameter separator
                             | TokenKind::Symbol(')')    // end of parameter list / tuple
-                            | TokenKind::Symbol(';')    // statement end
-                            | TokenKind::Operator(Operator::Arrow) // -> return type
+                            | TokenKind::Keyword(Keyword::Returns) // function return type
                             | TokenKind::Symbol('[') // array index after type
                         );
                     }
@@ -248,7 +246,6 @@ impl Parser {
                 // These inside the brackets are not valid in a type arg list
                 TokenKind::Symbol('{') => return false,
                 TokenKind::Symbol(';') => return false,
-                TokenKind::Operator(Operator::Arrow) if depth == 0 => return false,
                 _ => {}
             }
             i += 1;

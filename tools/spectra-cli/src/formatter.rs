@@ -943,7 +943,7 @@ fn finalize_output(mut lines: Vec<FormattedLine>, config: &FormatterConfig) -> S
 fn ends_with_expression_keyword(result: &str) -> bool {
     let trimmed = result.trim_end();
     const KEYWORDS: &[&str] = &[
-        "return", "else", "if", "while", "for", "match", "unless", "not",
+        "return", "else", "if", "while", "for", "in", "match", "when", "then", "not",
     ];
     KEYWORDS.iter().any(|&kw| {
         if let Some(rest) = trimmed.strip_suffix(kw) {
@@ -961,6 +961,8 @@ fn normalize_spacing(content: &str) -> String {
     let mut in_char = false;
     let mut escape = false;
     let mut pending_space = false;
+    let mut generic_depth = 0usize;
+    let mut suppress_space_after_unary = false;
 
     while let Some(ch) = chars.next() {
         if in_string {
@@ -987,6 +989,10 @@ fn normalize_spacing(content: &str) -> String {
             continue;
         }
 
+        if !ch.is_whitespace() {
+            suppress_space_after_unary = false;
+        }
+
         match ch {
             '"' => {
                 push_pending_space(&mut result, &mut pending_space);
@@ -999,7 +1005,12 @@ fn normalize_spacing(content: &str) -> String {
                 in_char = true;
             }
             ch if ch.is_whitespace() => {
-                pending_space = true;
+                if !result.ends_with("::")
+                    && previous_non_space(&result) != Some('<')
+                    && !suppress_space_after_unary
+                {
+                    pending_space = true;
+                }
             }
             ':' => {
                 while result.ends_with(' ') {
@@ -1022,10 +1033,18 @@ fn normalize_spacing(content: &str) -> String {
                 result.push(ch);
                 pending_space = true;
             }
-            ')' | ']' | '}' => {
+            ')' | ']' => {
                 while result.ends_with(' ') {
                     result.pop();
                 }
+                result.push(ch);
+                pending_space = true;
+            }
+            '}' => {
+                // Keep the delimiter padding produced for inline record
+                // literals (`Point { x: 1 }`).  Block closing braces are
+                // normally on their own line and therefore are unaffected.
+                push_pending_space(&mut result, &mut pending_space);
                 result.push(ch);
                 pending_space = true;
             }
@@ -1064,18 +1083,51 @@ fn normalize_spacing(content: &str) -> String {
                 push_pending_space(&mut result, &mut pending_space);
                 result.push('/');
             }
+            '.' if matches!(chars.peek(), Some('.')) => {
+                push_pending_space(&mut result, &mut pending_space);
+                result.push('.');
+                result.push('.');
+                chars.next();
+                if matches!(chars.peek(), Some('=')) {
+                    result.push('=');
+                    chars.next();
+                }
+                pending_space = true;
+            }
+            '<' if is_generic_open_context(&result, &chars) => {
+                while result.ends_with(' ') {
+                    result.pop();
+                }
+                result.push('<');
+                pending_space = false;
+                generic_depth += 1;
+            }
+            '>' if generic_depth > 0 && !matches!(chars.peek(), Some('=')) => {
+                while result.ends_with(' ') {
+                    result.pop();
+                }
+                result.push('>');
+                pending_space = false;
+                generic_depth = generic_depth.saturating_sub(1);
+            }
             _ => {
                 if let Some(op) = read_operator(ch, &mut chars) {
                     let prev = previous_non_space(&result);
-                    let after_unary_context =
-                        matches!(prev, None | Some('(' | '[' | '{' | '=' | ',' | ':'))
-                            || ends_with_expression_keyword(&result);
+                    let after_unary_context = matches!(
+                        prev,
+                        None
+                            | Some(
+                                '(' | '[' | '{' | '=' | ',' | ':' | '+' | '-' | '*' | '/'
+                                    | '%' | '<' | '>' | '&' | '|'
+                            )
+                    ) || ends_with_expression_keyword(&result);
                     let is_unary_minus = op == "-" && after_unary_context;
                     let is_unary_not = op == "!" && after_unary_context;
 
                     if is_unary_minus || is_unary_not {
                         push_pending_space(&mut result, &mut pending_space);
                         result.push_str(&op);
+                        suppress_space_after_unary = true;
                     } else {
                         if !result.is_empty() && !result.ends_with(' ') {
                             result.push(' ');
@@ -1093,6 +1145,72 @@ fn normalize_spacing(content: &str) -> String {
     }
 
     result.trim_end().to_string()
+}
+
+fn is_generic_open_context(
+    result: &str,
+    chars: &std::iter::Peekable<std::str::Chars<'_>>,
+) -> bool {
+    let previous = result
+        .trim_end()
+        .rsplit(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .next()
+        .filter(|name| !name.is_empty());
+    let next = peek_identifier(chars);
+
+    let Some(previous) = previous else {
+        return false;
+    };
+    let Some(next) = next else {
+        return false;
+    };
+
+    (is_type_like_name(previous) || is_type_like_name(&next))
+        && previous
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+}
+
+fn peek_identifier(chars: &std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    let mut lookahead = chars.clone();
+    while matches!(lookahead.peek(), Some(ch) if ch.is_whitespace()) {
+        lookahead.next();
+    }
+
+    let mut value = String::new();
+    while matches!(lookahead.peek(), Some(ch) if ch.is_ascii_alphanumeric() || *ch == '_') {
+        if let Some(ch) = lookahead.next() {
+            value.push(ch);
+        }
+    }
+    (!value.is_empty()).then_some(value)
+}
+
+fn is_type_like_name(name: &str) -> bool {
+    matches!(
+        name,
+        "bool"
+            | "byte"
+            | "char"
+            | "float"
+            | "int"
+            | "string"
+            | "unit"
+            | "void"
+            | "dynamic_dim"
+            | "rank1"
+            | "rank2"
+            | "rank3"
+            | "rank4"
+            | "row_major"
+            | "col_major"
+            | "cpu"
+            | "wgpu"
+    ) || name
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_uppercase())
 }
 
 fn read_operator(
@@ -1520,18 +1638,28 @@ mod cst {
         let mut result = String::new();
         let mut pending_space = false;
         let mut prev_token: Option<&LineToken> = None;
+        let mut brace_kinds = Vec::new();
 
         for (index, element) in elements.iter().enumerate() {
             match element {
                 LineElement::Token(token) => {
                     let next_token = next_token(elements, index + 1);
+                    let literal_close = if matches!(token.kind, TokenKind::Symbol('}')) {
+                        brace_kinds.pop().unwrap_or(false)
+                    } else {
+                        false
+                    };
                     apply_token(
                         &mut result,
                         &mut pending_space,
                         token,
                         prev_token,
                         next_token,
+                        literal_close,
                     );
+                    if matches!(token.kind, TokenKind::Symbol('{')) {
+                        brace_kinds.push(is_struct_literal_open(elements, index, prev_token));
+                    }
                     prev_token = Some(token);
                 }
                 LineElement::Comment(comment) => {
@@ -1563,8 +1691,9 @@ mod cst {
         token: &LineToken,
         prev: Option<&LineToken>,
         next: Option<&LineToken>,
+        literal_close: bool,
     ) {
-        let decision = space_before_decision(token, prev, next);
+        let decision = space_before_decision(token, prev, next, literal_close);
         let mut insert_space = match decision {
             SpaceDecision::Force => true,
             SpaceDecision::Suppress => false,
@@ -1572,7 +1701,9 @@ mod cst {
         };
         *pending_space = false;
 
-        if disallow_space_before(token) || matches!(decision, SpaceDecision::Suppress) {
+        if (disallow_space_before(token) && !literal_close)
+            || matches!(decision, SpaceDecision::Suppress)
+        {
             insert_space = false;
             while result.ends_with(' ') {
                 result.pop();
@@ -1607,7 +1738,8 @@ mod cst {
     fn space_before_decision(
         token: &LineToken,
         prev: Option<&LineToken>,
-        next: Option<&LineToken>,
+        _next: Option<&LineToken>,
+        literal_close: bool,
     ) -> SpaceDecision {
         match &token.kind {
             TokenKind::Symbol('(') => {
@@ -1629,7 +1761,16 @@ mod cst {
                 }
                 SpaceDecision::Suppress
             }
-            TokenKind::Symbol('[') => SpaceDecision::Suppress,
+            TokenKind::Symbol('[') => {
+                if matches!(
+                    prev.map(|token| &token.kind),
+                    Some(TokenKind::Keyword(Keyword::In))
+                ) {
+                    SpaceDecision::Force
+                } else {
+                    SpaceDecision::Suppress
+                }
+            }
             TokenKind::Symbol('{') => {
                 if prev.is_some() {
                     SpaceDecision::Force
@@ -1670,22 +1811,16 @@ mod cst {
                     SpaceDecision::Inherit
                 }
             }
-            TokenKind::Symbol(':') => {
-                if let Some(next_token) = next {
-                    if matches!(next_token.kind, TokenKind::Symbol(':')) {
-                        SpaceDecision::Suppress
-                    } else {
-                        SpaceDecision::Suppress
-                    }
-                } else {
-                    SpaceDecision::Suppress
-                }
-            }
+            TokenKind::Symbol(':') => SpaceDecision::Suppress,
             TokenKind::Symbol('.') | TokenKind::Symbol(',') | TokenKind::Symbol(';') => {
                 SpaceDecision::Suppress
             }
             TokenKind::Symbol(')') | TokenKind::Symbol(']') | TokenKind::Symbol('}') => {
-                SpaceDecision::Suppress
+                if literal_close {
+                    SpaceDecision::Force
+                } else {
+                    SpaceDecision::Suppress
+                }
             }
             _ => SpaceDecision::Inherit,
         }
@@ -1693,6 +1828,63 @@ mod cst {
 
     fn is_binary_symbol(ch: char) -> bool {
         matches!(ch, '=' | '+' | '*' | '/' | '%' | '<' | '>' | '&' | '|')
+    }
+
+    fn is_struct_literal_open(
+        elements: &[LineElement],
+        index: usize,
+        prev: Option<&LineToken>,
+    ) -> bool {
+        let Some(prev) = prev else {
+            return false;
+        };
+
+        if matches!(prev.kind, TokenKind::Symbol(')')) {
+            return false;
+        }
+
+        if matches!(
+            prev.kind,
+            TokenKind::Keyword(
+                Keyword::If
+                    | Keyword::Else
+                    | Keyword::For
+                    | Keyword::While
+                    | Keyword::Loop
+                    | Keyword::Match
+                    | Keyword::Switch
+                    | Keyword::Impl
+                    | Keyword::Trait
+                    | Keyword::Record
+                    | Keyword::Struct
+                    | Keyword::Enum
+                    | Keyword::Func
+                    | Keyword::Fn
+                    | Keyword::Async
+            )
+        ) {
+            return false;
+        }
+
+        if !matches!(prev.kind, TokenKind::Identifier(_)) {
+            return false;
+        }
+
+        let preceding = elements[..index.saturating_sub(1)]
+            .iter()
+            .rev()
+            .find_map(|element| match element {
+            LineElement::Token(token) => Some(token),
+            LineElement::Comment(_) => None,
+        });
+
+        match preceding.map(|token| &token.kind) {
+            Some(TokenKind::Symbol('=' | ',' | ':' | '(' | '['))
+            | Some(TokenKind::Keyword(Keyword::Return | Keyword::Then)) => true,
+            Some(TokenKind::Keyword(Keyword::Record | Keyword::Struct | Keyword::Enum)) => true,
+            None => true,
+            _ => false,
+        }
     }
 
     fn requires_space_between(token: &LineToken) -> bool {
@@ -1718,7 +1910,8 @@ mod cst {
             TokenKind::Symbol(',') | TokenKind::Symbol(';') => true,
             TokenKind::Symbol(':') => {
                 if let Some(next_token) = next {
-                    !matches!(next_token.kind, TokenKind::Symbol(':'))
+                    !matches!(prev.map(|token| &token.kind), Some(TokenKind::Symbol(':')))
+                        && !matches!(next_token.kind, TokenKind::Symbol(':'))
                 } else {
                     false
                 }
@@ -1770,25 +1963,39 @@ mod cst {
     fn keyword_requires_space_after(keyword: &Keyword) -> bool {
         matches!(
             keyword,
-            Keyword::Fn
+            Keyword::Func
+                | Keyword::Fn
                 | Keyword::Let
+                | Keyword::Import
+                | Keyword::From
                 | Keyword::If
                 | Keyword::Else
+                | Keyword::When
+                | Keyword::Then
+                | Keyword::Otherwise
                 | Keyword::Elif
                 | Keyword::ElseIf
                 | Keyword::While
                 | Keyword::For
+                | Keyword::In
                 | Keyword::Match
                 | Keyword::Switch
                 | Keyword::Unless
                 | Keyword::Return
+                | Keyword::Returns
+                | Keyword::Record
                 | Keyword::Struct
                 | Keyword::Enum
                 | Keyword::Impl
                 | Keyword::Trait
                 | Keyword::Class
+                | Keyword::Public
                 | Keyword::Pub
                 | Keyword::Mut
+                | Keyword::Async
+                | Keyword::AndWord
+                | Keyword::OrWord
+                | Keyword::NotWord
         )
     }
 
@@ -2609,34 +2816,34 @@ mod tests {
     #[test]
     fn formats_basic_block_structure() {
         let input =
-            "module demo;\n\nfn main(){\nlet value=1;\nif value>0 {\nprintln(value);\n}\n}\n";
+            "module demo\n\nfunc main(){\nlet value=1\nif value>0 {\nprintln(value)\n}\n}\n";
         let expected =
-            "module demo;\n\nfn main() {\n    let value = 1;\n    if value > 0 {\n        println(value);\n    }\n}\n";
+            "module demo\n\nfunc main() {\n    let value = 1\n    if value > 0 {\n        println(value)\n    }\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
     #[test]
     fn preserves_else_alignment() {
-        let input = "fn check(){\nif cond {\nprintf(\"yes\");\n}else{\nprintf(\"no\");\n}\n}\n";
+        let input = "func check(){\nif cond {\nprintf(\"yes\")\n}else{\nprintf(\"no\")\n}\n}\n";
         let expected =
-            "fn check() {\n    if cond {\n        printf(\"yes\");\n    } else {\n        printf(\"no\");\n    }\n}\n";
+            "func check() {\n    if cond {\n        printf(\"yes\")\n    } else {\n        printf(\"no\")\n    }\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
     #[test]
     fn inserts_spaces_around_binary_operators() {
-        let input = "fn math(){\nlet sum=left+right*factor-3;\nlet cmp=a==b||a!=c&&d>=e;\n}\n";
+        let input = "func math(){\nlet sum=left+right*factor-3\nlet cmp=a==b||a!=c&&d>=e\n}\n";
         let expected =
-            "fn math() {\n    let sum = left + right * factor - 3;\n    let cmp = a == b || a != c && d >= e;\n}\n";
+            "func math() {\n    let sum = left + right * factor - 3\n    let cmp = a == b || a != c && d >= e\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
     #[test]
     fn aligns_consecutive_let_bindings() {
         let input =
-            "fn demo(){\nlet short=1;\nlet much_longer_name=2;\nlet mid=short+much_longer_name;\n}\n";
+            "func demo(){\nlet short=1\nlet much_longer_name=2\nlet mid=short+much_longer_name\n}\n";
         let expected =
-            "fn demo() {\n    let short            = 1;\n    let much_longer_name = 2;\n    let mid              = short + much_longer_name;\n}\n";
+            "func demo() {\n    let short            = 1\n    let much_longer_name = 2\n    let mid              = short + much_longer_name\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
@@ -2644,8 +2851,8 @@ mod tests {
     fn respects_custom_indent_width() {
         let mut config = FormatterConfig::default();
         config.indent_width = 2;
-        let input = "fn main(){\nif cond {\nprintln(\"hi\");\n}\n}\n";
-        let expected = "fn main() {\n  if cond {\n    println(\"hi\");\n  }\n}\n";
+        let input = "func main(){\nif cond {\nprintln(\"hi\")\n}\n}\n";
+        let expected = "func main() {\n  if cond {\n    println(\"hi\")\n  }\n}\n";
         assert_eq!(format_source(input, &config), expected);
     }
 
@@ -2654,67 +2861,76 @@ mod tests {
         let mut config = FormatterConfig::default();
         config.max_line_length = 40;
         let input =
-            "fn wide(){\nlet short=call();\nlet very_very_long_identifier=call_with_many_arguments();\n}\n";
+            "func wide(){\nlet short=call()\nlet very_very_long_identifier=call_with_many_arguments()\n}\n";
         let expected =
-            "fn wide() {\n    let short = call();\n    let very_very_long_identifier = call_with_many_arguments();\n}\n";
+            "func wide() {\n    let short = call()\n    let very_very_long_identifier = call_with_many_arguments()\n}\n";
         assert_eq!(format_source(input, &config), expected);
     }
 
     #[test]
     fn keeps_else_if_spacing() {
         let input =
-            "fn flag(){\nif ready {\nreturn;\n}else if pending {\nreturn;\n}else{\nreturn;\n}\n}\n";
+            "func flag(){\nif ready {\nreturn\n}else if pending {\nreturn\n}else{\nreturn\n}\n}\n";
         let expected =
-            "fn flag() {\n    if ready {\n        return;\n    } else if pending {\n        return;\n    } else {\n        return;\n    }\n}\n";
+            "func flag() {\n    if ready {\n        return\n    } else if pending {\n        return\n    } else {\n        return\n    }\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
     #[test]
+    fn keeps_canonical_generics_paths_and_numeric_unary_operators_compact() {
+        let input = "module demo\n\nfunc eval(value: Option < int >) returns int {\nif value == Option:: Some {\nreturn -1\n}\nreturn 0\n}\n";
+        let expected = "module demo\n\nfunc eval(value: Option<int>) returns int {\n    if value == Option::Some {\n        return -1\n    }\n    return 0\n}\n";
+        assert_eq!(format_source(input, &FormatterConfig::default()), expected);
+        assert!(super::ends_with_expression_keyword("when 1 then"));
+        assert_eq!(super::normalize_spacing("when 1 then - 1"), "when 1 then -1");
+    }
+
+    #[test]
     fn preserves_double_colon_compact() {
-        let input = "fn main(){\nlet value=Namespace::member();\nreturn value;\n}\n";
-        let expected = "fn main() {\n    let value = Namespace::member();\n    return value;\n}\n";
+        let input = "func main(){\nlet value=Namespace::member()\nreturn value\n}\n";
+        let expected = "func main() {\n    let value = Namespace::member()\n    return value\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
     #[test]
     fn keeps_unary_minus_tight() {
         let input =
-            "fn eval(flag: bool){\nif flag {\nreturn -value;\n}else{\nreturn !flag;\n}\n}\n";
+            "func eval(flag: bool){\nif flag {\nreturn -value\n}else{\nreturn !flag\n}\n}\n";
         let expected =
-            "fn eval(flag: bool) {\n    if flag {\n        return -value;\n    } else {\n        return !flag;\n    }\n}\n";
+            "func eval(flag: bool) {\n    if flag {\n        return -value\n    } else {\n        return !flag\n    }\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
     #[test]
     fn formats_doc_comments_adjacent_to_function() {
-        let input = "///short\nfn demo(){\nreturn 42;\n}\n";
-        let expected = "/// short\nfn demo() {\n    return 42;\n}\n";
+        let input = "///short\nfunc demo(){\nreturn 42\n}\n";
+        let expected = "/// short\nfunc demo() {\n    return 42\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
     #[test]
     fn normalizes_simple_match_arms() {
-        let input = "fn classify(value){\nmatch value {\nAlpha=>1,\nBeta=>2,\nGamma=>3\n}\n}\n";
-        let expected = "fn classify(value) {\n    match value {\n        Alpha => 1,\n        Beta => 2,\n        Gamma => 3\n    }\n}\n";
+        let input = "func classify(value){\nmatch value {\nwhen Alpha then 1\nwhen Beta then 2\nwhen Gamma then 3\n}\n}\n";
+        let expected = "func classify(value) {\n    match value {\n        when Alpha then 1\n        when Beta then 2\n        when Gamma then 3\n    }\n}\n";
         assert_eq!(format_source(input, &FormatterConfig::default()), expected);
     }
 
     #[test]
     fn render_diff_reports_changes() {
-        let original = "fn demo() {\n    return 0;\n}\n";
-        let formatted = "fn demo() {\n    return 1;\n}\n";
+        let original = "func demo() {\n    return 0\n}\n";
+        let formatted = "func demo() {\n    return 1\n}\n";
         let diff = super::render_diff(Path::new("demo.spectra"), original, formatted);
         assert!(diff.contains("diff --spectra demo.spectra"));
         assert!(diff.contains("--- original"));
         assert!(diff.contains("+++ formatted"));
-        assert!(diff.contains("-    return 0;"));
-        assert!(diff.contains("+    return 1;"));
+        assert!(diff.contains("-    return 0"));
+        assert!(diff.contains("+    return 1"));
     }
 
     #[test]
     fn render_json_diff_reports_operations() {
-        let original = "fn demo() {\n    return 0;\n}\n";
-        let formatted = "fn demo() {\n    return 1;\n}\n";
+        let original = "func demo() {\n    return 0\n}\n";
+        let formatted = "func demo() {\n    return 1\n}\n";
         let file_diff = super::render_json_diff(Path::new("demo.spectra"), original, formatted);
         assert_eq!(file_diff.path, "demo.spectra");
         assert!(file_diff

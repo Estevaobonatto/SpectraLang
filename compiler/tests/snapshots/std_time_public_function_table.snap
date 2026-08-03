@@ -1,27 +1,27 @@
 module std.time
-type std.time.Duration: struct Duration
-type std.time.Instant: struct Instant
-type std.time.UtcDateTime: struct UtcDateTime
-fn std.time.time_now_millis: fn() -> int
-fn std.time.time_now_secs: fn() -> int
-fn std.time.sleep_ms: fn(int) -> unit
-fn std.time.monotonic_millis: fn() -> int
-fn std.time.monotonic_nanos: fn() -> int
-fn std.time.duration_ms: fn(int) -> Duration
-fn std.time.duration_secs: fn(int) -> Duration
-fn std.time.duration_millis: fn(Duration) -> int
-fn std.time.duration_secs_value: fn(Duration) -> int
-fn std.time.duration_add: fn(Duration, Duration) -> Duration
-fn std.time.duration_sub: fn(Duration, Duration) -> Duration
-fn std.time.instant_now: fn() -> Instant
-fn std.time.instant_elapsed_ms: fn(Instant) -> int
-fn std.time.instant_add: fn(Instant, Duration) -> Instant
-fn std.time.instant_has_elapsed: fn(Instant) -> bool
-fn std.time.sleep: fn(Duration) -> unit
-fn std.time.unix_to_utc: fn(int) -> UtcDateTime
-fn std.time.utc_year: fn(UtcDateTime) -> int
-fn std.time.utc_month: fn(UtcDateTime) -> int
-fn std.time.utc_day: fn(UtcDateTime) -> int
-fn std.time.utc_hour: fn(UtcDateTime) -> int
-fn std.time.utc_minute: fn(UtcDateTime) -> int
-fn std.time.utc_second: fn(UtcDateTime) -> int
+type std.time.Duration: record Duration
+type std.time.Instant: record Instant
+type std.time.UtcDateTime: record UtcDateTime
+func std.time.time_now_millis: func() returns int
+func std.time.time_now_secs: func() returns int
+func std.time.sleep_ms: func(int) returns unit
+func std.time.monotonic_millis: func() returns int
+func std.time.monotonic_nanos: func() returns int
+func std.time.duration_ms: func(int) returns Duration
+func std.time.duration_secs: func(int) returns Duration
+func std.time.duration_millis: func(Duration) returns int
+func std.time.duration_secs_value: func(Duration) returns int
+func std.time.duration_add: func(Duration, Duration) returns Duration
+func std.time.duration_sub: func(Duration, Duration) returns Duration
+func std.time.instant_now: func() returns Instant
+func std.time.instant_elapsed_ms: func(Instant) returns int
+func std.time.instant_add: func(Instant, Duration) returns Instant
+func std.time.instant_has_elapsed: func(Instant) returns bool
+func std.time.sleep: func(Duration) returns unit
+func std.time.unix_to_utc: func(int) returns UtcDateTime
+func std.time.utc_year: func(UtcDateTime) returns int
+func std.time.utc_month: func(UtcDateTime) returns int
+func std.time.utc_day: func(UtcDateTime) returns int
+func std.time.utc_hour: func(UtcDateTime) returns int
+func std.time.utc_minute: func(UtcDateTime) returns int
+func std.time.utc_second: func(UtcDateTime) returns int

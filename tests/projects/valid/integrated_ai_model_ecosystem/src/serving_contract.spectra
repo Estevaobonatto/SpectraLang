@@ -1,33 +1,33 @@
-module serving_contract;
+module serving_contract
 
-import std.serve as serve;
-import std.string as str;
+import std.serve as serve
+import std.string as str
 
-pub fn keep<T>(value: T, code: int) -> int {
-    return code;
+public func keep<T>(value: T, code: int) returns int {
+    return code
 }
 
-pub fn choose_guard(strict: bool, limit: int) -> fn(int) -> int {
+public func choose_guard(strict: bool, limit: int) returns func(int) returns int {
     if strict {
-        return |value: int| value + limit;
+        return | value: int | value + limit
     }
-    return |value: int| value;
+    return | value: int | value
 }
 
-pub fn validate_serving_contract() -> int {
-    serve.reset();
-    let server = serve.server_new(2);
-    serve.server_set_model_version(server, "integrated-v1");
-    serve.server_warmup(server);
-    let req = serve.server_enqueue(server, 21);
-    serve.server_process_batch(server, 1);
+public func validate_serving_contract() returns int {
+    serve.reset()
+    let server = serve.server_new(2)
+    serve.server_set_model_version(server, "integrated-v1")
+    serve.server_warmup(server)
+    let req = serve.server_enqueue(server, 21)
+    serve.server_process_batch(server, 1)
     if serve.server_result(server, req) != 42 {
-        return 5;
+        return 5
     }
-    let snapshot = serve.server_monitoring_snapshot(server);
+    let snapshot = serve.server_monitoring_snapshot(server)
     if str.contains(snapshot, "\"model_version\":\"integrated-v1\"") {
-        let guard = choose_guard(true, 2);
-        return keep(snapshot, guard(0));
+        let guard = choose_guard( true, 2)
+        return keep(snapshot, guard(0))
     }
-    return 6;
+    return 6
 }

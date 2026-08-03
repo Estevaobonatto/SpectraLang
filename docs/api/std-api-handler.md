@@ -28,10 +28,10 @@ The module exposes stable helpers that normalize common handler return
 values into `Response`:
 
 ```spectra
-let ok = handler.text("created");
-let body = handler.json("{\"ok\":true}");
-let empty = handler.status(204);
-let with_id = handler.with_header(ok, "X-Request-Id", "abc");
+let ok = handler.text("created")
+let body = handler.json("{\"ok\":true}")
+let empty = handler.status(204)
+let with_id = handler.with_header(ok, "X-Request-Id", "abc")
 ```
 
 `into_text_response` and `into_status_response` are the public Spectra bridge

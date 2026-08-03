@@ -1,55 +1,55 @@
-module boletim_main;
+module boletim_main
 
-import std.io;
-import std.collections;
-import notas;
-import aluno;
-import turma;
+import std.io
+import std.collections
+import notas
+import aluno
+import turma
 
-pub fn main() -> int {
-    println("==========================================");
-    println("      SISTEMA DE BOLETIM ESCOLAR         ");
-    println("==========================================");
-    println("");
+public func main() returns int {
+    println("==========================================")
+    println("      SISTEMA DE BOLETIM ESCOLAR         ")
+    println("==========================================")
+    println("")
 
     // Lista de medias para o relatorio da turma
-    let medias = list_new();
+    let medias = list_new()
 
-    println("=== ALUNOS DA TURMA 3A ===");
-    println("");
+    println("=== ALUNOS DA TURMA 3A ===")
+    println("")
 
-    let alice = Aluno::novo("Alice Silva", 92, 88, 95);
-    alice.imprimir();
-    list_push(medias, alice.media());
-    println("");
+    let alice = Aluno::novo("Alice Silva", 92, 88, 95)
+    alice.imprimir()
+    list_push(medias, alice.media())
+    println("")
 
-    let bob = Aluno::novo("Bob Oliveira", 65, 58, 72);
-    bob.imprimir();
-    list_push(medias, bob.media());
-    println("");
+    let bob = Aluno::novo("Bob Oliveira", 65, 58, 72)
+    bob.imprimir()
+    list_push(medias, bob.media())
+    println("")
 
-    let carol = Aluno::novo("Carol Mendes", 45, 50, 48);
-    carol.imprimir();
-    list_push(medias, carol.media());
-    println("");
+    let carol = Aluno::novo("Carol Mendes", 45, 50, 48)
+    carol.imprimir()
+    list_push(medias, carol.media())
+    println("")
 
-    let daniel = Aluno::novo("Daniel Costa", 80, 85, 78);
-    daniel.imprimir();
-    list_push(medias, daniel.media());
-    println("");
+    let daniel = Aluno::novo("Daniel Costa", 80, 85, 78)
+    daniel.imprimir()
+    list_push(medias, daniel.media())
+    println("")
 
-    let eduarda = Aluno::novo("Eduarda Lima", 98, 95, 100);
-    eduarda.imprimir();
-    list_push(medias, eduarda.media());
-    println("");
+    let eduarda = Aluno::novo("Eduarda Lima", 98, 95, 100)
+    eduarda.imprimir()
+    list_push(medias, eduarda.media())
+    println("")
 
-    let felipe = Aluno::novo("Felipe Santos", 55, 62, 58);
-    felipe.imprimir();
-    list_push(medias, felipe.media());
-    println("");
+    let felipe = Aluno::novo("Felipe Santos", 55, 62, 58)
+    felipe.imprimir()
+    list_push(medias, felipe.media())
+    println("")
 
-    relatorio_turma("Turma 3A", medias);
+    relatorio_turma("Turma 3A", medias)
 
-    list_free(medias);
-    return 0;
+    list_free(medias)
+    return 0
 }

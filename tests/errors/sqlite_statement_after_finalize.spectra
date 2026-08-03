@@ -1,3 +1,5 @@
-module sqlite_statement_after_finalize;
-import { finalize } from std.api.db.sqlite;
-pub fn main() -> int { finalize(); return 0; }
+module sqlite_statement_after_finalize
+from std.api.db.sqlite import finalize
+public func main() returns int { finalize()
+    return 0
+}

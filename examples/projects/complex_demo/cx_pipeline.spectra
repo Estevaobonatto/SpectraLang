@@ -1,8 +1,8 @@
-module cx_pipeline;
+module cx_pipeline
 
-import cx_geometry;
+import cx_geometry
 
-pub enum SizeClass {
+public enum SizeClass {
     Tiny,
     Small,
     Medium,
@@ -10,32 +10,39 @@ pub enum SizeClass {
 }
 
 // Classify an integer area into a size bucket
-pub fn classify_area(area: int) -> SizeClass {
-    if area >= 100 { return SizeClass::Large; }
-    if area >= 50  { return SizeClass::Medium; }
-    if area >= 10  { return SizeClass::Small; }
-    return SizeClass::Tiny;
+public func classify_area(area: int) returns SizeClass {
+    if area >= 100 { return SizeClass::Large
+    }
+    if area >= 50 { return SizeClass::Medium
+    }
+    if area >= 10 { return SizeClass::Small
+    }
+    return SizeClass::Tiny
 }
 
 // Map a SizeClass to a numeric value: Tiny=1, Small=2, Medium=3, Large=4
-pub fn class_value(c: SizeClass) -> int {
+public func class_value(c: SizeClass) returns int {
     match c {
-        SizeClass::Tiny   => { return 1; }
-        SizeClass::Small  => { return 2; }
-        SizeClass::Medium => { return 3; }
-        SizeClass::Large  => { return 4; }
+        when SizeClass::Tiny then { return 1
+        }
+        when SizeClass::Small then { return 2
+        }
+        when SizeClass::Medium then { return 3
+        }
+        when SizeClass::Large then { return 4
+        }
     }
 }
 
 // Classify an integer area and return the class value
-pub fn shape_class_value(area: int) -> int {
-    let cls = classify_area(area);
-    return class_value(cls);
+public func shape_class_value(area: int) returns int {
+    let cls = classify_area(area)
+    return class_value(cls)
 }
 
 // Multi-hop: compute area via cx_geometry then return it
 // Tests that a non-main module can call qualified functions from an imported module
-pub fn area_of_square(side: int) -> int {
-    let sq = cx_geometry::Shape::Rect(side, side);
-    return cx_geometry::shape_area(sq);
+public func area_of_square(side: int) returns int {
+    let sq = cx_geometry::Shape::Rect(side, side)
+    return cx_geometry::shape_area(sq)
 }

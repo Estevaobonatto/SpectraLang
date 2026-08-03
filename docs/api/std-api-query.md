@@ -32,10 +32,11 @@ The parser applies RFC 3986 percent decoding:
 Repeated keys are arrays:
 
 ```spectra
-let query = parse("/search?tag=rust&tag=api");
-let total = count(query, "tag");      // 2
-let first_tag = value(query, "tag", 0);
-let second_tag = value(query, "tag", 1);
+let query = parse("/search?tag=rust&tag=api")
+let total = count(query, "tag")
+      // 2
+let first_tag = value(query, "tag", 0)
+let second_tag = value(query, "tag", 1)
 ```
 
 `first(query, key)` is a convenience for index `0`. Missing keys return an
@@ -48,12 +49,12 @@ Bindings are schema-driven until package-level native extern declarations
 and reflection over user structs are available:
 
 ```spectra
-let raw = parse("/search?page=2&published=true&tag=rust&tag=api");
-let s0 = schema();
-let s1 = schema_field(s0, "page", type_int(), true, false);
-let s2 = schema_field(s1, "published", type_bool(), true, false);
-let s3 = schema_field(s2, "tag", type_string(), false, true);
-let binding = bind(raw, s3);
+let raw = parse("/search?page=2&published=true&tag=rust&tag=api")
+let s0 = schema()
+let s1 = schema_field(s0, "page", type_int(), true, false)
+let s2 = schema_field(s1, "published", type_bool(), true, false)
+let s3 = schema_field(s2, "tag", type_string(), false, true)
+let binding = bind(raw, s3)
 ```
 
 `binding_ok(binding)` reports whether all fields passed the schema. Typed

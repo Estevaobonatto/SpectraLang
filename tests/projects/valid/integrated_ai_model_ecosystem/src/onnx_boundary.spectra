@@ -1,16 +1,16 @@
-module onnx_boundary;
+module onnx_boundary
 
-import std.ml as ml;
-import std.string as str;
+import std.ml as ml
+import std.string as str
 
-pub fn validate_onnx_boundary() -> int {
-    let exported = ml.onnx_export("target/r2008/integrated-model.onnx", "linear");
+public func validate_onnx_boundary() returns int {
+    let exported = ml.onnx_export("target/r2008/integrated-model.onnx", "linear")
     if ml.onnx_validate(exported) != 1 {
-        return 1;
+        return 1
     }
-    let summary = ml.onnx_import_summary(exported);
+    let summary = ml.onnx_import_summary(exported)
     if str.contains(summary, "Gemm") {
-        return 0;
+        return 0
     }
-    return 2;
+    return 2
 }

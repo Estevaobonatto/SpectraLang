@@ -1,108 +1,108 @@
-module leetcode_dynamic_programming;
+module leetcode_dynamic_programming
 
-fn coin_change_min() -> int {
-    let coins = [1, 2, 5];
-    let dp = [0, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99];
-    let amount = 1;
+func coin_change_min() returns int {
+    let coins  = [1, 2, 5]
+    let dp     = [0, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99]
+    let amount = 1
 
     while amount <= 11 {
-        let index = 0;
+        let index = 0
         while index < 3 {
-            let coin = coins[index];
+            let coin = coins[index]
             if coin <= amount {
-                let candidate = dp[amount - coin] + 1;
+                let candidate = dp[amount - coin] + 1
                 if candidate < dp[amount] {
-                    dp[amount] = candidate;
+                    dp[amount] = candidate
                 }
             }
-            index = index + 1;
+            index = index + 1
         }
-        amount = amount + 1;
+        amount = amount + 1
     }
 
-    return dp[11];
+    return dp[11]
 }
 
-fn longest_increasing_subsequence() -> int {
-    let values = [10, 9, 2, 5, 3, 7, 101, 18];
-    let dp = [1, 1, 1, 1, 1, 1, 1, 1];
-    let best = 1;
-    let i = 1;
+func longest_increasing_subsequence() returns int {
+    let values = [10, 9, 2, 5, 3, 7, 101, 18]
+    let dp     = [1, 1, 1, 1, 1, 1, 1, 1]
+    let best   = 1
+    let i      = 1
 
     while i < 8 {
-        let j = 0;
+        let j = 0
         while j < i {
             if values[j] < values[i] {
-                let candidate = dp[j] + 1;
+                let candidate = dp[j] + 1
                 if candidate > dp[i] {
-                    dp[i] = candidate;
+                    dp[i] = candidate
                 }
             }
-            j = j + 1;
+            j = j + 1
         }
         if dp[i] > best {
-            best = dp[i];
+            best = dp[i]
         }
-        i = i + 1;
+        i = i + 1
     }
 
-    return best;
+    return best
 }
 
-fn max_subarray_sum() -> int {
-    let values = [-2, 1, -3, 4, -1, 2, 1, -5, 4];
-    let current = values[0];
-    let best = values[0];
-    let index = 1;
+func max_subarray_sum() returns int {
+    let values  = [-2, 1, -3, 4, -1, 2, 1, -5, 4]
+    let current = values[0]
+    let best    = values[0]
+    let index   = 1
 
     while index < 9 {
         if current + values[index] < values[index] {
-            current = values[index];
+            current = values[index]
         } else {
-            current = current + values[index];
+            current = current + values[index]
         }
         if current > best {
-            best = current;
+            best = current
         }
-        index = index + 1;
+        index = index + 1
     }
 
-    return best;
+    return best
 }
 
-fn house_robber() -> int {
-    let houses = [2, 7, 9, 3, 1];
-    let previous_two = 0;
-    let previous_one = 0;
-    let index = 0;
+func house_robber() returns int {
+    let houses       = [2, 7, 9, 3, 1]
+    let previous_two = 0
+    let previous_one = 0
+    let index        = 0
 
     while index < 5 {
-        let take = previous_two + houses[index];
-        let skip = previous_one;
-        let current = skip;
+        let take    = previous_two + houses[index]
+        let skip    = previous_one
+        let current = skip
         if take > skip {
-            current = take;
+            current = take
         }
-        previous_two = previous_one;
-        previous_one = current;
-        index = index + 1;
+        previous_two = previous_one
+        previous_one = current
+        index = index + 1
     }
 
-    return previous_one;
+    return previous_one
 }
 
-pub fn main() -> int {
+public func main() returns int {
     if coin_change_min() != 3 {
-        return 1;
+        return 1
     }
     if longest_increasing_subsequence() != 4 {
-        return 2;
+        return 2
     }
     if max_subarray_sum() != 6 {
-        return 3;
+        return 3
     }
     if house_robber() != 12 {
-        return 4;
+        return 4
     }
-    return 0;
+    return 0
 }

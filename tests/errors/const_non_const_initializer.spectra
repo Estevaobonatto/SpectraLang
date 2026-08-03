@@ -1,12 +1,12 @@
 // Deve falhar: const nao pode depender de chamada em tempo de execucao.
-module const_non_const_initializer;
+module const_non_const_initializer
 
-fn runtime_value() -> int {
-    return 10;
+func runtime_value() returns int {
+    return 10
 }
 
-const BAD: int = runtime_value();
+const BAD: int = runtime_value()
 
-pub fn main() -> int {
-    return BAD;
+public func main() returns int {
+    return BAD
 }

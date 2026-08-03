@@ -84,7 +84,7 @@ def validate_static_files() -> None:
     parser = read("compiler/src/parser/module.rs")
     require(
         "Expected identifier after '.' in module name" in parser and "name.push('.')" in parser,
-        "parser must accept dotted package binding module names",
+        'parser must accept dotted package binding module names',
     )
 
     package_rs = read("tools/spectra-cli/src/package.rs")
@@ -98,8 +98,8 @@ def validate_static_files() -> None:
         require(term in package_rs, f"package CLI missing {term}")
 
     binding_root = read("packages/spectra-api/src/bindings/mod.spectra")
-    require("module spectra_api;" in binding_root, "binding root must be parseable")
-    require("pub fn main() -> int" in binding_root, "package run must have an entrypoint")
+    require('module spectra_api' in binding_root, "binding root must be parseable")
+    require('public func main() returns int' in binding_root, "package run must have an entrypoint")
 
 
 def validate_registry_flow(binary: Path) -> None:
@@ -111,7 +111,7 @@ def validate_registry_flow(binary: Path) -> None:
     consumer_src = consumer / "src"
     consumer_src.mkdir(parents=True)
     consumer_src.joinpath("main.spectra").write_text(
-        "module consumer;\n\npub fn main() -> int {\n    return 0;\n}\n",
+        'module consumer\n\npublic func main() returns int {\n    return 0\n}\n',
         encoding="utf-8",
     )
     consumer.joinpath("spectra.toml").write_text(

@@ -1,69 +1,69 @@
 // AI reference example: toy transformer inference using real std.ml primitives.
-module ai_toy_transformer_inference;
+module ai_toy_transformer_inference
 
-import std.tensor as tensor;
-import std.ml as ml;
-import std.serve as serve;
-import std.fs as fs;
+import std.tensor as tensor
+import std.ml as ml
+import std.serve as serve
+import std.fs as fs
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(false);
-    serve.reset();
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( false)
+    serve.reset()
 
-    let token_ids = tensor.arange(0, 2, 1);
-    let embedding_table = tensor.reshape(tensor.full_f(8, 1.0), 4, 2);
-    let embedded = ml.embedding_lookup(embedding_table, token_ids);
-    let positions = ml.positional_encoding(2, 2);
-    let query = ml.swiglu(embedded, positions);
-    let key = embedded;
-    let value = tensor.reshape(tensor.full_f(4, 2.0), 2, 2);
+    let token_ids       = tensor.arange(0, 2, 1)
+    let embedding_table = tensor.reshape(tensor.full_f(8, 1.0), 4, 2)
+    let embedded        = ml.embedding_lookup(embedding_table, token_ids)
+    let positions       = ml.positional_encoding(2, 2)
+    let query           = ml.swiglu(embedded, positions)
+    let key             = embedded
+    let value           = tensor.reshape(tensor.full_f(4, 2.0), 2, 2)
 
-    let attended = ml.attention(query, key, value);
+    let attended = ml.attention(query, key, value)
     if tensor.rows(attended) != 2 {
-        return 1;
+        return 1
     }
     if tensor.cols(attended) != 2 {
-        return 2;
+        return 2
     }
 
-    let scale = tensor.full_f(2, 1.0);
-    let bias = tensor.full_f(2, 0.0);
-    let normed = ml.layer_norm(attended, scale, bias, 0.00001);
-    let hidden = ml.gelu(normed);
+    let scale  = tensor.full_f(2, 1.0)
+    let bias   = tensor.full_f(2, 0.0)
+    let normed = ml.layer_norm(attended, scale, bias, 0.00001)
+    let hidden = ml.gelu(normed)
     if tensor.len(hidden) != 4 {
-        return 3;
+        return 3
     }
 
-    let cache = ml.kv_cache_new(8, 2);
+    let cache = ml.kv_cache_new(8, 2)
     if ml.kv_cache_append(cache, key, value) != 2 {
-        return 4;
+        return 4
     }
     if ml.kv_cache_len(cache) != 2 {
-        return 5;
+        return 5
     }
 
-    tensor.seed(2026);
-    let logits = tensor.reshape(tensor.full_f(4, 1.0), 1, 4);
-    let sampled = ml.logits_sample(logits, 1.0);
+    tensor.seed(2026)
+    let logits  = tensor.reshape(tensor.full_f(4, 1.0), 1, 4)
+    let sampled = ml.logits_sample(logits, 1.0)
     if sampled < 0 {
-        return 6;
+        return 6
     }
     if sampled > 3 {
-        return 7;
+        return 7
     }
 
-    let server = serve.server_new(3);
-    serve.server_warmup(server);
-    let request = serve.server_enqueue(server, 14);
-    serve.server_process_batch(server, 1);
+    let server = serve.server_new(3)
+    serve.server_warmup(server)
+    let request = serve.server_enqueue(server, 14)
+    serve.server_process_batch(server, 1)
     if serve.server_result(server, request) != 42 {
-        return 8;
+        return 8
     }
 
-    fs.fs_write("target/ai-examples/toy_transformer_inference.txt", "spectralang toy transformer inference\nprimitive_attention=1\nkv_cache_len=2\nserver_result=42\n");
+    fs.fs_write("target/ai-examples/toy_transformer_inference.txt", "spectralang toy transformer inference\nprimitive_attention=1\nkv_cache_len=2\nserver_result=42\n")
 
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
-    return 0;
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
+    return 0
 }

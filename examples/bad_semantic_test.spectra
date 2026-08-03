@@ -1,7 +1,8 @@
-module bad_semantic;
+module bad_semantic
 
-fn foo() -> int {
-    let x: str = 42;
-    return x;
+func foo() returns int {
+    let x: str = 42
+    return x
 }
-pub fn main() { foo(); }
+public func main() { foo()
+}

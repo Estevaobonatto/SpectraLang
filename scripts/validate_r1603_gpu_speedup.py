@@ -86,9 +86,9 @@ def gpu_adapter_available(binary: Path) -> bool:
     BENCH_WORKDIR.mkdir(parents=True, exist_ok=True)
     probe = BENCH_WORKDIR / "gpu-adapter-probe.spectra"
     probe.write_text(
-        "module r1603_gpu_adapter_probe;\n"
+        'module r1603_gpu_adapter_probe\n'
         "import std.tensor as tensor;\n"
-        "pub fn main() -> int {\n"
+        'public func main() returns int {\n'
         "    if tensor.device_available(6) { return 0; }\n"
         "    return 2;\n"
         "}\n",

@@ -1,79 +1,79 @@
-module main_project;
+module main_project
 
-import std.io;
-import mathlib;
-import geometry;
-import stats;
-import structs_mod;
-import traits_mod;
-import enums_mod;
+import std.io
+import mathlib
+import geometry
+import stats
+import structs_mod
+import traits_mod
+import enums_mod
 
-pub fn main() -> int {
-    println("=== Multi-Module Test Project ===");
+public func main() returns int {
+    println("=== Multi-Module Test Project ===")
 
     // Test mathlib
-    println("--- mathlib ---");
-    let sq = square(7);
-    println(sq);
+    println("--- mathlib ---")
+    let sq = square(7)
+    println(sq)
 
-    let cb = cube(3);
-    println(cb);
+    let cb = cube(3)
+    println(cb)
 
-    let fact = factorial(6);
-    println(fact);
+    let fact = factorial(6)
+    println(fact)
 
-    let mx = max(10, 25);
-    println(mx);
+    let mx = max(10, 25)
+    println(mx)
 
-    let mn = min(10, 25);
-    println(mn);
+    let mn = min(10, 25)
+    println(mn)
 
-    let av = abs_val(-42);
-    println(av);
+    let av = abs_val(-42)
+    println(av)
 
     // Test geometry
-    println("--- geometry ---");
-    let dist = manhattan_distance(0, 0, 3, 4);
-    println(dist);
+    println("--- geometry ---")
+    let dist = manhattan_distance(0, 0, 3, 4)
+    println(dist)
 
-    let area = rect_area(5, 8);
-    println(area);
+    let area = rect_area(5, 8)
+    println(area)
 
-    let perim = rect_perimeter(5, 8);
-    println(perim);
+    let perim = rect_perimeter(5, 8)
+    println(perim)
 
-    let sq_area = square_area(6);
-    println(sq_area);
+    let sq_area = square_area(6)
+    println(sq_area)
 
     // Test stats
-    println("--- stats ---");
-    let s = sum_n(10);
-    println(s);
+    println("--- stats ---")
+    let s = sum_n(10)
+    println(s)
 
-    let cnt = range_count(3, 7);
-    println(cnt);
+    let cnt = range_count(3, 7)
+    println(cnt)
 
-    let pw = power(2, 8);
-    println(pw);
+    let pw = power(2, 8)
+    println(pw)
 
-    let ev = is_even(42);
-    println(ev);
+    let ev = is_even(42)
+    println(ev)
 
     // Test structs with impl blocks
-    println("--- structs ---");
-    let struct_result = run_structs_tests();
-    println(struct_result);
+    println("--- structs ---")
+    let struct_result = run_structs_tests()
+    println(struct_result)
 
     // Test traits
-    println("--- traits ---");
-    let traits_result = run_traits_tests();
-    println(traits_result);
+    println("--- traits ---")
+    let traits_result = run_traits_tests()
+    println(traits_result)
 
     // Test enums and match
-    println("--- enums ---");
-    let enums_result = run_enums_tests();
-    println(enums_result);
+    println("--- enums ---")
+    let enums_result = run_enums_tests()
+    println(enums_result)
 
-    println("=== All tests passed ===");
-    return 0;
+    println("=== All tests passed ===")
+    return 0
 }

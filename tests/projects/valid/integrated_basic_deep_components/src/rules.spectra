@@ -1,30 +1,30 @@
-module rules;
+module rules
 
-import ledger;
+import ledger
 
-pub trait ChargeRule {
-    fn charge(&self) -> int;
+public trait ChargeRule {
+    func charge( & self) returns int
 }
 
-pub struct FixedCharge {
-    pub base: int,
-    pub fee: int,
+public record FixedCharge {
+    public base: int,
+    public fee: int,
 }
 
 impl ChargeRule for FixedCharge {
-    fn charge(&self) -> int {
-        return self.base + self.fee;
+    func charge( & self) returns int {
+        return self.base + self.fee
     }
 }
 
-pub fn apply_charge(rule: FixedCharge) -> int {
-    return rule.charge();
+public func apply_charge(rule: FixedCharge) returns int {
+    return rule.charge()
 }
 
-pub fn state_score(state: PaymentState) -> int {
+public func state_score(state: PaymentState) returns int {
     return match state {
-        PaymentState::Empty => 0,
-        PaymentState::Partial { due } => due,
-        PaymentState::Closed(total) => total
-    };
+        when PaymentState::Empty then 0,
+        when PaymentState::Partial { due } then due,
+        when PaymentState::Closed(total) then total
+    }
 }

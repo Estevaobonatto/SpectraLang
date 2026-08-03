@@ -3,18 +3,18 @@
 // The compiler exposes these declarations as the stable `std.api.query`
 // built-in module. Native behavior is provided by `spectra.api.query.*`.
 
-module std.api.query;
+module std.api.query
 
-pub struct Query {
-    pub len: int,
+public record Query {
+    public len: int,
 }
 
-pub struct QuerySchema {
-    pub field_count: int,
+public record QuerySchema {
+    public field_count: int,
 }
 
-pub struct QueryBinding {
-    pub ok: bool,
+public record QueryBinding {
+    public ok: bool,
 }
 
 // Native function declarations are represented in

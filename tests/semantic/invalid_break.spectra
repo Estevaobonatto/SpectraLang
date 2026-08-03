@@ -1,8 +1,9 @@
 // Teste: Break fora de loop
-module test_invalid_break;
+module test_invalid_break
 
-pub fn main() {
-    let x = 10;
-    break; // ERRO: break fora de loop
-    return;
+public func main() {
+    let x = 10
+    break
+    // ERRO: break fora de loop
+    return
 }

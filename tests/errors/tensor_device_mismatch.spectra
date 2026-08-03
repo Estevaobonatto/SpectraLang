@@ -1,8 +1,8 @@
 // Negative: tensor device annotations must match when both sides declare them.
-module tensor_device_mismatch;
+module tensor_device_mismatch
 
-pub fn main() -> int {
-    let source: Tensor<float, rank1, dim3, row_major, cpu> = [1.0, 2.0, 3.0];
-    let target: Tensor<float, rank1, dim3, row_major, wgpu> = source;
-    return 0;
+public func main() returns int {
+    let source: Tensor<float, rank1, dim3, row_major, cpu>  = [1.0, 2.0, 3.0]
+    let target: Tensor<float, rank1, dim3, row_major, wgpu> = source
+    return 0
 }

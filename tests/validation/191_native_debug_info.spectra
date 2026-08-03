@@ -1,25 +1,25 @@
-module native_debug_info;
+module native_debug_info
 
-struct DebugPoint {
+record DebugPoint {
     value: int,
 }
 
-fn helper(value: int) -> int {
-    let doubled = value * 2;
-    return doubled;
+func helper(value: int) returns int {
+    let doubled = value * 2
+    return doubled
 }
 
-pub fn main() {
-    let input = 21;
-    let result = helper(input);
-    let debug_value = result;
-    let point = DebugPoint { value: debug_value };
-    let count = 0;
+public func main() {
+    let input       = 21
+    let result      = helper(input)
+    let debug_value = result
+    let point       = DebugPoint { value: debug_value }
+    let count       = 0
     while count < 2 {
-        count = count + 1;
+        count = count + 1
     }
-    if point.value == 42 && count == 2 {
-        return;
+    if point.value == 42 and count == 2 {
+        return
     }
-    return;
+    return
 }

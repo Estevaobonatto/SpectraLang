@@ -1309,15 +1309,15 @@ mod tests {
     #[test]
     fn test_end_to_end_simple() {
         let source = r#"
-            module test;
+            module test
             
-            fn add(a: int, b: int) -> int {
-                return a + b;
+            func add(a: int, b: int)  returns  int {
+                return a + b
             }
             
-            pub fn main() {
-                let x = add(5, 3);
-                return;
+            public func main() {
+                let x = add(5, 3)
+                return
             }
         "#;
 
@@ -1330,17 +1330,17 @@ mod tests {
     #[test]
     fn test_end_to_end_with_optimization() {
         let source = r#"
-            module test;
+            module test
             
-            fn compute() -> int {
-                let x = 10 + 20;
-                let y = x * 2;
-                return y;
+            func compute()  returns  int {
+                let x = 10 + 20
+                let y = x * 2
+                return y
             }
             
-            pub fn main() {
-                let result = compute();
-                return;
+            public func main() {
+                let result = compute()
+                return
             }
         "#;
 
@@ -1365,19 +1365,19 @@ mod tests {
     #[test]
     fn test_end_to_end_control_flow() {
         let source = r#"
-            module test;
+            module test
             
-            fn max(a: int, b: int) -> int {
+            func max(a: int, b: int)  returns  int {
                 if a > b {
-                    return a;
+                    return a
                 } else {
-                    return b;
+                    return b
                 }
             }
             
-            pub fn main() {
-                let result = max(10, 20);
-                return;
+            public func main() {
+                let result = max(10, 20)
+                return
             }
         "#;
 
@@ -1390,23 +1390,23 @@ mod tests {
     #[test]
     fn test_end_to_end_loop() {
         let source = r#"
-            module test;
+            module test
             
-            fn factorial(n: int) -> int {
-                let result = 1;
-                let i = 1;
+            func factorial(n: int)  returns  int {
+                let result = 1
+                let i = 1
                 
                 while i <= n {
-                    result = result * i;
-                    i = i + 1;
+                    result = result * i
+                    i = i + 1
                 }
                 
-                return result;
+                return result
             }
             
-            pub fn main() {
-                let result = factorial(5);
-                return;
+            public func main() {
+                let result = factorial(5)
+                return
             }
         "#;
 

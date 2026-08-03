@@ -1,9 +1,9 @@
-module generic_return_type_mismatch_codegen_guard;
+module generic_return_type_mismatch_codegen_guard
 
-fn identity_as_int<T>(value: T) -> int {
-    return value;
+func identity_as_int<T>(value: T) returns int {
+    return value
 }
 
-pub fn main() -> int {
-    return identity_as_int("bad");
+public func main() returns int {
+    return identity_as_int("bad")
 }

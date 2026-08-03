@@ -215,12 +215,12 @@ Every SpectraLang source file must follow this mandatory structure:
 
 ```spectra
 // 1. Declaração de módulo (OBRIGATÓRIA / REQUIRED)
-module nome.do.modulo;
+module nome.do.modulo
 
 // 2. Importações (opcionais / optional)
-import std.io;
-import std.math as math;
-import { println, print } from std.io;
+import std.io
+import std.math as math
+from std.io import println, print
 
 // 3. Declarações de nível superior (top-level items)
 //    - Funções (fn)
@@ -229,36 +229,36 @@ import { println, print } from std.io;
 //    - Implementações (impl)
 //    - Traits (trait)
 
-pub fn main() -> int {
-    println("Hello, World!");
-    return 0;
+public func main() returns int {
+    println("Hello, World!")
+    return 0
 }
 ```
 
 **PT-BR:**  
 **Regras obrigatórias:**
 - A declaração `module` deve ser **a primeira linha** do arquivo (antes de qualquer código, após comentários opcionais).
-- O nome do módulo usa **pontos** como separador de caminhos: `module fisica.vetor;` (por convenção espelha a hierarquia de pastas, mas não é obrigatório).
+- O nome do módulo usa **pontos** como separador de caminhos: `module fisica.vetor` (por convenção espelha a hierarquia de pastas, mas não é obrigatório).
 - Importações participam da resolução semântica, e o CLI consegue compilar projetos multi-arquivo e conjuntos explícitos de arquivos.
-- `import std.io;` expõe símbolos da stdlib como `println` diretamente, e chamadas qualificadas como `std.io.println(...)` também são aceitas.
+- `import std.io` expõe símbolos da stdlib como `println` diretamente, e chamadas qualificadas como `std.io.println(...)` também são aceitas.
 - Alias de importação, named imports e re-exportações públicas fazem parte da superfície atual da linguagem.
 
 **EN-US:**  
 **Mandatory rules:**
 - The `module` declaration must be the **first line** of the file (before any code, after optional comments).
-- Module names use **dots** as path separators: `module physics.vector;` (by convention it mirrors the folder hierarchy, but this is not enforced).
+- Module names use **dots** as path separators: `module physics.vector` (by convention it mirrors the folder hierarchy, but this is not enforced).
 - Imports participate in semantic resolution, and the CLI can compile multi-file projects and explicit file sets.
-- `import std.io;` makes stdlib symbols such as `println` available directly, and qualified calls like `std.io.println(...)` are also accepted.
+- `import std.io` makes stdlib symbols such as `println` available directly, and qualified calls like `std.io.println(...)` are also accepted.
 - Alias imports, named imports, and public re-exports are part of the current language surface.
 
 ### Módulos e Caminhos / Modules and Paths
 
 ```spectra
 // Nomes válidos de módulo / Valid module names
-module app;
-module app.utils;
-module app.controllers.user;
-module std.collections;
+module app
+module app.utils
+module app.controllers.user
+module std.collections
 
 // Identificadores válidos / Valid identifiers
 // [A-Za-z_][A-Za-z0-9_]*
@@ -276,13 +276,13 @@ Vamos escrever o programa clássico "Hello, World!" em SpectraLang:
 Let's write the classic "Hello, World!" program in SpectraLang:
 
 ```spectra
-module hello;
+module hello
 
-import std.io;
+import std.io
 
-pub fn main() -> int {
-    println("Hello, World!");
-    return 0;
+public func main() returns int {
+    println("Hello, World!")
+    return 0
 }
 ```
 
@@ -293,13 +293,13 @@ Também podemos importar `println` diretamente para não precisar qualificar o n
 We can also import `println` directly to avoid qualifying the name:
 
 ```spectra
-module hello;
+module hello
 
-import { println } from std.io;
+from std.io import println
 
-pub fn main() -> int {
-    println("Hello, World!");
-    return 0;
+public func main() returns int {
+    println("Hello, World!")
+    return 0
 }
 ```
 
@@ -317,29 +317,29 @@ spectralang run hello.spectra
 ### Um Programa Mais Completo / A More Complete Program
 
 ```spectra
-module saudacao;
+module saudacao
 
-import { println, print } from std.io;
-import std.convert;
+from std.io import println, print
+import std.convert
 
-pub fn main() -> int {
-    let nome = "Maria";
-    let idade = 25;
+public func main() returns int {
+    let nome = "Maria"
+    let idade = 25
 
     // F-string para interpolação / F-string for interpolation
-    println(f"Olá, {nome}! Você tem {idade} anos.");
+    println(f"Olá, {nome}! Você tem {idade} anos.")
 
     // Chamada de função / Function call
-    let saudacao = criar_saudacao(nome, idade);
-    println(saudacao);
-    return 0;
+    let saudacao = criar_saudacao(nome, idade)
+    println(saudacao)
+    return 0
 }
 
-fn criar_saudacao(nome: string, idade: int) -> string {
+func criar_saudacao(nome: string, idade: int) returns string {
     if idade < 18 {
-        return f"Olá, {nome}! Bem-vindo(a), jovem!";
+        return f"Olá, {nome}! Bem-vindo(a), jovem!"
     } else {
-        return f"Olá, {nome}! Bem-vindo(a)!";
+        return f"Olá, {nome}! Bem-vindo(a)!"
     }
 }
 ```
@@ -389,13 +389,13 @@ spectralang run saudacao.spectra
 projeto/                   # Raiz do projeto / Project root
 ├── Spectra.toml           # Manifesto do projeto / Project manifest
 ├── src/
-│   ├── main.spectra       # module main; pub fn main() -> int { ... }
-│   ├── utils.spectra      # module utils;
+│   ├── main.spectra       # module main / public func main() returns int { ... }
+│   ├── utils.spectra      # module utils
 │   └── modelos/
-│       ├── usuario.spectra  # module modelos.usuario;
-│       └── produto.spectra  # module modelos.produto;
+│       ├── usuario.spectra  # module modelos.usuario
+│       └── produto.spectra  # module modelos.produto
 └── tests/
-    └── testes.spectra     # module tests;
+    └── testes.spectra     # module tests
 ```
 
 ### Formatação / Formatting
@@ -409,7 +409,7 @@ Use `spectralang fmt` to format automatically. The default rules are:
 - **Indentação / Indentation:** 4 espaços / 4 spaces
 - **Comprimento máximo de linha / Max line length:** 100 caracteres / characters
 - **Espaçamento em operadores / Operator spacing:** `a + b` (não `a+b`)
-- **Chaves / Braces:** Abre na mesma linha / Opens on same line: `fn foo() {`
+- **Chaves / Braces:** Abre na mesma linha / Opens on same line: `func foo() {`
 
 ---
 

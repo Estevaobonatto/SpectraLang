@@ -1,11 +1,11 @@
-module main;
+module main
 
-import prelude;
+import prelude
 
-pub fn main() -> int {
-    let value = total();
+public func main() returns int {
+    let value = total()
     if value != 63 {
-        return value;
+        return value
     }
-    return 0;
+    return 0
 }

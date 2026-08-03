@@ -1,32 +1,32 @@
-module model_evaluation_report;
+module model_evaluation_report
 
-import std.fs as fs;
-import std.ml as ml;
-import std.string as str;
-import std.tensor as tensor;
+import std.fs as fs
+import std.ml as ml
+import std.string as str
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
+public func main() returns int {
+    tensor.free_all()
 
-    let labels = tensor.arange(0, 4, 1);
-    let predictions = tensor.arange(0, 4, 1);
-    let classification = ml.metrics_classification(labels, predictions);
+    let labels         = tensor.arange(0, 4, 1)
+    let predictions    = tensor.arange(0, 4, 1)
+    let classification = ml.metrics_classification(labels, predictions)
 
-    let expected = tensor.full_f(4, 1.0);
-    let regression_predictions = tensor.full_f(4, 1.0);
-    let regression = ml.metrics_regression(expected, regression_predictions);
+    let expected               = tensor.full_f(4, 1.0)
+    let regression_predictions = tensor.full_f(4, 1.0)
+    let regression             = ml.metrics_regression(expected, regression_predictions)
 
-    let relevance = tensor.arange(0, 4, 1);
-    let scores = tensor.full_f(4, 1.0);
-    let ranking = ml.metrics_ranking(relevance, scores, 3);
+    let relevance = tensor.arange(0, 4, 1)
+    let scores    = tensor.full_f(4, 1.0)
+    let ranking   = ml.metrics_ranking(relevance, scores, 3)
 
     let generation = ml.metrics_generation(
         "Spectra evaluation uses reproducible metrics before serving",
         "evaluation uses reproducible metrics"
-    );
+    )
 
-    let latencies = tensor.arange(10, 60, 10);
-    let serving = ml.serving_metrics(latencies, 5, 0);
+    let latencies = tensor.arange(10, 60, 10)
+    let serving   = ml.serving_metrics(latencies, 5, 0)
 
     let report = ml.evaluation_report(
         "target/ai-examples/evaluation/model-evaluation.json",
@@ -36,14 +36,14 @@ pub fn main() -> int {
         ranking,
         generation,
         serving
-    );
+    )
 
     if str.contains(report, "model-evaluation.json") {
-        fs.fs_write("target/ai-examples/evaluation/summary.txt", "evaluation_report=created\nstatus=pass\n");
+        fs.fs_write("target/ai-examples/evaluation/summary.txt", "evaluation_report=created\nstatus=pass\n")
     } else {
-        return 1;
+        return 1
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

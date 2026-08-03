@@ -1,11 +1,11 @@
 module snapshot
 import path=std.tensor alias=tensor names=- reexport=false
-fn Private add(lhs: int, rhs: int) -> int
+func Private add(lhs: int, rhs: int) returns int
   let bind(total): unit = binary(ident(lhs) Add ident(rhs))
   return ident(total)
-async fn Private fetch() -> unit
+async func Private fetch() returns unit
   let bind(task): unit = async_block(expr number(1))
   let bind(work): unit = async_lambda([value] ident(value))
-fn Public main() -> int
+func Public main() returns int
   let bind(value): unit = call(ident(add) [number(40), number(2)])
   return ident(value)

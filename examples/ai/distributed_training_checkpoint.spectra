@@ -1,43 +1,43 @@
 // AI reference example: deterministic single-machine distributed training simulation.
-module ai_distributed_training_checkpoint;
+module ai_distributed_training_checkpoint
 
-import std.fs as fs;
-import std.ml as ml;
-import std.string as str;
+import std.fs as fs
+import std.ml as ml
+import std.string as str
 
-pub fn main() -> int {
-    let session = ml.distributed_session_start("ai-distributed-reference", "target/ai-examples/distributed-run", 2, 2026);
+public func main() returns int {
+    let session = ml.distributed_session_start("ai-distributed-reference", "target/ai-examples/distributed-run", 2, 2026)
 
-    ml.distributed_worker_step(session, 0, 16, 0.30);
-    ml.distributed_worker_step(session, 1, 16, 0.35);
-    ml.distributed_global_step(session);
+    ml.distributed_worker_step(session, 0, 16, 0.30)
+    ml.distributed_worker_step(session, 1, 16, 0.35)
+    ml.distributed_global_step(session)
 
     let checkpoint = ml.distributed_checkpoint_save(
         session,
         "target/ai-examples/distributed-run/checkpoint.json",
         1
-    );
+    )
 
-    let checkpoint_text = fs.fs_read(checkpoint);
+    let checkpoint_text = fs.fs_read(checkpoint)
     if str.contains(checkpoint_text, "spectra.ml.distributed_checkpoint.v1") {
-        let ok_checkpoint = 1;
+        let ok_checkpoint = 1
         if ok_checkpoint != 1 {
-            return 1;
+            return 1
         }
     } else {
-        return 1;
+        return 1
     }
 
-    let resumed = ml.distributed_resume(checkpoint);
-    ml.distributed_worker_step(resumed, 0, 8, 0.20);
-    ml.distributed_worker_step(resumed, 1, 8, 0.22);
+    let resumed = ml.distributed_resume(checkpoint)
+    ml.distributed_worker_step(resumed, 0, 8, 0.20)
+    ml.distributed_worker_step(resumed, 1, 8, 0.22)
     if ml.distributed_global_step(resumed) != 2 {
-        return 2;
+        return 2
     }
 
-    let summary = ml.distributed_summary(resumed);
+    let summary = ml.distributed_summary(resumed)
     if str.contains(summary, "single-machine-simulated-workers") {
-        return 0;
+        return 0
     }
-    return 3;
+    return 3
 }

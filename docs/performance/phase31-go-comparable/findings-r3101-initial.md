@@ -97,14 +97,19 @@ single allocation on `builder_finish`.
 ### New API
 
 ```spectra
-import std.string as str;
+import std.string as str
 
-let b = str.builder_new(0);        // capacity hint in bytes
-str.builder_push(b, "x|");          // append a string part
-str.builder_push(b, "y|");
-str.builder_len(b);                 // current total byte length
-let s = str.builder_finish(b);     // consume builder, return concatenated string
-str.builder_free(b);                // discard without finalizing
+let b = str.builder_new(0)
+        // capacity hint in bytes
+str.builder_push(b, "x|")
+          // append a string part
+str.builder_push(b, "y|")
+str.builder_len(b)
+                 // current total byte length
+let s = str.builder_finish(b)
+     // consume builder, return concatenated string
+str.builder_free(b)
+                // discard without finalizing
 ```
 
 The new functions are purely additive — `str.concat`, `str.repeat_str`,
@@ -188,7 +193,7 @@ is 16-24 MB of writes per call.
 ### Fix (in `runtime/src/stdlib/mod.rs`)
 
 - New helper `TensorRegistry::take_buffer_unfilled(len) -> Option<Vec<...>>`
-  returns a pooled buffer at the requested length **without** zeroing it.
+ returns a pooled buffer at the requested length **without** zeroing it.
   `take_buffer` delegates to it; on a miss it still returns a zero-filled
   buffer.
 - New host-call helper `tensor_alloc_buffered(dtype, shape, buffer)`
@@ -444,7 +449,7 @@ host call dispatcher:
 
 - `spectra_rt_concurrent_spawn_fast(value: i64) -> i64` — locks the
   `concurrent_registry` Mutex directly, calls `registry.spawn(value)`,
-  returns the task_id. No manual_alloc/free, no name lookup, no
+ returns the task_id. No manual_alloc/free, no name lookup, no
   catch_unwind, no host_registry lock.
 - `spectra_rt_concurrent_join_fast(task_id: i64) -> i64` — same
   pattern for join. Returns 0 for invalid task_ids.

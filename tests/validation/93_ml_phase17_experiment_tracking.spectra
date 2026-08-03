@@ -1,72 +1,72 @@
-module ml_phase17_experiment_tracking;
+module ml_phase17_experiment_tracking
 
-import std.fs as fs;
-import std.string as str;
-import std.ml as ml;
+import std.fs as fs
+import std.string as str
+import std.ml as ml
 
-pub fn main() -> int {
-    fs.fs_write("target/r1702-spectra.lock", "package root 1.0.0\n");
-    fs.fs_write("target/r1702-model.txt", "weights=2\n");
-    fs.fs_write("target/r1702-artifact.txt", "loss=0.25\n");
+public func main() returns int {
+    fs.fs_write("target/r1702-spectra.lock", "package root 1.0.0\n")
+    fs.fs_write("target/r1702-model.txt", "weights=2\n")
+    fs.fs_write("target/r1702-artifact.txt", "loss=0.25\n")
 
-    let run_a = ml.experiment_start("tabular-run", "target/r1702-run-a", 123);
-    let run_b = ml.experiment_start("tabular-run", "target/r1702-run-b", 123);
-    let run_c = ml.experiment_start("tabular-run", "target/r1702-run-c", 123);
+    let run_a = ml.experiment_start("tabular-run", "target/r1702-run-a", 123)
+    let run_b = ml.experiment_start("tabular-run", "target/r1702-run-b", 123)
+    let run_c = ml.experiment_start("tabular-run", "target/r1702-run-c", 123)
 
-    ml.experiment_set_config(run_a, "dataset", "tests/fixtures/r1701/tabular.csv");
-    ml.experiment_set_config(run_a, "lr", "0.01");
-    ml.experiment_set_lockfile(run_a, "target/r1702-spectra.lock");
-    ml.experiment_set_model_output(run_a, "target/r1702-model.txt");
-    ml.experiment_log_artifact(run_a, "target/r1702-artifact.txt");
+    ml.experiment_set_config(run_a, "dataset", "tests/fixtures/r1701/tabular.csv")
+    ml.experiment_set_config(run_a, "lr", "0.01")
+    ml.experiment_set_lockfile(run_a, "target/r1702-spectra.lock")
+    ml.experiment_set_model_output(run_a, "target/r1702-model.txt")
+    ml.experiment_log_artifact(run_a, "target/r1702-artifact.txt")
 
-    ml.experiment_set_config(run_b, "dataset", "tests/fixtures/r1701/tabular.csv");
-    ml.experiment_set_config(run_b, "lr", "0.01");
-    ml.experiment_set_lockfile(run_b, "target/r1702-spectra.lock");
-    ml.experiment_set_model_output(run_b, "target/r1702-model.txt");
-    ml.experiment_log_artifact(run_b, "target/r1702-artifact.txt");
+    ml.experiment_set_config(run_b, "dataset", "tests/fixtures/r1701/tabular.csv")
+    ml.experiment_set_config(run_b, "lr", "0.01")
+    ml.experiment_set_lockfile(run_b, "target/r1702-spectra.lock")
+    ml.experiment_set_model_output(run_b, "target/r1702-model.txt")
+    ml.experiment_log_artifact(run_b, "target/r1702-artifact.txt")
 
-    ml.experiment_set_config(run_c, "dataset", "tests/fixtures/r1701/tabular.csv");
-    ml.experiment_set_config(run_c, "lr", "0.01");
-    ml.experiment_set_lockfile(run_c, "target/r1702-spectra.lock");
-    ml.experiment_set_model_output(run_c, "target/r1702-model.txt");
-    ml.experiment_log_artifact(run_c, "target/r1702-artifact.txt");
+    ml.experiment_set_config(run_c, "dataset", "tests/fixtures/r1701/tabular.csv")
+    ml.experiment_set_config(run_c, "lr", "0.01")
+    ml.experiment_set_lockfile(run_c, "target/r1702-spectra.lock")
+    ml.experiment_set_model_output(run_c, "target/r1702-model.txt")
+    ml.experiment_log_artifact(run_c, "target/r1702-artifact.txt")
 
-    ml.experiment_log_metric(run_a, "loss", 0.25, 1);
-    ml.experiment_log_metric(run_b, "loss", 0.25, 1);
-    ml.experiment_log_metric(run_c, "loss", 0.50, 1);
+    ml.experiment_log_metric(run_a, "loss", 0.25, 1)
+    ml.experiment_log_metric(run_b, "loss", 0.25, 1)
+    ml.experiment_log_metric(run_c, "loss", 0.50, 1)
 
-    ml.experiment_finish(run_a);
-    ml.experiment_finish(run_b);
-    ml.experiment_finish(run_c);
+    ml.experiment_finish(run_a)
+    ml.experiment_finish(run_b)
+    ml.experiment_finish(run_c)
 
-    let manifest_a = ml.experiment_manifest_path(run_a);
-    let manifest_b = ml.experiment_manifest_path(run_b);
-    let manifest_c = ml.experiment_manifest_path(run_c);
-    let command = ml.experiment_repro_command(run_a);
+    let manifest_a = ml.experiment_manifest_path(run_a)
+    let manifest_b = ml.experiment_manifest_path(run_b)
+    let manifest_c = ml.experiment_manifest_path(run_c)
+    let command    = ml.experiment_repro_command(run_a)
 
     if str.contains(command, "spectralang run") {
-        let ok_command = 1;
+        let ok_command = 1
         if ok_command != 1 {
-            return 1;
+            return 1
         }
     } else {
-       return 1;
+        return 1
     }
-    let manifest_text = fs.fs_read(manifest_a);
+    let manifest_text = fs.fs_read(manifest_a)
     if str.contains(manifest_text, "spectra.ml.experiment.v1") {
-        let ok_manifest = 1;
+        let ok_manifest = 1
         if ok_manifest != 1 {
-            return 2;
+            return 2
         }
     } else {
-        return 2;
+        return 2
     }
     if ml.experiment_compare_manifests(manifest_a, manifest_b) != 1 {
-        return 3;
+        return 3
     }
     if ml.experiment_compare_manifests(manifest_a, manifest_c) != 0 {
-        return 4;
+        return 4
     }
 
-    return 0;
+    return 0
 }

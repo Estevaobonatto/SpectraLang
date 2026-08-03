@@ -1,15 +1,15 @@
-module formal_send_bound_missing_across_await;
+module formal_send_bound_missing_across_await
 
-async fn ready(value: int) -> int {
-    return value;
+async func ready(value: int) returns int {
+    return value
 }
 
-fn keep<T>(value: T) -> int {
-    return 1;
+func keep<T>(value: T) returns int {
+    return 1
 }
 
-async fn bad<T>(value: T) -> int {
-    let carried = value;
-    let waited = await ready(1);
-    return waited + keep(carried);
+async func bad<T>(value: T) returns int {
+    let carried = value
+    let waited  = await ready(1)
+    return waited + keep(carried)
 }

@@ -1,99 +1,99 @@
-module tensor_phase16_gpu_backend;
+module tensor_phase16_gpu_backend
 
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.reset_stats();
+public func main() returns int {
+    tensor.free_all()
+    tensor.reset_stats()
 
     if tensor.device_status(0) != 0 {
-        return 1;
+        return 1
     }
     if tensor.device_available(0) {
-        let cpu_available = 1;
+        let cpu_available = 1
         if cpu_available != 1 {
-            return 2;
+            return 2
         }
     } else {
-        return 2;
+        return 2
     }
 
-    let wgpu_status = tensor.device_status(6);
+    let wgpu_status = tensor.device_status(6)
     if tensor.device_available(6) {
-        let wgpu_available = 1;
+        let wgpu_available = 1
         if wgpu_available != 1 {
-            return 4;
+            return 4
         }
     } else {
         if wgpu_status != 1 {
-            return 4;
+            return 4
         }
-        return 0;
+        return 0
     }
     if wgpu_status != 0 {
-        return 5;
+        return 5
     }
 
-    let one = 1.0;
-    let two = 2.0;
-    let a = tensor.to_device(tensor.full_f(4, one), 6);
-    let b = tensor.to_device(tensor.full_f(4, two), 6);
+    let one = 1.0
+    let two = 2.0
+    let a   = tensor.to_device(tensor.full_f(4, one), 6)
+    let b   = tensor.to_device(tensor.full_f(4, two), 6)
 
-    let added = tensor.add(a, b);
+    let added = tensor.add(a, b)
     if tensor.device(added) != 6 {
-        return 10;
+        return 10
     }
     if tensor.sum(added) != 12 {
-        return 11;
+        return 11
     }
 
-    let activated = tensor.relu(added);
+    let activated = tensor.relu(added)
     if tensor.sum(activated) != 12 {
-        return 12;
+        return 12
     }
 
-    let left = tensor.reshape(a, 2, 2);
-    let right = tensor.reshape(b, 2, 2);
-    let product = tensor.matmul(left, right);
+    let left    = tensor.reshape(a, 2, 2)
+    let right   = tensor.reshape(b, 2, 2)
+    let product = tensor.matmul(left, right)
     if tensor.device(product) != 6 {
-        return 13;
+        return 13
     }
     if tensor.sum(product) != 16 {
-        return 14;
+        return 14
     }
 
-    let input = tensor.to_device(tensor.full_f(4, one), 6);
-    let kernel = tensor.to_device(tensor.full_f(1, two), 6);
-    let bias = tensor.to_device(tensor.full_f(1, one), 6);
-    let conv = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1);
+    let input  = tensor.to_device(tensor.full_f(4, one), 6)
+    let kernel = tensor.to_device(tensor.full_f(1, two), 6)
+    let bias   = tensor.to_device(tensor.full_f(1, one), 6)
+    let conv   = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1)
     if tensor.device(conv) != 6 {
-        return 15;
+        return 15
     }
     if tensor.sum(conv) != 12 {
-        return 16;
+        return 16
     }
 
-    let tracked_source = tensor.requires_grad(tensor.to_device(tensor.full_f(4, one), 6), true);
-    let tracked = tensor.relu(tracked_source);
-    let loss = tensor.sum_t(tracked);
-    tensor.backward(loss);
-    let grad = tensor.grad(tracked_source);
+    let tracked_source = tensor.requires_grad(tensor.to_device(tensor.full_f(4, one), 6), true)
+    let tracked        = tensor.relu(tracked_source)
+    let loss           = tensor.sum_t(tracked)
+    tensor.backward(loss)
+    let grad = tensor.grad(tracked_source)
     if tensor.sum(grad) != 4 {
-        return 17;
+        return 17
     }
 
     if tensor.stats_device_transfers() < 5 {
-        return 18;
+        return 18
     }
     if tensor.stats_gpu_kernel_ops() < 5 {
-        return 19;
+        return 19
     }
     if tensor.stats_cpu_fallbacks() < 0 {
-        return 20;
+        return 20
     }
 
-    tensor.sync(conv);
-    tensor.free_all();
-    return 0;
+    tensor.sync(conv)
+    tensor.free_all()
+    return 0
 }

@@ -1,40 +1,40 @@
 // Teste 66: std.tensor MVP para IA/ML (handles, shape, ops e matmul)
-module tensor_core_surface;
+module tensor_core_surface
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let a = tensor.arange(1, 5, 1);
-    let b = tensor.full(4, 2);
-    let c = tensor.add(a, b);
+public func main() returns int {
+    let a = tensor.arange(1, 5, 1)
+    let b = tensor.full(4, 2)
+    let c = tensor.add(a, b)
 
     if tensor.len(c) != 4 {
-        return 1;
+        return 1
     }
     if tensor.get(c, 0) != 3 {
-        return tensor.get(c, 0);
+        return tensor.get(c, 0)
     }
     if tensor.sum(c) != 18 {
-        return tensor.sum(c);
+        return tensor.sum(c)
     }
 
-    let matrix_a = tensor.reshape(tensor.arange(1, 7, 1), 2, 3);
-    let matrix_b = tensor.ones2(3, 2);
-    let product = tensor.matmul(matrix_a, matrix_b);
+    let matrix_a = tensor.reshape(tensor.arange(1, 7, 1), 2, 3)
+    let matrix_b = tensor.ones2(3, 2)
+    let product  = tensor.matmul(matrix_a, matrix_b)
 
     if tensor.rows(product) != 2 {
-        return 2;
+        return 2
     }
     if tensor.cols(product) != 2 {
-        return 3;
+        return 3
     }
     if tensor.get2(product, 0, 0) != 6 {
-        return tensor.get2(product, 0, 0);
+        return tensor.get2(product, 0, 0)
     }
     if tensor.get2(product, 1, 0) != 15 {
-        return tensor.get2(product, 1, 0);
+        return tensor.get2(product, 1, 0)
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

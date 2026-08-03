@@ -2351,7 +2351,7 @@ dependencies = [
 
 [[package]]
 name = "spectra-cli"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "diff",
  "embed-resource",

@@ -1,5 +1,5 @@
-module spectra_api;
+module spectra_api
 
-pub fn main() -> int {
-    return 0;
+public func main() returns int {
+    return 0
 }

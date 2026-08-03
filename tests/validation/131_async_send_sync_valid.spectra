@@ -1,27 +1,27 @@
-module async_send_sync_valid;
+module async_send_sync_valid
 
-struct NonSend {
+record NonSend {
     value: int
 }
 
-async fn ready(value: int) -> int {
-    return value;
+async func ready(value: int) returns int {
+    return value
 }
 
-async fn local_value_does_not_cross_await() -> int {
-    let local = NonSend { value: 20 };
-    let copied = local.value;
-    let after = await ready(22);
-    return copied + after;
+async func local_value_does_not_cross_await() returns int {
+    let local  = NonSend { value: 20 }
+    let copied = local.value
+    let after  = await ready(22)
+    return copied + after
 }
 
-async fn send_values_cross_await() -> int {
-    let left = 10;
-    let right = await ready(32);
-    return left + right;
+async func send_values_cross_await() returns int {
+    let left  = 10
+    let right = await ready(32)
+    return left + right
 }
 
-fn main() -> int {
-    let task = send_values_cross_await();
-    return block_on(task) - 42;
+func main() returns int {
+    let task = send_values_cross_await()
+    return block_on(task) - 42
 }

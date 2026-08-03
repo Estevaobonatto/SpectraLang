@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Generate derivative icon assets from the canonical SVG in assets/icon.svg.
+"""Generate derivative icon assets from the canonical SVG in assets/logo spectra.svg.
 
 Outputs:
+  - assets/icon.svg                         (compatibility alias of the canonical logo)
   - assets/icon.png                         (512x512, reference PNG)
   - tools/vscode-extension/assets/spectra-icon.png       (128x128)
   - tools/vscode-extension/assets/spectra-file-light.png (24x24)
@@ -18,7 +19,8 @@ import cairosvg
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-SVG = ROOT / "assets" / "icon.svg"
+SVG = ROOT / "assets" / "logo spectra.svg"
+ICON_SVG = ROOT / "assets" / "icon.svg"
 
 ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
 
@@ -58,7 +60,13 @@ def save_png(path: Path, size: int) -> None:
     img.save(path, format="PNG")
 
 
+def sync_svg_alias() -> None:
+    """Keep the historical icon.svg path aligned with the current logo."""
+    ICON_SVG.write_bytes(SVG.read_bytes())
+
+
 def main() -> None:
+    sync_svg_alias()
     save_png(ROOT / "assets" / "icon.png", 512)
     save_png(ROOT / "tools" / "vscode-extension" / "assets" / "spectra-icon.png", 128)
     save_png(ROOT / "tools" / "vscode-extension" / "assets" / "spectra-file-light.png", 24)
@@ -68,6 +76,7 @@ def main() -> None:
 
     print("Icons generated from", SVG)
     for path in [
+        ROOT / "assets" / "icon.svg",
         ROOT / "assets" / "icon.png",
         ROOT / "tools" / "vscode-extension" / "assets" / "spectra-icon.png",
         ROOT / "tools" / "vscode-extension" / "assets" / "spectra-file-light.png",

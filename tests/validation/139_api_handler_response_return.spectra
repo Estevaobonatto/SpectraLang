@@ -1,133 +1,104 @@
-module api_handler_response_return;
+module api_handler_response_return
 
-import std.string as str;
+import std.string as str
 
-import {
-    Request,
-    Response,
-    method_get,
-    request,
-    response_status,
-    response_header,
-    response_body_len,
-} from std.api.http;
+from std.api.http import Request, Response, method_get, request, response_status, response_header, response_body_len
 
-import {
-    Handler,
-    AsyncHandler,
-    IntoResponse,
-    HandlerHandle,
-    AsyncHandlerHandle,
-    HandlerError,
-    text,
-    json,
-    status,
-    with_header,
-    into_text_response,
-    into_status_response,
-    error,
-    error_response,
-    error_code,
-    error_message,
-    register_sync,
-    register_async,
-    dispatch_sync,
-    dispatch_async,
-} from std.api.handler;
+from std.api.handler import Handler, AsyncHandler, IntoResponse, HandlerHandle, AsyncHandlerHandle, HandlerError, text, json, status, with_header, into_text_response, into_status_response, error, error_response, error_code, error_message, register_sync, register_async, dispatch_sync, dispatch_async
 
-struct TextValue {
+record TextValue {
     value: string
 }
 
 impl IntoResponse for TextValue {
-    fn into_response( & self) -> Response {
-        return into_text_response(self.value);
+    func into_response( & self) returns Response {
+        return into_text_response(self.value)
     }
 }
 
-struct SyncUserHandler {
+record SyncUserHandler {
     prefix: string
 }
 
 impl Handler for SyncUserHandler {
-    fn call( & self, request: Request) -> Response {
-        let value = TextValue { value: self.prefix};
-        return value.into_response();
+    func call( & self, request: Request) returns Response {
+        let value = TextValue { value: self.prefix }
+        return value.into_response()
     }
 }
 
-struct AsyncUserHandler {
+record AsyncUserHandler {
     status_code: int
 }
 
 impl AsyncHandler for AsyncUserHandler {
-    async fn call( & self, request: Request) -> Response {
-        return into_status_response(self.status_code);
+    async func call( & self, request: Request) returns Response {
+        return into_status_response(self.status_code)
     }
 }
 
-fn drive_sync(handler: SyncUserHandler, request: Request) -> Response {
-    return handler.call(request);
+func drive_sync(handler: SyncUserHandler, request: Request) returns Response {
+    return handler.call(request)
 }
 
-async fn exercise_async(request: Request) -> int {
-    let async_handler = AsyncUserHandler { status_code: 202};
-    let response      = await async_handler.call(request);
-    return response_status(response);
+async func exercise_async(request: Request) returns int {
+    let async_handler = AsyncUserHandler { status_code: 202 }
+    let response      = await async_handler.call(request)
+    return response_status(response)
 }
 
-pub fn main() -> int {
-    let req = request(method_get(), "/users/42");
+public func main() returns int {
+    let req = request(method_get(), "/users/42")
 
-    let sync_handler  = SyncUserHandler { prefix: "created"};
-    let sync_response = drive_sync(sync_handler, req);
+    let sync_handler  = SyncUserHandler { prefix: "created" }
+    let sync_response = drive_sync(sync_handler, req)
     if response_status(sync_response) != 200 {
-        return 10;
+        return 10
     }
     if response_body_len(sync_response) != 7 {
-        return 11;
+        return 11
     }
 
-    let task         = exercise_async(req);
-    let async_status = block_on(task);
+    let task         = exercise_async(req)
+    let async_status = block_on(task)
     if async_status != 202 {
-        return 20;
+        return 20
     }
 
-    let json_response = with_header(json("{\"ok\":true}"), "X-Handler", "json");
+    let json_response = with_header(json("{\"ok\":true}"), "X-Handler", "json")
     if response_status(json_response) != 200 {
-        return 30;
+        return 30
     }
     if str.contains(response_header(json_response, "content-type"), "application/json") != true {
-        return 31;
+        return 31
     }
     if str.contains(response_header(json_response, "x-handler"), "json") != true {
-        return 32;
+        return 32
     }
 
-    let sync_registered: HandlerHandle = register_sync(7, text("registered"));
-    let dispatched                     = dispatch_sync(sync_registered, req);
+    let sync_registered: HandlerHandle = register_sync(7, text("registered"))
+    let dispatched                     = dispatch_sync(sync_registered, req)
     if response_body_len(dispatched) != 10 {
-        return 40;
+        return 40
     }
 
-    let async_registered: AsyncHandlerHandle = register_async(8, status(204));
-    let async_dispatched                     = dispatch_async(async_registered, req);
+    let async_registered: AsyncHandlerHandle = register_async(8, status(204))
+    let async_dispatched                     = dispatch_async(async_registered, req)
     if response_status(async_dispatched) != 204 {
-        return 41;
+        return 41
     }
 
-    let handler_error: HandlerError = error(422, "invalid input");
+    let handler_error: HandlerError = error(422, "invalid input")
     if error_code(handler_error) != 422 {
-        return 50;
+        return 50
     }
     if str.contains(error_message(handler_error), "invalid input") != true {
-        return 51;
+        return 51
     }
-    let error_res = error_response(handler_error);
+    let error_res = error_response(handler_error)
     if response_status(error_res) != 422 {
-        return 52;
+        return 52
     }
 
-    return 0;
+    return 0
 }

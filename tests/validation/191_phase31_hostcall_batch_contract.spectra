@@ -1,41 +1,41 @@
-module phase31_hostcall_batch_contract;
+module phase31_hostcall_batch_contract
 
-import std.math as math;
-import std.tensor as tensor;
+import std.math as math
+import std.tensor as tensor
 
-fn grouped_scalars(a: int, b: int, c: int, x: float) -> int {
+func grouped_scalars(a: int, b: int, c: int, x: float) returns int {
     // Parameters keep these scalar hostcalls consecutive in the lowered IR.
-    let first = math.abs(a);
-    let second = math.max(b, c);
-    let third = math.abs_f(x);
-    let nan = math.is_nan_f(third);
+    let first  = math.abs(a)
+    let second = math.max(b, c)
+    let third  = math.abs_f(x)
+    let nan    = math.is_nan_f(third)
 
-    if first != 7 || second != 9 {
-        return 1;
+    if first != 7 or second != 9 {
+        return 1
     }
-    if third != 3.5 || nan != false {
-        return 2;
+    if third != 3.5 or nan != false {
+        return 2
     }
 
-    return first + second;
+    return first + second
 }
 
-pub fn main() -> int {
-    let grouped = grouped_scalars(-7, 3, 9, -3.5);
+public func main() returns int {
+    let grouped = grouped_scalars(-7, 3, 9, -3.5)
     if grouped != 16 {
-        return 1;
+        return 1
     }
 
     // A no-result generic hostcall remains in the source-order stream.
-    tensor.set_grad_enabled(false);
-    tensor.set_grad_enabled(true);
+    tensor.set_grad_enabled( false)
+    tensor.set_grad_enabled( true)
 
     // This call depends on previous hostcall results and must use the
     // individual fallback rather than being placed in the preceding batch.
-    let dependent = math.min(grouped, 9);
+    let dependent = math.min(grouped, 9)
     if dependent != 9 {
-        return 3;
+        return 3
     }
 
-    return 0;
+    return 0
 }

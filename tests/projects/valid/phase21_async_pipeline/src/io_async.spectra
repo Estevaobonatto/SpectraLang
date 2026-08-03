@@ -1,21 +1,21 @@
-module io_async;
+module io_async
 
-import tasks;
+import tasks
 
-pub async fn file_like_roundtrip(value: int) -> int {
-    let written = await tasks::ready(value + 1);
-    let read_back = await tasks::ready(written + 1);
-    return read_back;
+public async func file_like_roundtrip(value: int) returns int {
+    let written   = await tasks::ready(value + 1)
+    let read_back = await tasks::ready(written + 1)
+    return read_back
 }
 
-pub async fn socket_like_roundtrip(value: int) -> int {
-    let sent = await tasks::ready(value);
-    let received = await tasks::ready(sent);
-    return received;
+public async func socket_like_roundtrip(value: int) returns int {
+    let sent     = await tasks::ready(value)
+    let received = await tasks::ready(sent)
+    return received
 }
 
-pub async fn channel_like_roundtrip(value: int) -> int {
-    let send_status = await tasks::ready(1);
-    let received = await tasks::ready(value);
-    return send_status + received;
+public async func channel_like_roundtrip(value: int) returns int {
+    let send_status = await tasks::ready(1)
+    let received    = await tasks::ready(value)
+    return send_status + received
 }

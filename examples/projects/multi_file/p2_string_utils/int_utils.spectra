@@ -1,32 +1,32 @@
-module int_utils;
+module int_utils
 
-pub fn repeat_int(v: int, n: int) -> int {
-    let total = 0;
-    let i = 0;
+public func repeat_int(v: int, n: int) returns int {
+    let total = 0
+    let i     = 0
     while i < n {
-        total = total + v;
-        i = i + 1;
+        total = total + v
+        i = i + 1
     }
-    return total;
+    return total
 }
 
-pub fn gcd(a: int, b: int) -> int {
-    let x = a;
-    let y = b;
+public func gcd(a: int, b: int) returns int {
+    let x = a
+    let y = b
     while y != 0 {
-        let r = x - (x / y) * y;
-        x = y;
-        y = r;
+        let r = x - (x / y) * y
+        x = y
+        y = r
     }
-    return x;
+    return x
 }
 
-pub fn sum_range(lo: int, hi: int) -> int {
-    let total = 0;
-    let i = lo;
+public func sum_range(lo: int, hi: int) returns int {
+    let total = 0
+    let i     = lo
     while i <= hi {
-        total = total + i;
-        i = i + 1;
+        total = total + i
+        i = i + 1
     }
-    return total;
+    return total
 }

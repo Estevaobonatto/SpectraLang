@@ -1,2 +1,3 @@
-module no_main_test;
-fn helper() -> int { return 42; }
+module no_main_test
+func helper() returns int { return 42
+}

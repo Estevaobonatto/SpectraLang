@@ -3,33 +3,33 @@
 // The compiler exposes these declarations as the stable `std.api.handler`
 // built-in module. Native behavior is provided by `spectra.api.handler.*`.
 
-module std.api.handler;
+module std.api.handler
 
-import { Request, Response} from std.api.http;
+from std.api.http import Request, Response
 
-pub struct HandlerHandle {
-    pub route_id: int,
+public record HandlerHandle {
+    public route_id: int,
 }
 
-pub struct AsyncHandlerHandle {
-    pub route_id: int,
+public record AsyncHandlerHandle {
+    public route_id: int,
 }
 
-pub struct HandlerError {
-    pub status: int,
-    pub message: string,
+public record HandlerError {
+    public status: int,
+    public message: string,
 }
 
-pub trait IntoResponse {
-    fn into_response(&self) -> Response;
+public trait IntoResponse {
+    func into_response( & self) returns Response
 }
 
-pub trait Handler {
-    fn call(&self, request: Request) -> Response;
+public trait Handler {
+    func call( & self, request: Request) returns Response
 }
 
-pub trait AsyncHandler {
-    async fn call(&self, request: Request) -> Response;
+public trait AsyncHandler {
+    async func call( & self, request: Request) returns Response
 }
 
 // Native function declarations are represented in

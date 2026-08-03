@@ -1,21 +1,21 @@
-module test;
+module test
 
-struct Point {
+record Point {
     x: int,
     y: int
 }
 
 impl Point {
-    fn new(x: int, y: int) -> Point {
+    func new(x: int, y: int) returns Point {
         Point { x: x, y: y }
     }
-    
-    fn get_x(&self) -> int {
-        42  // Simplificado - retorna constante
+
+    func get_x( & self) returns int {
+        42 // Simplificado - retorna constante
     }
 }
 
-fn main() -> int {
-    let p = Point::new(3, 4);
+func main() returns int {
+    let p = Point::new(3, 4)
     0
 }

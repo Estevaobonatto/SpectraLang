@@ -1,8 +1,8 @@
-module main;
+module main
 
-import counter;
+import counter
 
-pub fn main() -> int {
-    let c = Counter::new(1);
-    return c.reset();
+public func main() returns int {
+    let c = Counter::new(1)
+    return c.reset()
 }

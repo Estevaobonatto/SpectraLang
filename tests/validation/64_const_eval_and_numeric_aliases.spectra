@@ -1,37 +1,37 @@
 // Teste 64: const eval e aliases numericos de superficie
-module const_eval_and_numeric_aliases;
+module const_eval_and_numeric_aliases
 
-const BASE: i32 = 40 + 2;
-const SCALE: f32 = BASE as f32;
-const FLAG: bool = BASE == 42 && SCALE > 41.0;
-const LETTER: char = 65 as char;
+const BASE: i32 = 40 + 2
+const SCALE: f32 = BASE as f32
+const FLAG: bool = BASE == 42 and SCALE > 41.0
+const LETTER: char = 65 as char
 
-pub fn main() -> int {
-    let tiny: i8 = 1;
-    let small: i16 = 2;
-    let regular: i32 = 3;
-    let wide: i64 = 4;
-    let unsigned: u8 = 5;
-    let unsigned_wide: u64 = 6;
-    let single: f32 = 3.5;
-    let double: f64 = 4.5;
+public func main() returns int {
+    let tiny: i8           = 1
+    let small: i16         = 2
+    let regular: i32       = 3
+    let wide: i64          = 4
+    let unsigned: u8       = 5
+    let unsigned_wide: u64 = 6
+    let single: f32        = 3.5
+    let double: f64        = 4.5
 
-    let float_total: f64 = single as f64 + double + SCALE as f64;
-    let int_total: i64 = tiny as i64 + small as i64 + regular as i64 + wide
-        + unsigned as i64 + unsigned_wide as i64 + BASE as i64;
+    let float_total: f64 = single as f64 + double + SCALE as f64
+    let int_total: i64   = tiny as i64 + small as i64 + regular as i64 + wide
+    + unsigned as i64 + unsigned_wide as i64 + BASE as i64
 
-    if !FLAG {
-        return 1;
+    if not FLAG {
+        return 1
     }
     if LETTER as int != 65 {
-        return 2;
+        return 2
     }
     if int_total != 63 {
-        return int_total as int;
+        return int_total as int
     }
     if float_total as int != 50 {
-        return float_total as int;
+        return float_total as int
     }
 
-    return 0;
+    return 0
 }

@@ -6,12 +6,16 @@ pub enum Keyword {
     // Module system
     Module,
     Import,
+    From,
     Export,
 
     // Declarations
+    Func,
     Fn,
+    Returns,
     Async,
     Await,
+    Record,
     Struct,
     Enum,
     Impl,
@@ -20,6 +24,7 @@ pub enum Keyword {
     Let,
 
     // Visibility
+    Public,
     Pub,
     Internal,
     Mut,
@@ -34,6 +39,9 @@ pub enum Keyword {
     Cond,
     If,
     Else,
+    When,
+    Then,
+    Otherwise,
     Elif,
     ElseIf,
     Unless,
@@ -56,6 +64,11 @@ pub enum Keyword {
     Yield,
     Goto,
 
+    // Word-form logical operators
+    AndWord,
+    OrWord,
+    NotWord,
+
     // Literals
     True,
     False,
@@ -76,12 +89,16 @@ impl Keyword {
             // Module system
             "module" => Some(Self::Module),
             "import" => Some(Self::Import),
+            "from" => Some(Self::From),
             "export" => Some(Self::Export),
 
             // Declarations
+            "func" => Some(Self::Func),
             "fn" => Some(Self::Fn),
+            "returns" => Some(Self::Returns),
             "async" => Some(Self::Async),
             "await" => Some(Self::Await),
+            "record" => Some(Self::Record),
             "struct" => Some(Self::Struct),
             "enum" => Some(Self::Enum),
             "impl" => Some(Self::Impl),
@@ -90,6 +107,7 @@ impl Keyword {
             "let" => Some(Self::Let),
 
             // Visibility
+            "public" => Some(Self::Public),
             "pub" => Some(Self::Pub),
             "internal" => Some(Self::Internal),
             "mut" => Some(Self::Mut),
@@ -104,6 +122,9 @@ impl Keyword {
             "cond" => Some(Self::Cond),
             "if" => Some(Self::If),
             "else" => Some(Self::Else),
+            "when" => Some(Self::When),
+            "then" => Some(Self::Then),
+            "otherwise" => Some(Self::Otherwise),
             "elif" => Some(Self::Elif),
             "elseif" => Some(Self::ElseIf),
             "unless" => Some(Self::Unless),
@@ -125,6 +146,11 @@ impl Keyword {
             "continue" => Some(Self::Continue),
             "yield" => Some(Self::Yield),
             "goto" => Some(Self::Goto),
+
+            // Word-form logical operators
+            "and" => Some(Self::AndWord),
+            "or" => Some(Self::OrWord),
+            "not" => Some(Self::NotWord),
 
             // Literals
             "true" => Some(Self::True),
@@ -150,12 +176,16 @@ impl fmt::Display for Keyword {
             // Module system
             Keyword::Module => "module",
             Keyword::Import => "import",
+            Keyword::From => "from",
             Keyword::Export => "export",
 
             // Declarations
+            Keyword::Func => "func",
             Keyword::Fn => "fn",
+            Keyword::Returns => "returns",
             Keyword::Async => "async",
             Keyword::Await => "await",
+            Keyword::Record => "record",
             Keyword::Struct => "struct",
             Keyword::Enum => "enum",
             Keyword::Impl => "impl",
@@ -164,6 +194,7 @@ impl fmt::Display for Keyword {
             Keyword::Let => "let",
 
             // Visibility
+            Keyword::Public => "public",
             Keyword::Pub => "pub",
             Keyword::Internal => "internal",
             Keyword::Mut => "mut",
@@ -178,6 +209,9 @@ impl fmt::Display for Keyword {
             Keyword::Cond => "cond",
             Keyword::If => "if",
             Keyword::Else => "else",
+            Keyword::When => "when",
+            Keyword::Then => "then",
+            Keyword::Otherwise => "otherwise",
             Keyword::Elif => "elif",
             Keyword::ElseIf => "elseif",
             Keyword::Unless => "unless",
@@ -199,6 +233,11 @@ impl fmt::Display for Keyword {
             Keyword::Continue => "continue",
             Keyword::Yield => "yield",
             Keyword::Goto => "goto",
+
+            // Word-form logical operators
+            Keyword::AndWord => "and",
+            Keyword::OrWord => "or",
+            Keyword::NotWord => "not",
 
             // Literals
             Keyword::True => "true",

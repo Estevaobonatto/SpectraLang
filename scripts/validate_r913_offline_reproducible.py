@@ -75,7 +75,7 @@ src_dirs = ["src"]
 channel = "stable"
 compatibility = "spectralang-0.1"
 """)
-    write(path / "src/core.spectra", "module offline_math.core;\n\npub fn answer() -> int {\n    return 42;\n}\n")
+    write(path / "src/core.spectra", 'module offline_math.core\n\npublic func answer() returns int {\n    return 42\n}\n')
     git(["init", "-q"], path)
     git(["config", "user.email", "spectra@example.local"], path)
     git(["config", "user.name", "Spectra Validator"], path)
@@ -103,14 +103,7 @@ version = "1.0.0"
 git = "{repo_url}"
 tag = "v1.0.0"
 """)
-    write(consumer / "src/main.spectra", """module offline_consumer.main;
-
-import { answer } from offline_math.core;
-
-pub fn main() -> int {
-    return answer();
-}
-""")
+    write(consumer / "src/main.spectra", 'module offline_consumer.main\n\nfrom offline_math.core import answer\n\npublic func main() returns int {\n    return answer()\n}\n')
 
     run(binary, ["package", "fetch", "--root", str(consumer)], consumer)
     lock = consumer / "spectra.lock"

@@ -3,34 +3,34 @@
 // The compiler exposes these declarations as the stable `std.api.middleware`
 // built-in module. Native behavior is provided by `spectra.api.middleware.*`.
 
-module std.api.middleware;
+module std.api.middleware
 
-import { Request, Response} from std.api.http;
+from std.api.http import Request, Response
 
-pub struct MiddlewareChain {
-    pub middleware_count: int,
+public record MiddlewareChain {
+    public middleware_count: int,
 }
 
-pub struct MiddlewareHandle {
-    pub order: int,
+public record MiddlewareHandle {
+    public order: int,
 }
 
-pub struct AsyncMiddlewareHandle {
-    pub order: int,
+public record AsyncMiddlewareHandle {
+    public order: int,
 }
 
-pub struct MiddlewareTrace {
-    pub event_count: int,
+public record MiddlewareTrace {
+    public event_count: int,
 }
 
-pub trait Middleware {
-    fn on_request(&self, request: Request) -> Request;
-    fn on_response(&self, response: Response) -> Response;
+public trait Middleware {
+    func on_request( & self, request: Request) returns Request
+    func on_response( & self, response: Response) returns Response
 }
 
-pub trait AsyncMiddleware {
-    async fn on_request(&self, request: Request) -> Request;
-    async fn on_response(&self, response: Response) -> Response;
+public trait AsyncMiddleware {
+    async func on_request( & self, request: Request) returns Request
+    async func on_response( & self, response: Response) returns Response
 }
 
 // Native function declarations are represented in

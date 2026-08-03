@@ -13,18 +13,18 @@ fn parse_module(source: &str) -> spectra_compiler::Module {
 #[test]
 fn frontend_and_semantic_accepts_valid_program() {
     let source = r#"
-        module smoke;
+        module smoke
 
-        import std.io;
+        import std.io
 
-        fn add(lhs: int, rhs: int) -> int {
-            return lhs + rhs;
+        func add(lhs: int, rhs: int)  returns  int {
+            return lhs + rhs
         }
 
-        pub fn main() -> int {
-            let total = add(20, 22);
-            println(total);
-            return total;
+        public func main()  returns  int {
+            let total = add(20, 22)
+            println(total)
+            return total
         }
     "#;
 
@@ -41,10 +41,10 @@ fn frontend_and_semantic_accepts_valid_program() {
 #[test]
 fn pipeline_reports_coded_semantic_error() {
     let source = r#"
-        module smoke;
+        module smoke
 
-        pub fn main() -> int {
-            return missing_symbol;
+        public func main()  returns  int {
+            return missing_symbol
         }
     "#;
 
@@ -62,23 +62,23 @@ fn pipeline_reports_coded_semantic_error() {
 #[test]
 fn trait_bound_violation_is_semantic_not_midend() {
     let source = r#"
-        module smoke;
+        module smoke
 
         trait Score {
-            fn score(&self) -> int;
+            func score(&self)  returns  int
         }
 
-        struct Plain {
+        record Plain {
             value: int,
         }
 
-        fn evaluate<T: Score>(item: T) -> int {
-            return item.score();
+        func evaluate<T: Score>(item: T)  returns  int {
+            return item.score()
         }
 
-        pub fn main() -> int {
-            let plain = Plain { value: 1 };
-            return evaluate(plain);
+        public func main()  returns  int {
+            let plain = Plain { value: 1 }
+            return evaluate(plain)
         }
     "#;
 
@@ -107,28 +107,28 @@ fn trait_bound_violation_is_semantic_not_midend() {
 #[test]
 fn trait_bound_satisfaction_is_not_item_order_dependent() {
     let source = r#"
-        module smoke;
+        module smoke
 
         trait Score {
-            fn score(&self) -> int;
+            func score(&self)  returns  int
         }
 
-        struct Ranked {
+        record Ranked {
             value: int,
         }
 
-        fn evaluate<T: Score>(item: T) -> int {
-            return item.score();
+        func evaluate<T: Score>(item: T)  returns  int {
+            return item.score()
         }
 
-        pub fn main() -> int {
-            let ranked = Ranked { value: 7 };
-            return evaluate(ranked);
+        public func main()  returns  int {
+            let ranked = Ranked { value: 7 }
+            return evaluate(ranked)
         }
 
         impl Score for Ranked {
-            fn score(&self) -> int {
-                return self.value;
+            func score(&self)  returns  int {
+                return self.value
             }
         }
     "#;
@@ -142,12 +142,12 @@ fn trait_bound_satisfaction_is_not_item_order_dependent() {
 #[test]
 fn unknown_import_alias_member_reports_candidates() {
     let source = r#"
-        module smoke;
+        module smoke
 
-        import std.math as math;
+        import std.math as math
 
-        pub fn main() -> int {
-            return math.not_a_function(1);
+        public func main()  returns  int {
+            return math.not_a_function(1)
         }
     "#;
 
@@ -177,21 +177,21 @@ fn unknown_import_alias_member_reports_candidates() {
 #[test]
 fn std_api_surface_resolves_qualified_and_aliased_calls() {
     let source = r#"
-        module api_surface;
+        module api_surface
 
-        import std.api.http as http;
-        import std.api.json as json;
-        import std.api.tls as tls;
+        import std.api.http as http
+        import std.api.json as json
+        import std.api.tls as tls
 
-        pub fn main() -> int {
-            let request = http.request_new(1);
-            let method = http.request_method(request);
-            let method_name = std.api.http.method_name(method);
-            let ok = json.validate("{\"ok\": true}");
-            let tls_config = tls.client_config();
-            let tls_mode = tls.config_mode(tls_config);
-            let status_class = std.api.http.status_class(200);
-            return status_class + tls_mode;
+        public func main()  returns  int {
+            let request = http.request_new(1)
+            let method = http.request_method(request)
+            let method_name = std.api.http.method_name(method)
+            let ok = json.validate("{\"ok\": true}")
+            let tls_config = tls.client_config()
+            let tls_mode = tls.config_mode(tls_config)
+            let status_class = std.api.http.status_class(200)
+            return status_class + tls_mode
         }
     "#;
 
@@ -208,14 +208,14 @@ fn std_api_surface_resolves_qualified_and_aliased_calls() {
 #[test]
 fn generic_return_type_parameter_matches_declared_type_parameter() {
     let source = r#"
-        module smoke;
+        module smoke
 
-        fn identity<T>(value: T) -> T {
-            return value;
+        func identity<T>(value: T)  returns  T {
+            return value
         }
 
-        pub fn main() -> int {
-            return identity(42);
+        public func main()  returns  int {
+            return identity(42)
         }
     "#;
 
@@ -228,15 +228,15 @@ fn generic_return_type_parameter_matches_declared_type_parameter() {
 #[test]
 fn generic_return_type_parameter_cannot_satisfy_concrete_return() {
     let source = r#"
-        module smoke;
+        module smoke
 
-        fn bad<T>(value: T) -> string {
-            return value;
+        func bad<T>(value: T)  returns  string {
+            return value
         }
 
-        pub fn main() -> int {
-            let x = bad(1);
-            return 0;
+        public func main()  returns  int {
+            let x = bad(1)
+            return 0
         }
     "#;
 

@@ -1,5 +1,5 @@
-module core_math;
+module core_math
 
-pub fn core_double(value: int) -> int {
-    return value * 2;
+public func core_double(value: int) returns int {
+    return value * 2
 }

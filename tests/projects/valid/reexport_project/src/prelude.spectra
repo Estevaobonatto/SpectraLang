@@ -1,7 +1,7 @@
-module prelude;
+module prelude
 
-pub import { answer, half_answer } from support;
+public from support import answer, half_answer
 
-pub fn total() -> int {
-    return answer() + half_answer();
+public func total() returns int {
+    return answer() + half_answer()
 }

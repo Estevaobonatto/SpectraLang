@@ -39,18 +39,18 @@ This deterministic contract is the dependency for Phase 23 middleware items
 Synchronous middleware implements:
 
 ```spectra
-pub trait Middleware {
-    fn on_request(&self, request: Request) -> Request;
-    fn on_response(&self, response: Response) -> Response;
+public trait Middleware {
+    func on_request(&self, request: Request) returns Request
+    func on_response(&self, response: Response) returns Response
 }
 ```
 
 Async middleware implements:
 
 ```spectra
-pub trait AsyncMiddleware {
-    async fn on_request(&self, request: Request) -> Request;
-    async fn on_response(&self, response: Response) -> Response;
+public trait AsyncMiddleware {
+    async func on_request(&self, request: Request) returns Request
+    async func on_response(&self, response: Response) returns Response
 }
 ```
 

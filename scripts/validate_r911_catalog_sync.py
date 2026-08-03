@@ -80,7 +80,7 @@ src_dirs = ["src"]
 channel = "stable"
 compatibility = "spectralang-0.1"
 """)
-    write(path / "src/main.spectra", "module catalog_math.core;\n\npub fn answer() -> int { return 42; }\n")
+    write(path / "src/main.spectra", 'module catalog_math.core\n\npublic func answer() returns int { return 42\n }\n')
     init_git(path)
     git(["tag", "v1.0.0"], path)
 
@@ -125,7 +125,7 @@ version = "0.1.0"
 entry = "src/main.spectra"
 src_dirs = ["src"]
 """)
-    write(consumer / "src/main.spectra", "module catalog_consumer.main;\n\npub fn main() -> int { return 0; }\n")
+    write(consumer / "src/main.spectra", 'module catalog_consumer.main\n\npublic func main() returns int { return 0\n }\n')
 
     catalog_source = catalog.as_posix()
     run(binary, ["package", "catalog", "add", "primary", catalog_source, "--root", str(consumer)], consumer)

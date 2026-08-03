@@ -9,12 +9,12 @@ network stack.
 AI examples write simple artifacts with `std.fs`:
 
 ```spectra
-import std.fs as fs;
+import std.fs as fs
 
 fs.fs_write(
     "target/ai-examples/linear_regression_model.txt",
     "spectralang linear regression model\nfeatures=4\noutputs=1\n"
-);
+)
 ```
 
 Run:
@@ -31,13 +31,13 @@ Get-Content target\ai-examples\linear_regression_model.txt
 local integration tests.
 
 ```spectra
-import std.serve as serve;
+import std.serve as serve
 
-let server = serve.local_create();
-serve.local_load_model(server, 1, 42);
-serve.local_warmup(server, 2);
-let request = serve.local_submit(server, 1, 100);
-let result = serve.local_result(server, request);
+let server = serve.local_create()
+serve.local_load_model(server, 1, 42)
+serve.local_warmup(server, 2)
+let request = serve.local_submit(server, 1, 100)
+let result = serve.local_result(server, request)
 ```
 
 The validated MLP example trains a toy model boundary and checks local serving:

@@ -1,10 +1,10 @@
-module struct_literal_shorthand_undefined_binding;
+module struct_literal_shorthand_undefined_binding
 
-struct Point {
+record Point {
     x: int,
 }
 
-pub fn main() -> int {
-    let point = Point { x };
-    return point.x;
+public func main() returns int {
+    let point = Point { x }
+    return point.x
 }

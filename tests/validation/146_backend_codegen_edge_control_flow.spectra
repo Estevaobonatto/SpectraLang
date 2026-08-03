@@ -1,4 +1,4 @@
-module backend_codegen_edge_control_flow;
+module backend_codegen_edge_control_flow
 
 enum Step {
     Add(int),
@@ -6,53 +6,53 @@ enum Step {
     Stop
 }
 
-fn classify(index: int) -> Step {
+func classify(index: int) returns Step {
     switch index {
-        case 1 => {
-            return Step::Add(11);
+        case 1: {
+            return Step::Add(11)
         }
-        case 2 => {
-            return Step::Skip;
+        case 2: {
+            return Step::Skip
         }
-        case 3 => {
-            return Step::Add(13);
+        case 3: {
+            return Step::Add(13)
         }
-        else => {
-            return Step::Stop;
+        else: {
+            return Step::Stop
         }
     }
 }
 
-fn accumulate(limit: int) -> int {
-    let index = 0;
-    let total = 0;
+func accumulate(limit: int) returns int {
+    let index = 0
+    let total = 0
 
     loop {
-        index = index + 1;
+        index = index + 1
         if index > limit {
-            break;
+            break
         }
 
         match classify(index) {
-            Step::Add(value) => {
-                total = total + value;
+            when Step::Add(value) then {
+                total = total + value
             }
-            Step::Skip => {
-                continue;
+            when Step::Skip then {
+                continue
             }
-            Step::Stop => {
-                break;
+            when Step::Stop then {
+                break
             }
-        };
+        }
     }
 
-    return total;
+    return total
 }
 
-pub fn main() -> int {
-    let value = accumulate(5);
+public func main() returns int {
+    let value = accumulate(5)
     if value != 24 {
-        return value;
+        return value
     }
-    return 0;
+    return 0
 }

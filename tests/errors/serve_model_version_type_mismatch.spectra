@@ -1,9 +1,9 @@
-module serve_model_version_type_mismatch;
+module serve_model_version_type_mismatch
 
-import std.serve as serve;
+import std.serve as serve
 
-pub fn main() -> int {
-    let server = serve.server_new(2);
-    serve.server_set_model_version(server, 123);
-    return 0;
+public func main() returns int {
+    let server = serve.server_new(2)
+    serve.server_set_model_version(server, 123)
+    return 0
 }

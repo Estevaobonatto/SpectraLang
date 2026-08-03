@@ -111,13 +111,7 @@ def main() -> int:
     # Probe the real runtime capability before attempting the WGPU fixture.
     # Return 2 is the fixture's explicit "adapter unavailable" result; any
     # other non-zero code is an actual failure, not an environment skip.
-    probe_source = """module r2904_wgpu_adapter_probe;
-import std.tensor as tensor;
-pub fn main() -> int {
-    if tensor.device_available(6) { return 0; }
-    return 2;
-}
-"""
+    probe_source = 'module r2904_wgpu_adapter_probe\nimport std.tensor as tensor\npublic func main() returns int {\n    if tensor.device_available(6) { return 0\n }\n    return 2\n}\n'
     with tempfile.TemporaryDirectory(prefix="r2904-wgpu-", dir=root / "target") as temp_dir:
         probe_path = Path(temp_dir) / "adapter_probe.spectra"
         probe_path.write_text(probe_source, encoding="utf-8")

@@ -1,4 +1,4 @@
-module test;
+module test
 
 enum Color {
     Red,
@@ -7,15 +7,15 @@ enum Color {
 }
 
 // Test: Match NÃO exhaustivo - falta Blue
-fn test_non_exhaustive() -> int {
-    let c = Color::Red;
+func test_non_exhaustive() returns int {
+    let c = Color::Red
     match c {
-        Color::Red => 1,
-        Color::Green => 2
+        when Color::Red then 1,
+        when Color::Green then 2
         // Faltando Color::Blue - deveria dar warning/erro
     }
 }
 
-fn main() -> int {
+func main() returns int {
     test_non_exhaustive()
 }

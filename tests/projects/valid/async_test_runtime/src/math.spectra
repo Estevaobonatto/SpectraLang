@@ -1,5 +1,5 @@
-module math;
+module math
 
-pub async fn ready_add(left: int, right: int) -> int {
-    return left + right;
+public async func ready_add(left: int, right: int) returns int {
+    return left + right
 }

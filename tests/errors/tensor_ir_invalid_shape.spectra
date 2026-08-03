@@ -1,10 +1,10 @@
-module tensor_ir_invalid_shape;
+module tensor_ir_invalid_shape
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let left = tensor.full2_f(2, 3, 1.0);
-    let right = tensor.full2_f(4, 2, 1.0);
-    let invalid = tensor.matmul(left, right);
-    return tensor.rank(invalid);
+public func main() returns int {
+    let left    = tensor.full2_f(2, 3, 1.0)
+    let right   = tensor.full2_f(4, 2, 1.0)
+    let invalid = tensor.matmul(left, right)
+    return tensor.rank(invalid)
 }

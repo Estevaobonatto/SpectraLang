@@ -29,7 +29,7 @@ def require(condition: bool, message: str) -> None:
 def write_project(root: Path) -> None:
     (root / "src").mkdir(parents=True)
     (root / "src" / "main.spectra").write_text(
-        "module release_channel_demo;\n\npub fn main() -> int {\n    return 0;\n}\n",
+        'module release_channel_demo\n\npublic func main() returns int {\n    return 0\n}\n',
         encoding="utf-8",
     )
     (root / "spectra.toml").write_text(

@@ -1,4 +1,4 @@
-module test;
+module test
 
 enum Option {
     Some,
@@ -11,25 +11,25 @@ enum Color {
     Blue
 }
 
-fn test_simple_match() -> int {
-    let c = Color::Green;
+func test_simple_match() returns int {
+    let c = Color::Green
     match c {
-        Color::Red => 1,
-        Color::Green => 2,
-        Color::Blue => 3
+        when Color::Red then 1,
+        when Color::Green then 2,
+        when Color::Blue then 3
     }
 }
 
-fn test_wildcard() -> int {
-    let c = Color::Blue;
+func test_wildcard() returns int {
+    let c = Color::Blue
     match c {
-        Color::Red => 1,
-        _ => 999
+        when Color::Red then 1,
+        otherwise then 999
     }
 }
 
-fn main() -> int {
-    let a = test_simple_match();
-    let b = test_wildcard();
+func main() returns int {
+    let a = test_simple_match()
+    let b = test_wildcard()
     a + b
 }

@@ -1,11 +1,11 @@
 // Negative: elementwise tensor operations require matching static shapes.
-module tensor_operation_shape_mismatch;
+module tensor_operation_shape_mismatch
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let left: Tensor<float, rank1, dim3, row_major, cpu> = [1.0, 2.0, 3.0];
-    let right: Tensor<float, rank1, dim2, row_major, cpu> = [1.0, 2.0];
-    let result = tensor.add(left, right);
-    return tensor.rank(result);
+public func main() returns int {
+    let left: Tensor<float, rank1, dim3, row_major, cpu>  = [1.0, 2.0, 3.0]
+    let right: Tensor<float, rank1, dim2, row_major, cpu> = [1.0, 2.0]
+    let result                                            = tensor.add(left, right)
+    return tensor.rank(result)
 }

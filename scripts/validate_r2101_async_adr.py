@@ -35,7 +35,7 @@ REQUIRED_SECTIONS = [
 REQUIRED_TERMS = [
     "Status: Accepted",
     "Roadmap item: R-2101",
-    "async fn",
+    "async func",
     "async {",
     "await",
     "Task<T>",

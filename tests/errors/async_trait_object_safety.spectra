@@ -1,19 +1,19 @@
-module async_trait_object_safety;
+module async_trait_object_safety
 
 trait BadFuture {
-    async fn poll() -> int;
+    async func poll() returns int
 }
 
-struct ReadyFuture {
+record ReadyFuture {
     value: int
 }
 
 impl BadFuture for ReadyFuture {
-    async fn poll() -> int {
-        return 1;
+    async func poll() returns int {
+        return 1
     }
 }
 
-fn main() -> int {
-    return 0;
+func main() returns int {
+    return 0
 }

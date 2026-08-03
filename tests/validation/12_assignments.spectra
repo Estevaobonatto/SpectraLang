@@ -1,15 +1,15 @@
 // Teste 12: Atribuições
-module assignments;
+module assignments
 
-fn test_assignments() -> int {
-    let x = 10;
-    x = 20;
-    x = x + 5;
-    x = x * 2;
-    x = x - 10;
-    return x;
+func test_assignments() returns int {
+    let x = 10
+    x = 20
+    x = x + 5
+    x = x * 2
+    x = x - 10
+    return x
 }
 
-fn main() -> int {
-    return test_assignments();
+func main() returns int {
+    return test_assignments()
 }

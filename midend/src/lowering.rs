@@ -10207,15 +10207,15 @@ mod tests {
     fn r2103_async_await_lowers_to_task_and_suspend_resume_markers() {
         let ir = lower_source(
             r#"
-            module r2103_async_await;
+            module r2103_async_await
 
-            async fn ready() -> int {
-                return 41;
+            async func ready()  returns  int {
+                return 41
             }
 
-            async fn add_one() -> int {
-                let value = await ready();
-                return value + 1;
+            async func add_one()  returns  int {
+                let value = await ready()
+                return value + 1
             }
             "#,
         );
@@ -10236,13 +10236,13 @@ mod tests {
     fn r2103_async_early_return_lowers_every_exit_to_ready_task() {
         let ir = lower_source(
             r#"
-            module r2103_async_early_return;
+            module r2103_async_early_return
 
-            async fn choose(flag: bool) -> int {
+            async func choose(flag: bool)  returns  int {
                 if flag {
-                    return 7;
+                    return 7
                 }
-                return 9;
+                return 9
             }
             "#,
         );

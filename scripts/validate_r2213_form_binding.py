@@ -119,7 +119,7 @@ def validate_implementation() -> None:
 def validate_fixture_and_docs() -> None:
     fixture = read("tests/validation/137_api_form_binding.spectra")
     for term in [
-        "struct SignupForm",
+        "record SignupForm",
         "parse(\"name=Ada+Lovelace",
         "profile[city]",
         "count(form, \"tags\")",

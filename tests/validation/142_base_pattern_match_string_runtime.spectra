@@ -1,29 +1,29 @@
-module base_pattern_match_string_runtime;
+module base_pattern_match_string_runtime
 
-fn label(value: int) -> string {
+func label(value: int) returns string {
     return match value {
-        10 => "ok",
-        _ => "bad"
-    };
+        when 10 then "ok",
+        otherwise then "bad"
+    }
 }
 
-pub fn main() -> int {
-    let result = label(10);
+public func main() returns int {
+    let result = label(10)
 
     if result != "ok" {
-        return 2;
+        return 2
     }
 
     if result == "bad" {
-        return 3;
+        return 3
     }
 
     match result {
-        "ok" => {
-            return 0;
+        when "ok" then {
+            return 0
         }
-        _ => {
-            return 1;
+        otherwise then {
+            return 1
         }
-    };
+    }
 }

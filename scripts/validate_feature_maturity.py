@@ -11,7 +11,7 @@ from pathlib import Path
 
 REQUIRED_SECTIONS = ("Stable", "Beta", "Experimental", "Deferred")
 REQUIRED_EXPERIMENTAL: tuple[str, ...] = ()
-PROMOTED_STABLE = ("switch", "unless", "do-while", "loop")
+PROMOTED_STABLE = ("switch", "do-while", "loop", "if not")
 
 
 def extract_section(text: str, name: str) -> str:

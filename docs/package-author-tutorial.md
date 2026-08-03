@@ -63,10 +63,10 @@ compatibility = "spectralang-0.1"
 Código:
 
 ```spectra
-module meu.pacote.core;
+module meu.pacote.core
 
-pub fn dobro(valor: int) -> int {
-    return valor * 2;
+public func dobro(valor: int) returns int {
+    return valor * 2
 }
 ```
 
@@ -75,7 +75,7 @@ Regras importantes:
 - Use nome estável e único, por exemplo `org.nome` ou `meu.pacote`.
 - Use versionamento semver exato `MAJOR.MINOR.PATCH`.
 - Prefixe módulos com o nome do pacote: `meu.pacote.core`.
-- Exporte apenas APIs que usuários devem importar com `pub`.
+- Exporte apenas APIs que usuários devem importar com `public`.
 - Evite função `main` em bibliotecas, salvo se o pacote também for executável.
 
 ## 3. Testar pacote localmente
@@ -128,16 +128,16 @@ src_dirs = ["src"]
 Código do consumidor:
 
 ```spectra
-module consumer.main;
+module consumer.main
 
-import { dobro } from meu.pacote.core;
+from meu.pacote.core import dobro
 
-pub fn main() -> int {
-    let resultado = dobro(21);
+public func main() returns int {
+    let resultado = dobro(21)
     if resultado != 42 {
-        return resultado;
+        return resultado
     }
-    return 0;
+    return 0
 }
 ```
 
@@ -344,12 +344,12 @@ checksum = "<sha256>"
 Código:
 
 ```spectra
-module meu.pacote.core;
+module meu.pacote.core
 
-import { seed } from base.lib.core;
+from base.lib.core import seed
 
-pub fn valor() -> int {
-    return seed() + 2;
+public func valor() returns int {
+    return seed() + 2
 }
 ```
 
@@ -381,7 +381,7 @@ Antes de registrar ou abrir PR no catálogo:
 - `spectra.toml` tem `name`, `version`, `entry`, `src_dirs`, `[release]`;
 - versão segue semver exato;
 - módulos usam prefixo do pacote;
-- APIs públicas têm `pub`;
+- APIs públicas têm `public`;
 - pacote compila com `spectralang package check --root .`;
 - testes passam com `spectralang package test --root .`, quando existirem;
 - Git tag existe e foi enviada ao remoto;
@@ -406,12 +406,12 @@ Erro: `checksum mismatch`
 
 Erro: import não resolve
 
-- Confirme módulo no arquivo `.spectra`: `module meu.pacote.core;`.
+- Confirme módulo no arquivo `.spectra`: `module meu.pacote.core`.
 - Confirme que o módulo aparece em `modules = [...]` no catálogo.
 - Use import normal:
 
 ```spectra
-import { simbolo } from meu.pacote.core;
+from meu.pacote.core import simbolo
 ```
 
 Erro: versão errada

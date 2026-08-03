@@ -1,24 +1,24 @@
-module main;
+module main
 
-import components;
-import traits;
+import components
+import traits
 
-pub fn integrated_basic_components_entry() -> int {
-    let invoice = Invoice { subtotal: 18, tax: 4 };
-    let scored = score_invoice_runtime(invoice);
+public func integrated_basic_components_entry() returns int {
+    let invoice = Invoice { subtotal: 18, tax: 4 }
+    let scored  = score_invoice_runtime(invoice)
     if scored != 22 {
-        return scored;
+        return scored
     }
 
-    let shifted = apply_adjustment(10, make_shift(3));
+    let shifted = apply_adjustment(10, make_shift(3))
     if shifted != 16 {
-        return shifted;
+        return shifted
     }
 
-    let flow = control_total(4);
+    let flow = control_total(4)
     if flow != 17 {
-        return flow;
+        return flow
     }
 
-    return 0;
+    return 0
 }

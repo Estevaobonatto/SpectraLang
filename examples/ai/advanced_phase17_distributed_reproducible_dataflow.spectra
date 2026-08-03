@@ -1,25 +1,25 @@
 // Advanced AI example: reproducible dataflow plus distributed training
 // checkpoint, resume, worker progress, and topology summary.
-module advanced_phase17_distributed_reproducible_dataflow;
+module advanced_phase17_distributed_reproducible_dataflow
 
-import std.fs as fs;
-import std.ml as ml;
-import std.string as str;
-import std.tensor as tensor;
+import std.fs as fs
+import std.ml as ml
+import std.string as str
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
+public func main() returns int {
+    tensor.free_all()
 
-    let features = tensor.reshape(tensor.full_f(8, 1.0), 4, 2);
-    let labels = tensor.reshape(tensor.full_f(4, 1.0), 4, 1);
-    let dataset = ml.dataset_from_tensors(features, labels, 4);
-    let train = ml.dataset_train_split(dataset, 3);
-    let loader = ml.dataloader_new(train, 2, 1703);
+    let features = tensor.reshape(tensor.full_f(8, 1.0), 4, 2)
+    let labels   = tensor.reshape(tensor.full_f(4, 1.0), 4, 1)
+    let dataset  = ml.dataset_from_tensors(features, labels, 4)
+    let train    = ml.dataset_train_split(dataset, 3)
+    let loader   = ml.dataloader_new(train, 2, 1703)
     if ml.dataloader_batch_count(loader) != 2 {
-        return 1;
+        return 1
     }
     if tensor.len(ml.dataloader_batch_features(loader, 0)) != 4 {
-        return 2;
+        return 2
     }
 
     let session = ml.distributed_session_start(
@@ -27,63 +27,63 @@ pub fn main() -> int {
         "target/ai-examples/advanced-phase17",
         3,
         1703
-    );
-    ml.distributed_worker_step(session, 0, 16, 0.30);
-    ml.distributed_worker_step(session, 1, 16, 0.32);
-    ml.distributed_worker_step(session, 2, 16, 0.34);
+    )
+    ml.distributed_worker_step(session, 0, 16, 0.30)
+    ml.distributed_worker_step(session, 1, 16, 0.32)
+    ml.distributed_worker_step(session, 2, 16, 0.34)
     if ml.distributed_global_step(session) != 1 {
-        return 3;
+        return 3
     }
     if ml.distributed_worker_step_count(session, 2) != 1 {
-        return 4;
+        return 4
     }
 
     let checkpoint = ml.distributed_checkpoint_save(
         session,
         "target/ai-examples/advanced-phase17/checkpoint.json",
         2
-    );
-    let checkpoint_text = fs.fs_read(checkpoint);
+    )
+    let checkpoint_text = fs.fs_read(checkpoint)
     if str.contains(checkpoint_text, "\"interrupted_worker\":2") {
-        let ok_interrupted = 1;
+        let ok_interrupted = 1
         if ok_interrupted != 1 {
-            return 5;
+            return 5
         }
     } else {
-        return 5;
+        return 5
     }
 
-    let resumed = ml.distributed_resume(checkpoint);
-    ml.distributed_worker_step(resumed, 0, 8, 0.20);
-    ml.distributed_worker_step(resumed, 1, 8, 0.22);
-    ml.distributed_worker_step(resumed, 2, 8, 0.24);
+    let resumed = ml.distributed_resume(checkpoint)
+    ml.distributed_worker_step(resumed, 0, 8, 0.20)
+    ml.distributed_worker_step(resumed, 1, 8, 0.22)
+    ml.distributed_worker_step(resumed, 2, 8, 0.24)
     if ml.distributed_global_step(resumed) != 2 {
-        return 6;
+        return 6
     }
 
-    let summary = ml.distributed_summary(resumed);
+    let summary = ml.distributed_summary(resumed)
     if str.contains(summary, "\"worker_count\":3") {
-        let ok_workers = 1;
+        let ok_workers = 1
         if ok_workers != 1 {
-            return 7;
+            return 7
         }
     } else {
-        return 7;
+        return 7
     }
     if str.contains(summary, "\"total_samples\":72") {
-        let ok_samples = 1;
+        let ok_samples = 1
         if ok_samples != 1 {
-            return 8;
+            return 8
         }
     } else {
-        return 8;
+        return 8
     }
 
     fs.fs_write(
         "target/ai-examples/advanced-phase17/summary.txt",
         "advanced_phase17_distributed_reproducible_dataflow=pass\n"
-    );
+    )
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

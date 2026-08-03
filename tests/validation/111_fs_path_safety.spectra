@@ -1,48 +1,48 @@
-module fs_path_safety;
+module fs_path_safety
 
-import std.fs as fs;
+import std.fs as fs
 
-pub fn main() -> int {
-    let artifact = "target/r1203-fs-path-safety/nested/run/artifact.txt";
+public func main() returns int {
+    let artifact = "target/r1203-fs-path-safety/nested/run/artifact.txt"
 
     if fs.fs_write(artifact, "first") {
     } else {
-        return 1;
+        return 1
     }
     if fs.fs_exists(artifact) {
     } else {
-        return 2;
+        return 2
     }
     if fs.fs_append(artifact, "-second") {
     } else {
-        return 4;
+        return 4
     }
 
     if fs.fs_write(artifact, "overwrite") {
     } else {
-        return 6;
+        return 6
     }
 
-    let blocker = "target/r1203-fs-path-safety/blocker";
-    fs.fs_remove(blocker);
+    let blocker = "target/r1203-fs-path-safety/blocker"
+    fs.fs_remove(blocker)
     if fs.fs_write(blocker, "not-a-directory") {
     } else {
-        return 8;
+        return 8
     }
 
-    let blocked_child = "target/r1203-fs-path-safety/blocker/child.txt";
+    let blocked_child = "target/r1203-fs-path-safety/blocker/child.txt"
     if fs.fs_write(blocked_child, "bad") {
-        return 9;
+        return 9
     }
     if fs.fs_append(blocked_child, "bad") {
-        return 10;
+        return 10
     }
     if fs.fs_exists(blocked_child) {
-        return 11;
+        return 11
     }
     if fs.fs_write("", "bad") {
-        return 12;
+        return 12
     }
 
-    return 0;
+    return 0
 }

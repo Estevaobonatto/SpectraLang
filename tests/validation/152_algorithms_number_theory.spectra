@@ -1,86 +1,86 @@
-module algorithms_number_theory;
+module algorithms_number_theory
 
-fn fail(code: int) -> int {
-    return code;
+func fail(code: int) returns int {
+    return code
 }
 
-fn gcd(a: int, b: int) -> int {
-    let x = a;
-    let y = b;
+func gcd(a: int, b: int) returns int {
+    let x = a
+    let y = b
 
     while y != 0 {
-        let r = x % y;
-        x = y;
-        y = r;
+        let r = x % y
+        x = y
+        y = r
     }
 
-    return x;
+    return x
 }
 
-fn lcm(a: int, b: int) -> int {
-    return (a / gcd(a, b)) * b;
+func lcm(a: int, b: int) returns int {
+    return(a / gcd(a, b)) * b
 }
 
-fn fib(n: int) -> int {
-    let previous = 0;
-    let current = 1;
-    let index = 0;
+func fib(n: int) returns int {
+    let previous = 0
+    let current  = 1
+    let index    = 0
 
     while index < n {
-        let next = previous + current;
-        previous = current;
-        current = next;
-        index = index + 1;
+        let next = previous + current
+        previous = current
+        current = next
+        index = index + 1
     }
 
-    return previous;
+    return previous
 }
 
-fn is_prime(value: int) -> bool {
+func is_prime(value: int) returns bool {
     if value < 2 {
-        return false;
+        return false
     }
 
-    let divisor = 2;
+    let divisor = 2
     while divisor * divisor <= value {
         if value % divisor == 0 {
-            return false;
+            return false
         }
-        divisor = divisor + 1;
+        divisor = divisor + 1
     }
 
-    return true;
+    return true
 }
 
-fn count_primes_below(limit: int) -> int {
-    let count = 0;
-    let current = 0;
+func count_primes_below(limit: int) returns int {
+    let count   = 0
+    let current = 0
 
     while current < limit {
         if is_prime(current) {
-            count = count + 1;
+            count = count + 1
         }
-        current = current + 1;
+        current = current + 1
     }
 
-    return count;
+    return count
 }
 
-pub fn main() -> int {
+public func main() returns int {
     if gcd(1071, 462) != 21 {
-        return fail(1);
+        return fail(1)
     }
     if lcm(462, 1071) != 23562 {
-        return fail(2);
+        return fail(2)
     }
     if fib(12) != 144 {
-        return fail(3);
+        return fail(3)
     }
     if count_primes_below(30) != 10 {
-        return fail(4);
+        return fail(4)
     }
     if is_prime(221) {
-        return fail(5);
+        return fail(5)
     }
-    return 0;
+    return 0
 }

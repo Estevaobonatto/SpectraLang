@@ -92,7 +92,7 @@ def manifest(name: str, version: str = "1.0.0") -> str:
 def init_git_package(path: Path, name: str, symlink: bool = False) -> None:
     path.mkdir(parents=True)
     write(path / "spectra.toml", manifest(name))
-    write(path / "src/main.spectra", "module package.main;\npub fn secure_value() -> int { return 0; }\n")
+    write(path / "src/main.spectra", 'module package.main\npublic func secure_value() returns int { return 0\n }\n')
     if symlink:
         outside = path.parent / "outside.txt"
         write(outside, "outside payload\n")
@@ -110,7 +110,7 @@ def init_git_package(path: Path, name: str, symlink: bool = False) -> None:
 
 def consumer(path: Path) -> None:
     write(path / "spectra.toml", manifest("consumer"))
-    write(path / "src/main.spectra", "module consumer.main;\npub fn main() -> int { return 0; }\n")
+    write(path / "src/main.spectra", 'module consumer.main\npublic func main() returns int { return 0\n }\n')
 
 
 def sha256_file(path: Path) -> str:

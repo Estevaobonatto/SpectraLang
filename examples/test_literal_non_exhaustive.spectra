@@ -1,15 +1,15 @@
-module test;
+module test
 
 // Test: Match apenas com literais - deve avisar que não é exhaustivo
-fn test_only_literals() -> int {
-    let x = 5;
+func test_only_literals() returns int {
+    let x = 5
     match x {
-        1 => 10,
-        2 => 20,
-        5 => 50
+        when 1 then 10,
+        when 2 then 20,
+        when 5 then 50
     }
 }
 
-fn main() -> int {
+func main() returns int {
     test_only_literals()
 }

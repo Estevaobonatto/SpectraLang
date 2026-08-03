@@ -65,9 +65,9 @@ def cargo_cmd() -> str:
 def validate_example_source() -> None:
     example = read("examples/api/01_rest_crud.spectra")
     required_terms = [
-        "module rest_crud_api;",
-        "import std.api.query as query;",
-        "import std.api.form as form;",
+        'module rest_crud_api',
+        "import std.api.query as query",
+        "import std.api.form as form",
         "#[derive(Serialize, Deserialize)]",
         "Todo::from_json",
         "created.to_json()",

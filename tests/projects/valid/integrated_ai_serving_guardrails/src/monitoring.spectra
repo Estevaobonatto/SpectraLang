@@ -1,40 +1,40 @@
-module monitoring;
+module monitoring
 
-import std.ml as ml;
-import std.serve as serve;
-import std.string as str;
-import std.tensor as tensor;
+import std.ml as ml
+import std.serve as serve
+import std.string as str
+import std.tensor as tensor
 
-pub fn run_monitored_request(input: int) -> int {
-    tensor.free_all();
-    serve.reset();
+public func run_monitored_request(input: int) returns int {
+    tensor.free_all()
+    serve.reset()
 
-    let labels = tensor.arange(0, 3, 1);
-    let predictions = tensor.arange(0, 3, 1);
-    let classification = ml.metrics_classification(labels, predictions);
+    let labels         = tensor.arange(0, 3, 1)
+    let predictions    = tensor.arange(0, 3, 1)
+    let classification = ml.metrics_classification(labels, predictions)
     if str.contains(classification, "\"accuracy\":1.000000") {
-        let ok = 1;
+        let ok = 1
         if ok != 1 {
-            return 4;
+            return 4
         }
     } else {
-        return 4;
+        return 4
     }
 
-    let server = serve.server_new(2);
-    serve.server_set_model_version(server, "guarded-v1");
-    serve.server_warmup(server);
-    let req = serve.server_enqueue(server, input);
-    serve.server_process_batch(server, 1);
+    let server = serve.server_new(2)
+    serve.server_set_model_version(server, "guarded-v1")
+    serve.server_warmup(server)
+    let req = serve.server_enqueue(server, input)
+    serve.server_process_batch(server, 1)
     if serve.server_result(server, req) != input * 2 {
-        return 5;
+        return 5
     }
 
-    let snapshot = serve.server_monitoring_snapshot(server);
+    let snapshot = serve.server_monitoring_snapshot(server)
     if str.contains(snapshot, "\"requests\":1") {
-        tensor.free_all();
-        return 0;
+        tensor.free_all()
+        return 0
     }
-    tensor.free_all();
-    return 6;
+    tensor.free_all()
+    return 6
 }

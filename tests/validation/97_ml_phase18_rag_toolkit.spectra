@@ -1,88 +1,88 @@
-module ml_phase18_rag_toolkit;
+module ml_phase18_rag_toolkit
 
-import std.ml as ml;
-import std.tensor as tensor;
-import std.string as str;
+import std.ml as ml
+import std.tensor as tensor
+import std.string as str
 
-pub fn main() -> int {
-    tensor.free_all();
+public func main() returns int {
+    tensor.free_all()
 
-    let vocab = "[UNK]:0\nhello:1\nworld:2\nmachine:3\nlearning:4\nrag:5\nretrieval:6\n##s:7";
-    let tokenizer = ml.tokenizer_wordpiece(vocab);
-    let ids = ml.tokenizer_encode(tokenizer, "hello world");
+    let vocab     = "[UNK]:0\nhello:1\nworld:2\nmachine:3\nlearning:4\nrag:5\nretrieval:6\n##s:7"
+    let tokenizer = ml.tokenizer_wordpiece(vocab)
+    let ids       = ml.tokenizer_encode(tokenizer, "hello world")
     if tensor.len(ids) != 2 {
-        return 1;
+        return 1
     }
-    let decoded = ml.tokenizer_decode(tokenizer, ids);
+    let decoded = ml.tokenizer_decode(tokenizer, ids)
     if str.contains(decoded, "hello world") {
-        let ok_decode = 1;
+        let ok_decode = 1
         if ok_decode != 1 {
-            return 2;
+            return 2
         }
     } else {
-        return 2;
+        return 2
     }
 
-    let index = ml.vector_index_new(8);
-    if !ml.vector_index_set_metadata(index, "model_version", "r1803-rag-v1") {
-        return 3;
+    let index = ml.vector_index_new(8)
+    if not ml.vector_index_set_metadata(index, "model_version", "r1803-rag-v1") {
+        return 3
     }
-    let rag_vec = ml.text_embed("rag retrieval", 8);
-    let ml_vec = ml.text_embed("machine learning", 8);
+    let rag_vec = ml.text_embed("rag retrieval", 8)
+    let ml_vec  = ml.text_embed("machine learning", 8)
     if ml.vector_index_insert(index, "rag-doc", rag_vec) != 1 {
-        return 3;
+        return 3
     }
     if ml.vector_index_insert(index, "ml-doc", ml_vec) != 2 {
-        return 4;
+        return 4
     }
 
-    let query_vec = ml.text_embed("rag retrieval", 8);
-    let results = ml.vector_index_query(index, query_vec, 1);
+    let query_vec = ml.text_embed("rag retrieval", 8)
+    let results   = ml.vector_index_query(index, query_vec, 1)
     if str.contains(results, "rag-doc") {
-        let ok_query = 1;
+        let ok_query = 1
         if ok_query != 1 {
-            return 5;
+            return 5
         }
     } else {
-        return 5;
+        return 5
     }
 
-    let path = ml.vector_index_persist(index, "target/r1803/vector-index.spar");
-    let loaded = ml.vector_index_load(path);
-    let loaded_results = ml.vector_index_query(loaded, query_vec, 1);
+    let path           = ml.vector_index_persist(index, "target/r1803/vector-index.spar")
+    let loaded         = ml.vector_index_load(path)
+    let loaded_results = ml.vector_index_query(loaded, query_vec, 1)
     if str.contains(loaded_results, "rag-doc") {
-        let ok_load = 1;
+        let ok_load = 1
         if ok_load != 1 {
-            return 6;
+            return 6
         }
     } else {
-        return 6;
+        return 6
     }
 
-    let chunks = ml.rag_chunk_text("RAG retrieval uses indexed chunks.", 12, 3);
+    let chunks = ml.rag_chunk_text("RAG retrieval uses indexed chunks.", 12, 3)
     if str.contains(chunks, "spectra.ml.rag_chunks.v1") {
-        let ok_chunks = 1;
+        let ok_chunks = 1
         if ok_chunks != 1 {
-            return 7;
+            return 7
         }
     } else {
-        return 7;
+        return 7
     }
-    let prompt = ml.rag_build_prompt(chunks, "What does RAG retrieval use?");
+    let prompt = ml.rag_build_prompt(chunks, "What does RAG retrieval use?")
     if str.contains(prompt, "Question:") {
-        let ok_prompt = 1;
+        let ok_prompt = 1
         if ok_prompt != 1 {
-            return 8;
+            return 8
         }
     } else {
-        return 8;
+        return 8
     }
 
-    let score = ml.rag_evaluate_answer("RAG retrieval uses indexed chunks", "retrieval uses indexed chunks");
+    let score = ml.rag_evaluate_answer("RAG retrieval uses indexed chunks", "retrieval uses indexed chunks")
     if score < 700 {
-        return 9;
+        return 9
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

@@ -1,77 +1,77 @@
 // Teste: Garantia de retorno em funções que declaram tipos não-void
-module test_return_paths;
+module test_return_paths
 
-fn missing_final_expr() -> int {
-    let value = 10;
+func missing_final_expr() returns int {
+    let value = 10
     if value > 0 {
-        return value;
+        return value
     }
     // falta retorno para o caso value <= 0
 }
 
-fn missing_else(flag: bool) -> int {
+func missing_else(flag: bool) returns int {
     if flag {
-        return 1;
+        return 1
     }
     // sem else e sem retorno
 }
 
-fn loop_with_break(flag: bool, limit: int) -> int {
-    let i = 0;
+func loop_with_break(flag: bool, limit: int) returns int {
+    let i = 0
 
     loop {
-        if flag && i > limit {
-            return i;
+        if flag and i > limit {
+            return i
         }
 
-        if !flag {
-            break;
+        if not flag {
+            break
         }
 
         if i == limit {
-            return limit;
+            return limit
         }
 
-        i = i + 1;
+        i = i + 1
     }
 
     // se chegamos aqui, faltou retorno
 }
 
-fn nested_if_loop(flag: bool, other: bool) -> int {
+func nested_if_loop(flag: bool, other: bool) returns int {
     if flag {
         loop {
             if other {
-                return 10;
+                return 10
             }
-            break;
+            break
         }
     } else {
-        return 20;
+        return 20
     }
     // caso flag seja true e other seja false, falta retorno
 }
 
-fn match_with_partial_return(choice: int) -> int {
+func match_with_partial_return(choice: int) returns int {
     match choice {
-        0 => 0,
-        1 => {
+        when 0 then 0,
+        when 1 then {
             if choice > 2 {
-                return choice;
+                return choice
             }
             // falta retorno para choice == 1
         },
-        _ => {
+        otherwise then {
             if choice > 5 {
-                return choice * 2;
+                return choice * 2
             } else {
-                return choice + 1;
+                return choice + 1
             }
         },
     }
 }
 
-fn valid_nested_if(flag: bool) -> int {
+func valid_nested_if(flag: bool) returns int {
     if flag {
         if flag {
             3
@@ -87,45 +87,45 @@ fn valid_nested_if(flag: bool) -> int {
     }
 }
 
-fn valid_loop_match(flag: bool, limit: int) -> int {
-    let current = 0;
+func valid_loop_match(flag: bool, limit: int) returns int {
+    let current = 0
 
     loop {
         if current > limit {
-            return current;
+            return current
         }
 
         match flag {
-            true => {
+            when true then {
                 if current == limit {
-                    return current;
+                    return current
                 }
             }
-            false => {
+            when false then {
                 if current == limit {
-                    break;
+                    break
                 }
             }
-        };
+        }
 
-        current = current + 1;
+        current = current + 1
     }
 
     match flag {
-        true => limit,
-        false => limit + 1,
+        when true then limit,
+        when false then limit + 1,
     }
 }
 
-fn valid_match_chain(choice: int) -> int {
+func valid_match_chain(choice: int) returns int {
     match choice {
-        0 => 10,
-        _ => {
+        when 0 then 10,
+        otherwise then {
             if choice % 2 == 0 {
-                let updated = choice / 2;
+                let updated = choice / 2
                 match updated {
-                    0 => 20,
-                    _ => updated + 30,
+                    when 0 then 20,
+                    otherwise then updated + 30,
                 }
             } else {
                 40
@@ -134,21 +134,21 @@ fn valid_match_chain(choice: int) -> int {
     }
 }
 
-pub fn main() {
+public func main() {
     // funções válidas
-    let ok_nested = valid_nested_if(true);
-    let ok_loop = valid_loop_match(false, 3);
-    let ok_match = valid_match_chain(6);
+    let ok_nested = valid_nested_if( true)
+    let ok_loop   = valid_loop_match( false, 3)
+    let ok_match  = valid_match_chain(6)
 
     // Exercitar caminhos problemáticos
-    let bad_missing_final = missing_final_expr();
-    let bad_missing_else = missing_else(true);
-    let bad_loop_break = loop_with_break(false, 4);
-    let bad_nested_if_loop = nested_if_loop(true, false);
-    let bad_match_partial = match_with_partial_return(1);
+    let bad_missing_final  = missing_final_expr()
+    let bad_missing_else   = missing_else( true)
+    let bad_loop_break     = loop_with_break( false, 4)
+    let bad_nested_if_loop = nested_if_loop( true, false)
+    let bad_match_partial  = match_with_partial_return(1)
 
     let _sink =
-        ok_nested + ok_loop + ok_match
-        + bad_missing_final + bad_missing_else + bad_loop_break
-        + bad_nested_if_loop + bad_match_partial;
+    ok_nested + ok_loop + ok_match
+    + bad_missing_final + bad_missing_else + bad_loop_break
+    + bad_nested_if_loop + bad_match_partial
 }

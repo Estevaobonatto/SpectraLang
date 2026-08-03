@@ -1,4 +1,4 @@
-module test_beta_struct_enum_variants;
+module test_beta_struct_enum_variants
 
 // Struct-style enum variants with named fields
 enum Shape {
@@ -8,19 +8,19 @@ enum Shape {
     Point,
 }
 
-fn area(s: Shape) -> float {
+func area(s: Shape) returns float {
     match s {
-        Shape::Circle { radius } => {
-            return radius * radius * 3.14159;
+        when Shape::Circle { radius } then {
+            return radius * radius * 3.14159
         }
-        Shape::Rectangle { width, height } => {
-            return width * height;
+        when Shape::Rectangle { width, height } then {
+            return width * height
         }
-        Shape::Triangle { base, height } => {
-            return base * height * 0.5;
+        when Shape::Triangle { base, height } then {
+            return base * height * 0.5
         }
-        Shape::Point => {
-            return 0.0;
+        when Shape::Point then {
+            return 0.0
         }
     }
 }
@@ -31,35 +31,41 @@ enum Color {
     Named(string),
 }
 
-fn describe_color(c: Color) -> string {
+func describe_color(c: Color) returns string {
     match c {
-        Color::Rgb { r, g, b } => {
-            return f"RGB({r}, {g}, {b})";
+        when Color::Rgb { r, g, b } then {
+            return f"RGB({r}, {g}, {b})"
         }
-        Color::Hsv { h, s, v } => {
-            return "HSV color";
+        when Color::Hsv { h, s, v } then {
+            return "HSV color"
         }
-        Color::Named(name) => {
-            return name;
+        when Color::Named(name) then {
+            return name
         }
     }
 }
 
-fn main() -> int {
-    let circle = Shape::Circle { radius: 5.0 };
-    let rect = Shape::Rectangle { width: 4.0, height: 6.0 };
-    let tri = Shape::Triangle { base: 3.0, height: 8.0 };
-    let pt = Shape::Point;
+func main() returns int {
+    let circle = Shape::Circle { radius: 5.0 }
+    let rect   = Shape::Rectangle { width: 4.0, height: 6.0 }
+    let tri    = Shape::Triangle { base: 3.0, height: 8.0 }
+    let pt     = Shape::Point
 
-    let a1 = area(circle);  // ~78.54
-    let a2 = area(rect);    // 24.0
-    let a3 = area(tri);     // 12.0
-    let a4 = area(pt);      // 0.0
+    let a1 = area(circle)
+    // ~78.54
+    let a2 = area(rect)
+    // 24.0
+    let a3 = area(tri)
+    // 12.0
+    let a4 = area(pt)
+    // 0.0
 
-    let red = Color::Rgb { r: 255, g: 0, b: 0 };
-    let sky = Color::Named("sky blue");
-    let desc1 = describe_color(red);   // "RGB(255, 0, 0)"
-    let desc2 = describe_color(sky);   // "sky blue"
+    let red   = Color::Rgb { r: 255, g: 0, b: 0 }
+    let sky   = Color::Named("sky blue")
+    let desc1 = describe_color(red)
+    // "RGB(255, 0, 0)"
+    let desc2 = describe_color(sky)
+    // "sky blue"
 
-    return 0;
+    return 0
 }

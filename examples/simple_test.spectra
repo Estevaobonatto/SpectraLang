@@ -1,8 +1,8 @@
-module test;
+module test
 
-pub fn main() {
-    let x = 10;
-    let y = 20;
-    let z = x + y;
-    return;
+public func main() {
+    let x = 10
+    let y = 20
+    let z = x + y
+    return
 }

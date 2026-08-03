@@ -8,16 +8,16 @@ modules are runtime handles, and examples validate behavior through the CLI.
 ## Linear Model
 
 ```spectra
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-fn train_step(x: int, target: int, weight: int, bias: int) -> int {
-    let prediction = ml.linear(x, weight, bias);
-    let loss = ml.mse_loss(prediction, target);
-    tensor.backward(loss);
-    ml.sgd_step(weight, 0.1);
-    ml.sgd_step(bias, 0.1);
-    return 0;
+func train_step(x: int, target: int, weight: int, bias: int) returns int {
+    let prediction = ml.linear(x, weight, bias)
+    let loss = ml.mse_loss(prediction, target)
+    tensor.backward(loss)
+    ml.sgd_step(weight, 0.1)
+    ml.sgd_step(bias, 0.1)
+    return 0
 }
 ```
 
@@ -35,11 +35,11 @@ That example trains a toy linear regression model and writes
 Use binary cross entropy for logistic-style examples:
 
 ```spectra
-let probs = tensor.requires_grad(tensor.full_f(4, 0.5), true);
-let target = tensor.full_f(4, 1.0);
-let loss = ml.bce_loss(probs, target);
-tensor.backward(loss);
-ml.sgd_step(probs, 0.1);
+let probs = tensor.requires_grad(tensor.full_f(4, 0.5), true)
+let target = tensor.full_f(4, 1.0)
+let loss = ml.bce_loss(probs, target)
+tensor.backward(loss)
+ml.sgd_step(probs, 0.1)
 ```
 
 Validated example:
@@ -54,9 +54,9 @@ Validated example:
 the current compiler/runtime contract explicit.
 
 ```spectra
-let model_handle = ml.module_create();
-let dense = ml.linear_layer_create(4, 2);
-ml.module_add_layer(model_handle, dense);
+let model_handle = ml.module_create()
+let dense = ml.linear_layer_create(4, 2)
+ml.module_add_layer(model_handle, dense)
 ```
 
 Validated example:
@@ -70,11 +70,11 @@ Validated example:
 Use tensor-backed datasets for reproducible AI examples:
 
 ```spectra
-let features = tensor.reshape(tensor.full_f(4, 1.0), 4, 1);
-let labels = tensor.full_f(4, 2.0);
-let dataset = ml.dataset_from_tensors(features, labels);
-let loader = ml.dataloader_create(dataset, 2, true, 7);
-let batch = ml.dataloader_next(loader);
+let features = tensor.reshape(tensor.full_f(4, 1.0), 4, 1)
+let labels = tensor.full_f(4, 2.0)
+let dataset = ml.dataset_from_tensors(features, labels)
+let loader = ml.dataloader_create(dataset, 2, true, 7)
+let batch = ml.dataloader_next(loader)
 ```
 
 The `true, 7` arguments request deterministic shuffling with seed `7`.

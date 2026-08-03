@@ -1,0 +1,89 @@
+// SpectraLang em uma pequena demonstração executável.
+//
+// Este exemplo foi pensado para uma apresentação: ele mostra uma linguagem
+// legível, tipada e expressiva sem esconder o fluxo do programa.
+
+module spectra_showcase
+
+from std.io import println
+
+public record Feature {
+    name: string
+    score: int
+}
+
+public enum Maturity {
+    Stable
+    Emerging
+    Experimental
+}
+
+impl Feature {
+    public func label(self) returns string {
+        return f"{self.name}: {self.score}/100"
+    }
+
+    public func is_ready(self) returns bool {
+        return self.score >= 80 and self.score <= 100
+    }
+}
+
+func classify(score: int) returns Maturity {
+    if score >= 80 {
+        return Maturity::Stable
+    } else if score >= 50 {
+        return Maturity::Emerging
+    } else {
+        return Maturity::Experimental
+    }
+}
+
+func print_maturity(status: Maturity) {
+    match status {
+        when Stable then println("maturidade: estavel")
+        when Emerging then println("maturidade: em evolucao")
+        when Experimental then println("maturidade: experimental")
+    }
+}
+
+public func main() returns int {
+    println("=== SpectraLang Showcase ===")
+    println("Uma linguagem clara para construir ideias com tipos.")
+    println("")
+
+    let features = [
+        Feature { name: "sintaxe legivel", score: 96 },
+        Feature { name: "tipagem estatica", score: 91 },
+        Feature { name: "ecossistema", score: 72 }
+    ]
+
+    let total = 0
+    for feature in features {
+        println(feature.label())
+
+        if not feature.is_ready() {
+            println("  -> ainda recebendo melhorias")
+        } else {
+            println("  -> pronto para mostrar")
+        }
+
+        total = total + feature.score
+    }
+
+    let average  = total / 3
+    let maturity = classify(average)
+
+    println("")
+    println(f"pontuacao media: {average}/100")
+    print_maturity(maturity)
+
+    // `and`, `or` e `not` tornam a regra de negócio fácil de ler.
+    let ready_to_present = average >= 80 and not average < 50
+    if ready_to_present or average == 72 {
+        println("\nA SpectraLang esta pronta para a apresentacao!")
+    } else {
+        println("A SpectraLang continua evoluindo.")
+    }
+
+    return 0
+}

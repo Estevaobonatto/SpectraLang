@@ -1,9 +1,9 @@
 // Erro esperado: Tensor<float, rank1> nao pode inicializar Tensor<float, rank2>.
-module tensor_rank_mismatch;
+module tensor_rank_mismatch
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let values: Tensor<float, rank2> = tensor.vector_f(4, 1.0);
-    return tensor.rank(values);
+public func main() returns int {
+    let values: Tensor<float, rank2> = tensor.vector_f(4, 1.0)
+    return tensor.rank(values)
 }

@@ -99,7 +99,7 @@ def validate_docs() -> None:
 def validate_example() -> None:
     example = read("examples/api/00_hello_http.spectra")
     for term in [
-        "module hello_http;",
+        'module hello_http',
         "get(routes, \"/hello\")",
         "with_header(text(\"Hello HTTP from Spectra\")",
         "register_sync(route_id(route), response)",

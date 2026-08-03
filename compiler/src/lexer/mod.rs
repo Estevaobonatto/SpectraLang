@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn lexes_basic_tokens() {
-        let source = "module app.core; fn main() { return; }";
+        let source = "module app.core\nfunc main() { return }";
         let tokens = Lexer::new(source).tokenize().expect("lexer should succeed");
         assert!(tokens
             .iter()

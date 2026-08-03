@@ -4,12 +4,12 @@ use std::collections::HashSet;
 #[test]
 fn malformed_frontend_inputs_do_not_panic() {
     let corpus = [
-        "module demo; fn main( {",
-        "module demo; fn main() { let x = \"unterminated; }",
-        "module demo; import { println from std.io;",
-        "module demo; fn main() { if let = 1 { } }",
-        "module demo; fn main() { switch 1 { case => {} } }",
-        "module demo; fn main() { loop { ",
+        "module demo\nfunc main( {",
+        "module demo\nfunc main() { let x = \"unterminated; }",
+        "module demo\nfrom std.io import",
+        "module demo\nfunc main() { if let = 1 { } }",
+        "module demo\nfunc main() { switch 1 { case => {} } }",
+        "module demo\nfunc main() { loop { ",
     ];
 
     for source in corpus {
@@ -24,32 +24,32 @@ fn malformed_frontend_inputs_do_not_panic() {
 #[test]
 fn promoted_control_flow_constructs_parse_without_feature_flags() {
     let source = r#"
-        module stable_control_flow;
+        module stable_control_flow
 
-        fn classify(value: int) -> int {
-            unless value < 0 {
+        func classify(value: int)  returns  int {
+            if not value < 0 {
                 switch value {
-                    case 0 => {
-                        return 10;
+                    case 0: {
+                        return 10
                     }
-                    else => {
-                        return 20;
+                    else: {
+                        return 20
                     }
                 }
             } else {
-                return -1;
+                return -1
             }
         }
 
-        fn main() -> int {
-            let i = 0;
+        func main()  returns  int {
+            let i = 0
             do {
-                i = i + 1;
-            } while i < 2;
+                i = i + 1
+            } while i < 2
             loop {
-                break;
+                break
             }
-            return classify(i);
+            return classify(i)
         }
     "#;
 
@@ -61,7 +61,7 @@ fn promoted_control_flow_constructs_parse_without_feature_flags() {
 
 #[test]
 fn lexical_errors_expose_stable_codes() {
-    let source = "module bad; fn main() { let x = §§§; }";
+    let source = "module bad\nfunc main() { let x = §§§ }";
     let errors = Lexer::new(source)
         .tokenize()
         .expect_err("lexer should fail on unexpected characters");
@@ -76,15 +76,15 @@ fn pipeline_handles_malformed_inputs_without_internal_errors() {
     let corpus = [
         (
             "broken_import.spectra",
-            "module demo; import { println from std.io;",
+            "module demo\nfrom std.io import",
         ),
         (
             "broken_return.spectra",
-            "module demo; fn main() -> int { return; }",
+            "module demo\nfunc main() returns int { return }",
         ),
         (
             "broken_match.spectra",
-            "module demo; fn main() { match 1 { case => {} } }",
+            "module demo\nfunc main() { match 1 { when then {} } }",
         ),
     ];
 

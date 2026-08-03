@@ -1,28 +1,28 @@
 // Teste 67: std.tensor com valores float representados pela ABI host f64
-module tensor_float_surface;
+module tensor_float_surface
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let values = tensor.full_f(4, 2.0);
-    let mean = tensor.mean_f(values);
-    let total = tensor.sum_f(values);
+public func main() returns int {
+    let values = tensor.full_f(4, 2.0)
+    let mean   = tensor.mean_f(values)
+    let total  = tensor.sum_f(values)
 
     if mean as int != 2 {
-        return mean as int;
+        return mean as int
     }
     if total as int != 8 {
-        return total as int;
+        return total as int
     }
 
-    let grid = tensor.full2_f(2, 2, 1.5);
+    let grid = tensor.full2_f(2, 2, 1.5)
     if tensor.rank(grid) != 2 {
-        return tensor.rank(grid);
+        return tensor.rank(grid)
     }
     if tensor.get2_f(grid, 1, 1) as int != 1 {
-        return tensor.get2_f(grid, 1, 1) as int;
+        return tensor.get2_f(grid, 1, 1) as int
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

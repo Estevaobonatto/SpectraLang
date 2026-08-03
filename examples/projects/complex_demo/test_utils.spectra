@@ -1,22 +1,24 @@
-module test_utils;
+module test_utils
 
-pub enum Status {
+public enum Status {
     Ok(int),
     Err(string),
 }
 
-pub struct Point {
+public record Point {
     x: int,
     y: int,
 }
 
-pub fn make_point(x: int, y: int) -> Point {
-    return Point { x: x, y: y };
+public func make_point(x: int, y: int) returns Point {
+    return Point { x: x, y: y }
 }
 
-pub fn status_value(s: Status) -> int {
+public func status_value(s: Status) returns int {
     match s {
-        Status::Ok(v) => { return v; }
-        Status::Err(_) => { return 0 - 1; }
+        when Status::Ok(v) then { return v
+        }
+        when Status::Err(_) then { return 0 - 1
+        }
     }
 }

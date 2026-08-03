@@ -1,3 +1,5 @@
-module sqlite_invalid_handle;
-import { close } from std.api.db.sqlite;
-pub fn main() -> int { close(); return 0; }
+module sqlite_invalid_handle
+from std.api.db.sqlite import close
+public func main() returns int { close()
+    return 0
+}

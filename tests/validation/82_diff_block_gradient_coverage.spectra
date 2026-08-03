@@ -1,47 +1,47 @@
 // Teste 82: differentiable blocks with direct tensor math, control flow, and ML layers.
 // Interprocedural differentiation of user-defined helper calls remains a future extension.
-module diff_block_gradient_coverage;
+module diff_block_gradient_coverage
 
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.set_grad_enabled(true);
+public func main() returns int {
+    tensor.free_all()
+    tensor.set_grad_enabled( true)
 
-    let base: Tensor<float, rank1, dim3, row_major, cpu> = [3.0, 3.0, 3.0];
-    let trainable: Tensor<float, rank1, dim3, row_major, cpu> = tensor.requires_grad(base, true);
-    let loss: Tensor<float, rank0> = diff {
+    let base: Tensor<float, rank1, dim3, row_major, cpu>      = [3.0, 3.0, 3.0]
+    let trainable: Tensor<float, rank1, dim3, row_major, cpu> = tensor.requires_grad(base, true)
+    let loss: Tensor<float, rank0>                            = diff {
         tensor.sum_t(tensor.mul(trainable, trainable))
-    };
+    }
     if tensor.len(loss) != 1 {
-        return tensor.len(loss);
+        return tensor.len(loss)
     }
 
-    let grad: Tensor<float, rank1> = tensor.grad(trainable);
+    let grad: Tensor<float, rank1> = tensor.grad(trainable)
     if tensor.sum_f(grad) as int != 18 {
-        return tensor.sum_f(grad) as int;
+        return tensor.sum_f(grad) as int
     }
 
-    let input: Tensor<float, rank2, dim1, dim3, row_major, cpu> = [[1.0, 2.0, 3.0]];
-    let weight_base: Tensor<float, rank2, dim3, dim1, row_major, cpu> = [[1.0], [1.0], [1.0]];
-    let bias_base: Tensor<float, rank1, dim1, row_major, cpu> = [0.0];
-    let weight: Tensor<float, rank2, dim3, dim1, row_major, cpu> = tensor.requires_grad(weight_base, true);
-    let bias: Tensor<float, rank1, dim1, row_major, cpu> = tensor.requires_grad(bias_base, true);
-    let target: Tensor<float, rank2, dim1, dim1, row_major, cpu> = [[6.0]];
+    let input: Tensor<float, rank2, dim1, dim3, row_major, cpu> = [[1.0, 2.0, 3.0]]
+    let weight_base: Tensor<float, rank2, dim3, dim1, row_major, cpu> = [[1.0], [1.0], [1.0]]
+    let bias_base: Tensor<float, rank1, dim1, row_major, cpu> = [0.0]
+    let weight: Tensor<float, rank2, dim3, dim1, row_major, cpu> = tensor.requires_grad(weight_base, true)
+    let bias: Tensor<float, rank1, dim1, row_major, cpu> = tensor.requires_grad(bias_base, true)
+    let target: Tensor<float, rank2, dim1, dim1, row_major, cpu> = [[6.0]]
 
     let ml_loss: Tensor<float, rank0> = diff {
         ml.mse_loss(ml.linear(input, weight, bias), target)
-    };
+    }
     if tensor.len(ml_loss) != 1 {
-        return tensor.len(ml_loss);
+        return tensor.len(ml_loss)
     }
 
-    let weight_grad: Tensor<float, rank2> = tensor.grad(weight);
+    let weight_grad: Tensor<float, rank2> = tensor.grad(weight)
     if tensor.rank(weight_grad) != 2 {
-        return tensor.rank(weight_grad);
+        return tensor.rank(weight_grad)
     }
 
-    tensor.free_all();
-    return 0;
+    tensor.free_all()
+    return 0
 }

@@ -30,23 +30,23 @@ Arrays são coleções de elementos do mesmo tipo. São criados via literais `[e
 Arrays are collections of elements of the same type. They are created via `[elem1, elem2, ...]` literals. The type is inferred from the elements.
 
 ```spectra
-module arrays;
+module arrays
 
-import { println } from std.io;
+from std.io import println
 
-pub fn main() {
+public func main() {
     // Arrays de inteiros / Integer arrays
-    let numeros = [1, 2, 3, 4, 5];
-    let primos = [2, 3, 5, 7, 11, 13];
+    let numeros = [1, 2, 3, 4, 5]
+    let primos = [2, 3, 5, 7, 11, 13]
 
     // Arrays de strings / String arrays
-    let nomes = ["Alice", "Bob", "Carol"];
+    let nomes = ["Alice", "Bob", "Carol"]
 
     // Arrays de floats / Float arrays
-    let temperaturas = [36.5, 37.0, 38.2];
+    let temperaturas = [36.5, 37.0, 38.2]
 
     // Arrays de booleanos / Boolean arrays
-    let flags = [true, false, true, true];
+    let flags = [true, false, true, true]
 }
 ```
 
@@ -59,11 +59,14 @@ Arrays são indexados com `array[indice]`, começando em `0`.
 Arrays are indexed with `array[index]`, starting at `0`.
 
 ```spectra
-let arr = [10, 20, 30, 40, 50];
+let arr = [10, 20, 30, 40, 50]
 
-let primeiro = arr[0];    // 10
-let segundo  = arr[1];    // 20
-let ultimo   = arr[4];    // 50
+let primeiro = arr[0]
+    // 10
+let segundo  = arr[1]
+    // 20
+let ultimo   = arr[4]
+    // 50
 ```
 
 ### Modificação / Modification
@@ -75,32 +78,34 @@ Elementos de array podem ser modificados com atribuição indexada.
 Array elements can be modified with indexed assignment.
 
 ```spectra
-let arr = [1, 2, 3, 4, 5];
-arr[0] = 99;    // [99, 2, 3, 4, 5]
-arr[4] = 100;   // [99, 2, 3, 4, 100]
+let arr = [1, 2, 3, 4, 5]
+arr[0] = 99
+    // [99, 2, 3, 4, 5]
+arr[4] = 100
+   // [99, 2, 3, 4, 100]
 ```
 
 ### Iteração / Iteration
 
 ```spectra
-let arr = [10, 20, 30, 40, 50];
+let arr = [10, 20, 30, 40, 50]
 
 // Com for e range / With for and range
 for i in 0..5 {
-    println(f"arr[{i}] = {arr[i]}");
+    println(f"arr[{i}] = {arr[i]}")
 }
 
 // Com while / With while
-let i = 0;
+let i = 0
 while i < 5 {
-    println(f"{arr[i]}");
-    i = i + 1;
+    println(f"{arr[i]}")
+    i = i + 1
 }
 
 // Somando todos os elementos / Summing all elements
-let soma = 0;
+let soma = 0
 for i in 0..5 {
-    soma = soma + arr[i];
+    soma = soma + arr[i]
 }
 // soma == 150
 ```
@@ -108,17 +113,18 @@ for i in 0..5 {
 ### Arrays como Parâmetros / Arrays as Parameters
 
 ```spectra
-fn soma_array(arr: [int], tamanho: int) -> int {
-    let total = 0;
+func soma_array(arr: [int], tamanho: int) returns int {
+    let total = 0
     for i in 0..tamanho {
-        total = total + arr[i];
+        total = total + arr[i]
     }
-    return total;
+    return total
 }
 
-pub fn main() {
-    let meu_arr = [1, 2, 3, 4, 5];
-    let s = soma_array(meu_arr, 5);    // 15
+public func main() {
+    let meu_arr = [1, 2, 3, 4, 5]
+    let s = soma_array(meu_arr, 5)
+    // 15
 }
 ```
 
@@ -126,9 +132,10 @@ pub fn main() {
 
 ```spectra
 // Array de arrays (matriz) / Array of arrays (matrix)
-let matriz = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+let matriz = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
 
-let elem = matriz[1][2];    // 6 (linha 1, coluna 2)
+let elem = matriz[1][2]
+    // 6 (linha 1, coluna 2)
 ```
 
 ---
@@ -142,26 +149,33 @@ Tuplas são coleções de tamanho fixo com elementos de tipos possivelmente dife
 Tuples are fixed-size collections with elements of potentially different types. They are created with parentheses and accessed via `.0`, `.1`, `.2`, etc.
 
 ```spectra
-module tuplas;
+module tuplas
 
-import { println } from std.io;
+from std.io import println
 
-pub fn main() {
+public func main() {
     // Tupla de int e string / Tuple of int and string
-    let par = (42, "resposta");
-    let n = par.0;    // 42
-    let s = par.1;    // "resposta"
+    let par = (42, "resposta")
+    let n = par.0
+    // 42
+    let s = par.1
+    // "resposta"
 
     // Tripla / Triple
-    let tripla = (10, 3.14, true);
-    let inteiro  = tripla.0;    // 10
-    let flutuante = tripla.1;   // 3.14
-    let booleano = tripla.2;    // true
+    let tripla = (10, 3.14, true)
+    let inteiro  = tripla.0
+    // 10
+    let flutuante = tripla.1
+   // 3.14
+    let booleano = tripla.2
+    // true
 
     // Tupla com anotação de tipo / Tuple with type annotation
-    let coordenada: (int, int) = (100, 200);
-    let x = coordenada.0;    // 100
-    let y = coordenada.1;    // 200
+    let coordenada: (int, int) = (100, 200)
+    let x = coordenada.0
+    // 100
+    let y = coordenada.1
+    // 200
 }
 ```
 
@@ -174,25 +188,25 @@ Tuplas são úteis para retornar múltiplos valores de uma função.
 Tuples are useful for returning multiple values from a function.
 
 ```spectra
-fn min_max(arr: [int], n: int) -> (int, int) {
-    let min = arr[0];
-    let max = arr[0];
+func min_max(arr: [int], n: int) returns (int, int) {
+    let min = arr[0]
+    let max = arr[0]
     for i in 1..n {
         if arr[i] < min {
-            min = arr[i];
+            min = arr[i]
         }
         if arr[i] > max {
-            max = arr[i];
+            max = arr[i]
         }
     }
-    return (min, max);
+    return (min, max)
 }
 
-pub fn main() {
-    let nums = [5, 1, 8, 3, 9, 2];
-    let resultado = min_max(nums, 6);
+public func main() {
+    let nums = [5, 1, 8, 3, 9, 2]
+    let resultado = min_max(nums, 6)
     
-    println(f"Min: {resultado.0}, Max: {resultado.1}");
+    println(f"Min: {resultado.0}, Max: {resultado.1}")
     // Min: 1, Max: 9
 }
 ```
@@ -201,32 +215,32 @@ pub fn main() {
 
 ```spectra
 // Acesso direto via campo / Direct access via field
-let ponto = (10, 20);
-let x = ponto.0;
-let y = ponto.1;
+let ponto = (10, 20)
+let x = ponto.0
+let y = ponto.1
 
 // Desestruturação em let / Destructuring in let
-let (a, b) = ponto;
+let (a, b) = ponto
 
 // Usando em match / Using in match
 match ponto_resultado {
-    (0, 0) => println("Origem"),
-    (x, 0) => println(f"Eixo X em {x}"),
-    (0, y) => println(f"Eixo Y em {y}"),
-    (x, y) => println(f"Ponto ({x}, {y})")
+    when (0, 0) then println("Origem"),
+    when (x, 0) then println(f"Eixo X em {x}"),
+    when (0, y) then println(f"Eixo Y em {y}"),
+    when (x, y) then println(f"Ponto ({x}, {y})")
 }
 ```
 
 Structs também podem ser desestruturadas em `let`:
 
 ```spectra
-struct Point {
-    pub x: int,
-    pub y: int,
+record Point {
+    public x: int,
+    public y: int,
 }
 
-let p = Point { x: 10, y: 20 };
-let Point { x, y: renamed_y } = p;
+let p = Point { x: 10, y: 20 }
+let Point { x, y: renamed_y } = p
 ```
 
 ---
@@ -241,21 +255,24 @@ Ranges represent sequences of numeric values. There are two types: exclusive (`.
 
 ```spectra
 // Exclusivo: não inclui o valor final / Exclusive: does not include the final value
-let r1 = 0..10;     // 0, 1, 2, ..., 9
+let r1 = 0..10
+     // 0, 1, 2, ..., 9
 
 // Inclusivo: inclui o valor final / Inclusive: includes the final value
-let r2 = 1..=10;    // 1, 2, 3, ..., 10
+let r2 = 1..=10
+    // 1, 2, 3, ..., 10
 
-fn soma_intervalo(r: Range) -> int {
-    let total = 0;
+func soma_intervalo(r: Range) returns int {
+    let total = 0
     for i in r {
-        total = total + i;
+        total = total + i
     }
-    return total;
+    return total
 }
 
-let stored = 2..5;
-let total = soma_intervalo(stored); // 2 + 3 + 4 = 9
+let stored = 2..5
+let total = soma_intervalo(stored)
+ // 2 + 3 + 4 = 9
 
 // Em for loops / In for loops
 for i in 0..5 {
@@ -267,14 +284,14 @@ for i in 1..=5 {
 }
 
 // Com variáveis / With variables
-let inicio = 5;
-let fim = 10;
+let inicio = 5
+let fim = 10
 for i in inicio..fim {
     // i = 5, 6, 7, 8, 9
 }
 
 // Empty descending range / intervalo descendente vazio
-let empty = 5..2;
+let empty = 5..2
 for i in empty {
     // no iterations
 }
@@ -284,13 +301,13 @@ for i in empty {
 
 | Function | Signature | Meaning |
 |---|---|---|
-| `create` | `fn(int, int, bool) -> Range` | Build a range handle |
-| `len` | `fn(Range) -> int` | Count produced values |
-| `at` | `fn(Range, int) -> int` | Read value by zero-based index |
-| `eq` | `fn(Range, Range) -> bool` | Compare range bounds/inclusive flag |
-| `start` | `fn(Range) -> int` | Original start bound |
-| `end` | `fn(Range) -> int` | Original end bound |
-| `is_inclusive` | `fn(Range) -> bool` | True for `..=` |
+| `create` | `func(int, int, bool) returns Range` | Build a range handle |
+| `len` | `func(Range) returns int` | Count produced values |
+| `at` | `func(Range, int) returns int` | Read value by zero-based index |
+| `eq` | `func(Range, Range) returns bool` | Compare range bounds/inclusive flag |
+| `start` | `func(Range) returns int` | Original start bound |
+| `end` | `func(Range) returns int` | Original end bound |
+| `is_inclusive` | `func(Range) returns bool` | True for `..=` |
 
 Invalid range handles, negative indexes, indexes outside `len`, invalid
 `create` flags, and length overflow fail in the runtime with
@@ -298,35 +315,35 @@ Invalid range handles, negative indexes, indexes outside `len`, invalid
 
 ---
 
-## 4. Structs
+## 4. Records
 
 ### Declaração / Declaration
 
 **PT-BR:**  
-Structs são tipos de dados com campos nomeados e tipados. São declarados no nível superior do módulo.
+Records são tipos de dados com campos nomeados e tipados. São declarados no nível superior do módulo.
 
 **EN-US:**  
-Structs are data types with named, typed fields. They are declared at the module top-level.
+Records are data types with named, typed fields. They are declared at the module top-level.
 
 ```spectra
-module structs;
+module structs
 
-// Struct simples / Simple struct
-struct Ponto {
+// Record simples / Simple record
+record Ponto {
     x: int,
     y: int
 }
 
-// Struct com vários tipos / Struct with multiple types
-struct Pessoa {
+// Record com vários tipos / Record with multiple types
+record Pessoa {
     nome: string,
     idade: int,
     altura: float,
     ativo: bool
 }
 
-// Struct aninhada / Nested struct
-struct Retangulo {
+// Record aninhado / Nested record
+record Retangulo {
     canto_superior_esquerdo: Ponto,
     largura: int,
     altura: int
@@ -336,45 +353,50 @@ struct Retangulo {
 ### Instanciação / Instantiation
 
 ```spectra
-pub fn main() {
-    // Instanciação de struct / Struct instantiation
-    let p = Ponto { x: 10, y: 20 };
-    let x = 5;
-    let y = 8;
-    let p2 = Ponto { x, y }; // shorthand: x == x: x, y == y: y
+public func main() {
+    // Instanciação de record / Record instantiation
+    let p = Ponto { x: 10, y: 20 }
+    let x = 5
+    let y = 8
+    let p2 = Ponto { x, y }
+ // shorthand: x == x: x, y == y: y
     let pessoa = Pessoa {
         nome: "Alice",
         idade: 30,
         altura: 1.65,
         ativo: true
-    };
+    }
 
-    // Struct aninhada / Nested struct
+    // Record aninhado / Nested record
     let rect = Retangulo {
         canto_superior_esquerdo: Ponto { x: 0, y: 0 },
         largura: 100,
         altura: 50
-    };
+    }
 }
 ```
 
 ### Acesso a Campos / Field Access
 
 ```spectra
-let p = Ponto { x: 10, y: 20 };
+let p = Ponto { x: 10, y: 20 }
 
-let coord_x = p.x;    // 10
-let coord_y = p.y;    // 20
+let coord_x = p.x
+    // 10
+let coord_y = p.y
+    // 20
 
 // Acesso aninhado / Nested access
 let rect = Retangulo {
     canto_superior_esquerdo: Ponto { x: 5, y: 10 },
     largura: 200,
     altura: 100
-};
+}
 
-let x_do_canto = rect.canto_superior_esquerdo.x;    // 5
-let area = rect.largura * rect.altura;              // 20000
+let x_do_canto = rect.canto_superior_esquerdo.x
+    // 5
+let area = rect.largura * rect.altura
+              // 20000
 ```
 
 ### Structs Genéricas / Generic Structs
@@ -386,21 +408,21 @@ Structs podem ter parâmetros de tipo genéricos, tornando-as reutilizáveis par
 Structs can have generic type parameters, making them reusable for different data types.
 
 ```spectra
-struct Par<T> {
+record Par<T> {
     primeiro: T,
     segundo: T
 }
 
-struct Mapa<K, V> {
+record Mapa<K, V> {
     chave: K,
     valor: V
 }
 
-pub fn main() {
-    let par_int = Par { primeiro: 1, segundo: 2 };
-    let par_str = Par { primeiro: "a", segundo: "b" };
+public func main() {
+    let par_int = Par { primeiro: 1, segundo: 2 }
+    let par_str = Par { primeiro: "a", segundo: "b" }
 
-    let mapa = Mapa { chave: "nome", valor: "Alice" };
+    let mapa = Mapa { chave: "nome", valor: "Alice" }
 }
 ```
 
@@ -417,7 +439,7 @@ A forma mais simples de enum tem apenas variantes sem dados associados (variante
 The simplest form of enum has only variants with no associated data (unit variants).
 
 ```spectra
-module enums;
+module enums
 
 enum Cor {
     Vermelho,
@@ -435,9 +457,9 @@ enum DiaSemana {
     Domingo
 }
 
-pub fn main() {
-    let cor = Cor::Vermelho;
-    let dia = DiaSemana::Sexta;
+public func main() {
+    let cor = Cor::Vermelho
+    let dia = DiaSemana::Sexta
 }
 ```
 
@@ -467,15 +489,15 @@ enum Mensagem {
     MudarCor(int, int, int)   // r, g, b
 }
 
-pub fn main() {
-    let algum = Opcao::Algum(42);
-    let nenhum: Opcao<int> = Opcao::Nenhum;
+public func main() {
+    let algum = Opcao::Algum(42)
+    let nenhum: Opcao<int> = Opcao::Nenhum
 
-    let ok = Resultado::Ok(100);
-    let erro = Resultado::Err("algo deu errado");
+    let ok = Resultado::Ok(100)
+    let erro = Resultado::Err("algo deu errado")
 
-    let msg = Mensagem::Mover(10, 20);
-    let texto = Mensagem::EscreverTexto("Olá!");
+    let msg = Mensagem::Mover(10, 20)
+    let texto = Mensagem::EscreverTexto("Olá!")
 }
 ```
 
@@ -501,31 +523,31 @@ enum Cor {
     Nomeada(string)               // Variante tuple misturada / mixed tuple variant
 }
 
-pub fn main() {
-    let circulo = Forma::Circulo { raio: 5.0 };
-    let rect = Forma::Retangulo { largura: 4.0, altura: 6.0 };
-    let vermelho = Cor::Rgb { r: 255, g: 0, b: 0 };
-    let azul_ceu = Cor::Nomeada("azul céu");
+public func main() {
+    let circulo = Forma::Circulo { raio: 5.0 }
+    let rect = Forma::Retangulo { largura: 4.0, altura: 6.0 }
+    let vermelho = Cor::Rgb { r: 255, g: 0, b: 0 }
+    let azul_ceu = Cor::Nomeada("azul céu")
 }
 ```
 
 ### Usando Enums com Match / Using Enums with Match
 
 ```spectra
-fn calcular_area(forma: Forma) -> float {
+func calcular_area(forma: Forma) returns float {
     match forma {
-        Forma::Circulo { raio } => raio * raio * 3.14159,
-        Forma::Retangulo { largura, altura } => largura * altura,
-        Forma::Triangulo { base, altura } => base * altura * 0.5,
-        Forma::Ponto => 0.0
+        when Forma::Circulo { raio } then raio * raio * 3.14159,
+        when Forma::Retangulo { largura, altura } then largura * altura,
+        when Forma::Triangulo { base, altura } then base * altura * 0.5,
+        when Forma::Ponto then 0.0
     }
 }
 
-fn descrever_cor(cor: Cor) -> string {
+func descrever_cor(cor: Cor) returns string {
     match cor {
-        Cor::Rgb { r, g, b } => f"RGB({r}, {g}, {b})",
-        Cor::Hsv { h, s, v } => f"HSV({h}, {s}, {v})",
-        Cor::Nomeada(nome)   => nome
+        when Cor::Rgb { r, g, b } then f"RGB({r}, {g}, {b})",
+        when Cor::Hsv { h, s, v } then f"HSV({h}, {s}, {v})",
+        when Cor::Nomeada(nome) then nome
     }
 }
 ```
@@ -545,10 +567,10 @@ enum Result<T, E> {
 }
 
 // Usando / Using
-let talvez: Option<int> = Option::Some(42);
-let nada: Option<string> = Option::None;
-let sucesso: Result<int, string> = Result::Ok(200);
-let falha: Result<int, string> = Result::Err("não encontrado");
+let talvez: Option<int> = Option::Some(42)
+let nada: Option<string> = Option::None
+let sucesso: Result<int, string> = Result::Ok(200)
+let falha: Result<int, string> = Result::Err("não encontrado")
 ```
 
 ---
@@ -572,68 +594,72 @@ Methods are functions associated with a type, declared in `impl` blocks. A metho
 ### Exemplo Completo / Complete Example
 
 ```spectra
-module metodos;
+module metodos
 
-import { println } from std.io;
+from std.io import println
 
-struct Ponto {
+record Ponto {
     x: int,
     y: int
 }
 
 impl Ponto {
     // Método estático (construtor) / Static method (constructor)
-    fn novo(x: int, y: int) -> Ponto {
+    func novo(x: int, y: int) returns Ponto {
         Ponto { x: x, y: y }
     }
 
     // Método de leitura / Read method
-    fn obter_x(&self) -> int {
+    func obter_x(&self) returns int {
         self.x
     }
 
-    fn obter_y(&self) -> int {
+    func obter_y(&self) returns int {
         self.y
     }
 
     // Método de cálculo / Calculation method
-    fn distancia_da_origem(&self) -> float {
-        let soma_quadrados = (self.x * self.x + self.y * self.y);
+    func distancia_da_origem(&self) returns float {
+        let soma_quadrados = (self.x * self.x + self.y * self.y)
         // simplificado — sem sqrt / simplified — without sqrt
         soma_quadrados
     }
 
     // Método que retorna novo valor / Method returning new value
-    fn mover(&self, dx: int, dy: int) -> Ponto {
+    func mover(&self, dx: int, dy: int) returns Ponto {
         Ponto { x: self.x + dx, y: self.y + dy }
     }
 
     // Método com mut self / Method with mut self
-    fn escalar(&mut self, fator: int) {
-        self.x = self.x * fator;
-        self.y = self.y * fator;
+    func escalar(&mut self, fator: int) {
+        self.x = self.x * fator
+        self.y = self.y * fator
     }
 
     // Método para exibição / Display method
-    fn para_string(&self) -> string {
+    func para_string(&self) returns string {
         f"({self.x}, {self.y})"
     }
 }
 
-pub fn main() {
+public func main() {
     // Construtor estático / Static constructor
-    let p1 = Ponto::novo(10, 20);
+    let p1 = Ponto::novo(10, 20)
 
     // Métodos de instância / Instance methods
-    let x = p1.obter_x();    // 10
-    let y = p1.obter_y();    // 20
+    let x = p1.obter_x()
+    // 10
+    let y = p1.obter_y()
+    // 20
 
     // Method chaining (encadeamento) / Method chaining
-    let p2 = p1.mover(5, 5).mover(3, 3);
+    let p2 = p1.mover(5, 5).mover(3, 3)
     // p2 = (18, 28)
 
-    println(p1.para_string());    // (10, 20)
-    println(p2.para_string());    // (18, 28)
+    println(p1.para_string())
+    // (10, 20)
+    println(p2.para_string())
+    // (18, 28)
 }
 ```
 
@@ -646,41 +672,43 @@ enum Forma {
 }
 
 impl Forma {
-    fn area(&self) -> float {
+    func area(&self) returns float {
         match self {
-            Forma::Circulo { raio }               => raio * raio * 3.14159,
-            Forma::Retangulo { largura, altura }  => largura * altura
+            when Forma::Circulo { raio } then raio * raio * 3.14159,
+            when Forma::Retangulo { largura, altura } then largura * altura
         }
     }
 
-    fn perimetro(&self) -> float {
+    func perimetro(&self) returns float {
         match self {
-            Forma::Circulo { raio }               => 2.0 * 3.14159 * raio,
-            Forma::Retangulo { largura, altura }  => 2.0 * (largura + altura)
+            when Forma::Circulo { raio } then 2.0 * 3.14159 * raio,
+            when Forma::Retangulo { largura, altura } then 2.0 * (largura + altura)
         }
     }
 }
 
-pub fn main() {
-    let c = Forma::Circulo { raio: 5.0 };
-    let r = Forma::Retangulo { largura: 4.0, altura: 6.0 };
+public func main() {
+    let c = Forma::Circulo { raio: 5.0 }
+    let r = Forma::Retangulo { largura: 4.0, altura: 6.0 }
 
-    println(f"Área do círculo: {c.area()}");        // ~78.54
-    println(f"Área do retângulo: {r.area()}");      // 24.0
+    println(f"Área do círculo: {c.area()}")
+        // ~78.54
+    println(f"Área do retângulo: {r.area()}")
+      // 24.0
 }
 ```
 
 ### Métodos em Structs Aninhadas / Methods on Nested Structs
 
 ```spectra
-struct Retangulo {
+record Retangulo {
     canto: Ponto,
     largura: int,
     altura: int
 }
 
 impl Retangulo {
-    fn novo(x: int, y: int, l: int, a: int) -> Retangulo {
+    func novo(x: int, y: int, l: int, a: int) returns Retangulo {
         Retangulo {
             canto: Ponto::novo(x, y),
             largura: l,
@@ -688,11 +716,11 @@ impl Retangulo {
         }
     }
 
-    fn area(&self) -> int {
+    func area(&self) returns int {
         self.largura * self.altura
     }
 
-    fn canto_x(&self) -> int {
+    func canto_x(&self) returns int {
         self.canto.obter_x()    // Chama método do Ponto aninhado
     }
 }
@@ -711,27 +739,27 @@ Traits definem contratos de comportamento que tipos podem implementar. Um trait 
 Traits define behavioral contracts that types can implement. A trait declares method signatures and can provide default implementations.
 
 ```spectra
-module traits;
+module traits
 
 // Trait simples / Simple trait
 trait Exibivel {
-    fn exibir(&self) -> string;
+    func exibir(&self) returns string
 }
 
 // Trait com implementação padrão / Trait with default implementation
 trait Saudavel {
-    fn saudar(&self) -> string;
+    func saudar(&self) returns string
 
-    fn saudar_alto(&self) -> string {
+    func saudar_alto(&self) returns string {
         // Implementação padrão usa o método abstrato / Default impl uses abstract method
-        let s = self.saudar();
-        return f"OLÁ! {s}";
+        let s = self.saudar()
+        return f"OLÁ! {s}"
     }
 }
 
 // Herança de trait / Trait inheritance
 trait Animado: Exibivel {
-    fn mover(&self) -> string;
+    func mover(&self) returns string
     // Também precisa implementar Exibivel / Also needs to implement Exibivel
 }
 ```
@@ -739,32 +767,35 @@ trait Animado: Exibivel {
 ### Implementação de Traits / Trait Implementation
 
 ```spectra
-struct Pessoa {
+record Pessoa {
     nome: string,
     idade: int
 }
 
 // Implementação do trait / Trait implementation
 impl Exibivel for Pessoa {
-    fn exibir(&self) -> string {
+    func exibir(&self) returns string {
         f"{self.nome} (idade: {self.idade})"
     }
 }
 
 impl Saudavel for Pessoa {
-    fn saudar(&self) -> string {
+    func saudar(&self) returns string {
         f"Olá, eu sou {self.nome}!"
     }
     // saudar_alto() já tem implementação padrão — não precisa repetir
     // saudar_alto() has default implementation — no need to repeat
 }
 
-pub fn main() {
-    let p = Pessoa { nome: "Alice", idade: 30 };
+public func main() {
+    let p = Pessoa { nome: "Alice", idade: 30 }
 
-    let repr = p.exibir();        // "Alice (idade: 30)"
-    let s1 = p.saudar();          // "Olá, eu sou Alice!"
-    let s2 = p.saudar_alto();     // "OLÁ! Olá, eu sou Alice!"
+    let repr = p.exibir()
+        // "Alice (idade: 30)"
+    let s1 = p.saudar()
+          // "Olá, eu sou Alice!"
+    let s2 = p.saudar_alto()
+     // "OLÁ! Olá, eu sou Alice!"
 }
 ```
 
@@ -772,15 +803,15 @@ pub fn main() {
 
 ```spectra
 // Parâmetro genérico T deve implementar Exibivel / Generic T must implement Exibivel
-fn imprimir_todos<T: Exibivel>(items: [T], n: int) {
+func imprimir_todos<T: Exibivel>(items: [T], n: int) {
     for i in 0..n {
-        println(items[i].exibir());
+        println(items[i].exibir())
     }
 }
 
 // Múltiplos bounds / Multiple bounds
-fn processar<T: Exibivel + Saudavel>(item: T) -> string {
-    return f"{item.saudar()} — {item.exibir()}";
+func processar<T: Exibivel + Saudavel>(item: T) returns string {
+    return f"{item.saudar()} — {item.exibir()}"
 }
 ```
 
@@ -798,40 +829,43 @@ Generics allow writing code that works with multiple types without duplication. 
 
 ```spectra
 // Parâmetro de tipo simples / Simple type parameter
-fn primeiro<T>(arr: [T], n: int) -> T {
-    return arr[0];
+func primeiro<T>(arr: [T], n: int) returns T {
+    return arr[0]
 }
 
 // Múltiplos parâmetros / Multiple parameters
-fn trocar<T>(a: T, b: T) -> (T, T) {
-    return (b, a);
+func trocar<T>(a: T, b: T) returns (T, T) {
+    return (b, a)
 }
 
-pub fn main() {
-    let arr_int = [1, 2, 3];
-    let arr_str = ["a", "b", "c"];
+public func main() {
+    let arr_int = [1, 2, 3]
+    let arr_str = ["a", "b", "c"]
 
-    let p1 = primeiro(arr_int, 3);   // 1
-    let p2 = primeiro(arr_str, 3);   // "a"
+    let p1 = primeiro(arr_int, 3)
+   // 1
+    let p2 = primeiro(arr_str, 3)
+   // "a"
 
-    let (x, y) = trocar(10, 20);     // x=20, y=10
+    let (x, y) = trocar(10, 20)
+     // x=20, y=10
 }
 ```
 
 ### Structs Genéricas / Generic Structs
 
 ```spectra
-struct Pilha<T> {
+record Pilha<T> {
     dados: [T],
     tamanho: int
 }
 
 impl Pilha<T> {
-    fn nova() -> Pilha<T> {
+    func nova() returns Pilha<T> {
         Pilha { dados: [], tamanho: 0 }
     }
 
-    fn topo(&self) -> T {
+    func topo(&self) returns T {
         self.dados[self.tamanho - 1]
     }
 }
@@ -858,18 +892,19 @@ enum Resultado<V, E> {
 
 ```spectra
 trait Comparavel {
-    fn comparar(&self, outro: &Self) -> int;  // -1, 0, ou 1
+    func comparar(&self, outro: &Self) returns int
+  // -1, 0, ou 1
 }
 
 // Função que requer T implementar Comparavel / Function requiring T to implement Comparavel
-fn ordenar<T: Comparavel>(arr: [T], n: int) {
+func ordenar<T: Comparavel>(arr: [T], n: int) {
     // ... lógica de ordenação / sorting logic
 }
 
 // Múltiplos bounds com + / Multiple bounds with +
-fn exibir_e_comparar<T: Exibivel + Comparavel>(a: T, b: T) {
-    println(a.exibir());
-    let resultado = a.comparar(b);
+func exibir_e_comparar<T: Exibivel + Comparavel>(a: T, b: T) {
+    println(a.exibir())
+    let resultado = a.comparar(b)
 }
 ```
 
@@ -886,73 +921,82 @@ Closures are anonymous functions that can be stored in variables or passed as ar
 ### Sintaxe Básica / Basic Syntax
 
 ```spectra
-module closures;
+module closures
 
-import { println } from std.io;
+from std.io import println
 
-pub fn main() {
+public func main() {
     // Closure de um parâmetro / Single-parameter closure
-    let dobrar = |x: int| x * 2;
-    let resultado = dobrar(5);    // 10
+    let dobrar = |x: int| x * 2
+    let resultado = dobrar(5)
+    // 10
 
     // Closure de múltiplos parâmetros / Multi-parameter closure
-    let somar = |a: int, b: int| a + b;
-    let s = somar(3, 4);          // 7
+    let somar = |a: int, b: int| a + b
+    let s = somar(3, 4)
+          // 7
 
     // Closure sem parâmetros / Zero-parameter closure
-    let quarenta_e_dois = || 42;
-    let n = quarenta_e_dois();    // 42
+    let quarenta_e_dois = || 42
+    let n = quarenta_e_dois()
+    // 42
 
     // Closure com bloco / Closure with block
     let valor_absoluto = |x: int| {
         if x < 0 {
-            return x * -1;
+            return x * -1
         }
-        return x;
-    };
+        return x
+    }
 
-    println(f"{valor_absoluto(-5)}");    // 5
-    println(f"{valor_absoluto(7)}");     // 7
+    println(f"{valor_absoluto(-5)}")
+    // 5
+    println(f"{valor_absoluto(7)}")
+     // 7
 }
 ```
 
 ### Closures como Argumentos / Closures as Arguments
 
 **PT-BR:**  
-Uma função que aceita uma closure usa o tipo `fn(T) -> R` como parâmetro.
+Uma função que aceita uma closure usa o tipo `func(T) returns R` como parâmetro.
 
 **EN-US:**  
-A function that accepts a closure uses the `fn(T) -> R` type as a parameter.
+A function that accepts a closure uses the `func(T) returns R` type as a parameter.
 
 ```spectra
-fn aplicar(x: int, f: fn(int) -> int) -> int {
-    return f(x);
+func aplicar(x: int, f: func(int) returns int) returns int {
+    return f(x)
 }
 
-fn aplicar_duas_vezes(x: int, f: fn(int) -> int) -> int {
-    return f(f(x));
+func aplicar_duas_vezes(x: int, f: func(int) returns int) returns int {
+    return f(f(x))
 }
 
-fn mapear(arr: [int], n: int, f: fn(int) -> int) -> [int] {
-    let resultado = [0, 0, 0, 0, 0];  // pré-alocado
+func mapear(arr: [int], n: int, f: func(int) returns int) returns [int] {
+    let resultado = [0, 0, 0, 0, 0]
+  // pré-alocado
     for i in 0..n {
-        resultado[i] = f(arr[i]);
+        resultado[i] = f(arr[i])
     }
-    return resultado;
+    return resultado
 }
 
-pub fn main() {
+public func main() {
     // Passando closure diretamente / Passing closure directly
-    let r1 = aplicar(5, |x: int| x * 3);          // 15
-    let r2 = aplicar_duas_vezes(2, |x: int| x + 1);  // 4
+    let r1 = aplicar(5, |x: int| x * 3)
+          // 15
+    let r2 = aplicar_duas_vezes(2, |x: int| x + 1)
+  // 4
 
     // Passando função nomeada / Passing named function
-    let dobro = |x: int| x * 2;
-    let r3 = aplicar(10, dobro);    // 20
+    let dobro = |x: int| x * 2
+    let r3 = aplicar(10, dobro)
+    // 20
 
     // Usando em operação de mapa / Using in map operation
-    let nums = [1, 2, 3, 4, 5];
-    let quadrados = mapear(nums, 5, |x: int| x * x);
+    let nums = [1, 2, 3, 4, 5]
+    let quadrados = mapear(nums, 5, |x: int| x * x)
     // quadrados = [1, 4, 9, 16, 25]
 }
 ```
@@ -960,23 +1004,24 @@ pub fn main() {
 ### Tipo de Closure / Closure Type
 
 ```spectra
-// O tipo fn(int) -> int descreve uma closure de int para int
-// The type fn(int) -> int describes a closure from int to int
+// O tipo func(int) returns int descreve uma closure de int para int
+// The type func(int) returns int describes a closure from int to int
 
 // Closures como variáveis tipadas / Closures as typed variables
-let transformador: fn(int) -> int = |x: int| x + 10;
+let transformador: func(int) returns int = |x: int| x + 10
 
 // Funções que retornam closures / Functions that return closures
-fn escolher(incrementar: bool) -> fn(int) -> int {
+func escolher(incrementar: bool) returns func(int) returns int {
     if incrementar {
-        return |x: int| x + 1;
+        return |x: int| x + 1
     }
-    return |x: int| x - 1;
+    return |x: int| x - 1
 }
 
-pub fn main() {
-    let transformar = escolher(true);
-    let resultado = transformar(7);    // 8
+public func main() {
+    let transformar = escolher(true)
+    let resultado = transformar(7)
+    // 8
 }
 ```
 
@@ -987,8 +1032,8 @@ Closures capturam variáveis externas por valor no momento em que a closure é c
 Closures capture external variables by value when the closure is created.
 
 ```spectra
-fn make_adder(delta: int) -> fn(int) -> int {
-    return |x: int| x + delta;
+func make_adder(delta: int) returns func(int) returns int {
+    return |x: int| x + delta
 }
 ```
 
@@ -999,12 +1044,13 @@ Directly mutating a captured variable inside the closure is not allowed in this 
 
 ```spectra
 // Closure diretamente em expressão / Closure directly in expression
-let val = aplicar(4, |n: int| n * n) + 1;   // 17
+let val = aplicar(4, |n: int| n * n) + 1
+   // 17
 
 // Closures em condições / Closures in conditions
-let verificar = |x: int| x > 0 && x < 100;
+let verificar = |x: int| x > 0 && x < 100
 if verificar(42) {
-    println("Válido!");
+    println("Válido!")
 }
 ```
 

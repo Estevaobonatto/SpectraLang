@@ -1,18 +1,18 @@
 // Phase 31: tensor-reduce (Spectra, single-shot)
 // sum_f on a 100K-element tensor filled with 1.0.
 
-module bench_tensor_reduce;
+module bench_tensor_reduce
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let t = tensor.full_f(100000, 1.0);
-    let s = tensor.sum_f(t);
-    tensor.free_all();
+public func main() returns int {
+    let t = tensor.full_f(100000, 1.0)
+    let s = tensor.sum_f(t)
+    tensor.free_all()
     if s > 99999.0 {
         if s < 100001.0 {
-            return 0;
+            return 0
         }
     }
-    return 1;
+    return 1
 }

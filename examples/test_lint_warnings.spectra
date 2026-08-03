@@ -1,26 +1,26 @@
-module test_lint_warnings;
+module test_lint_warnings
 
-fn unused_params(x: int, y: int, z: int) -> int {
-    return x;
+func unused_params(x: int, y: int, z: int) returns int {
+    return x
 }
 
-fn unreachable_after_return() -> int {
-    return 42;
-    let dead = 10;
-    return dead;
+func unreachable_after_return() returns int {
+    return 42
+    let dead = 10
+    return dead
 }
 
-fn shadowing_example() -> int {
-    let x = 10;
+func shadowing_example() returns int {
+    let x = 10
     if true {
-        let x = 20;
-        return x;
+        let x = 20
+        return x
     }
-    return x;
+    return x
 }
 
-fn main() {
-    let unused_var = 100;
-    let result = unused_params(1, 2, 3);
-    return;
+func main() {
+    let unused_var = 100
+    let result     = unused_params(1, 2, 3)
+    return
 }

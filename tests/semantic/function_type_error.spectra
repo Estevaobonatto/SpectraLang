@@ -1,26 +1,26 @@
 // Teste: Erro de tipo em argumentos de função
-module test_function_args;
+module test_function_args
 
-fn add(a: int, b: int) -> int {
-    return a + b;
+func add(a: int, b: int) returns int {
+    return a + b
 }
 
-fn greet(name: string) {
-    return;
+func greet(name: string) {
+    return
 }
 
-pub fn main() {
+public func main() {
     // Correto
-    let x = add(10, 20);
-    
+    let x = add(10, 20)
+
     // Erro: número incorreto de argumentos
-    let y = add(10);
-    
+    let y = add(10)
+
     // Erro: tipo incorreto de argumento
-    let z = add(10, "hello");
-    
+    let z = add(10, "hello")
+
     // Erro: tipo incorreto
-    greet(42);
-    
-    return;
+    greet(42)
+
+    return
 }

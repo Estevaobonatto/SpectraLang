@@ -34,10 +34,11 @@
 | `module` | ✅ Implementado | Declara o módulo do arquivo |
 | `import` | ✅ Implementado | Importa módulos/símbolos |
 | `export` | 🚧 Reservado | (futuro / future) |
-| `pub` | ✅ Implementado | Visibilidade pública |
+| `public` | ✅ Implementado | Visibilidade pública |
 | `internal` | ✅ Implementado | Visibilidade interna ao módulo |
-| `fn` | ✅ Implementado | Declara função |
-| `struct` | ✅ Implementado | Declara struct |
+| `func` | ✅ Implementado | Declara função |
+| `returns` | ✅ Implementado | Tipo de retorno |
+| `record` | ✅ Implementado | Declara record |
 | `enum` | ✅ Implementado | Declara enum |
 | `impl` | ✅ Implementado | Bloco de implementação |
 | `trait` | ✅ Implementado | Declara trait |
@@ -47,22 +48,20 @@
 | `Self` | ✅ Implementado | Tipo do impl atual |
 | `self` | ✅ Implementado | Receptor do método |
 | `if` | ✅ Implementado | Condicional |
-| `elif` | ✅ Implementado | Senão-se |
-| `elseif` | ✅ Implementado | Alias de `elif` |
+| `else if` | ✅ Implementado | Senão-se |
 | `else` | ✅ Implementado | Senão |
-| `unless` | Estável | Ativado por padrão |
+| `not` | ✅ Implementado | Negação lógica |
 | `while` | ✅ Implementado | Laço condicional |
-| `do` | Estável | `do { ... } while ...;` ativado por padrão |
+| `do` | Estável | `do { ... } while ...` ativado por padrão |
 | `for` | ✅ Implementado | Laço `for in` |
 | `foreach` | 🚧 Reservado | (futuro / future) |
 | `in` | ✅ Implementado | Em `for x in` |
-| `of` | ✅ Implementado | Alias de `in` em `for x of` |
 | `loop` | Estável | Ativado por padrão |
 | `repeat` | 🚧 Reservado | (futuro / future) |
 | `until` | 🚧 Reservado | (futuro / future) |
 | `match` | ✅ Implementado | Pattern matching |
 | `switch` | Estável | Ativado por padrão |
-| `case` | ✅ Implementado | Braço de switch/match |
+| `case` | ✅ Implementado | Braço de switch |
 | `cond` | 🚧 Reservado | (futuro / future) |
 | `return` | ✅ Implementado | Retorno explícito |
 | `break` | ✅ Implementado | Sai do laço |
@@ -125,7 +124,7 @@
 | Array | `[T; N]` | `[1, 2, 3]` |
 | Array dinâmico | `[T]` | `let a: [int] = [1, 2, 3]` |
 | Tupla | `(T1, T2)` | `(1, "hi")` |
-| Struct | `struct Nome { ... }` | `Ponto { x: 0, y: 0 }` |
+| Record | `record Nome { ... }` | `Ponto { x: 0, y: 0 }` |
 | Enum | `enum Nome { ... }` | `Cor::Azul` |
 | Option | `Option<T>` | `Option::Some(42)` |
 | Result | `Result<T, E>` | `Result::Ok(v)` |
@@ -167,14 +166,14 @@
 
 | Modificador | Acessível de / Accessible from |
 |-------------|-------------------------------|
-| `pub` | Qualquer código / Any code |
+| `public` | Qualquer código / Any code |
 | `internal` | Mesmo pacote/projeto / Same package/project |
 | *(sem/none)* | Apenas no módulo/escopo atual / Current module/scope only |
 
 **Regras / Rules:**
-- A forma documentada e recomendada do ponto de entrada é `pub fn main() -> int`.
-- Structs com campos `pub` precisam declarar cada campo com `pub`.
-- Funções sem `pub` ou `internal` são privadas ao bloco de declaração.
+- A forma documentada e recomendada do ponto de entrada é `public func main() returns int`.
+- Records com campos `public` precisam declarar cada campo com `public`.
+- Funções sem `public` ou `internal` são privadas ao bloco de declaração.
 
 ---
 
@@ -182,22 +181,22 @@
 
 ```spectra
 // Forma 1: importar módulo completo / Import whole module
-import std.math;
+import std.math
 // Uso: std.math.sqrt_f(x)
 
 // Forma 2: importar com alias / Import with alias
-import std.math as m;
+import std.math as m
 // Uso: m.sqrt_f(x)
 
 // Forma 3: importar símbolos nomeados / Import named symbols
-import { println, print } from std.io;
+from std.io import println, print
 // Uso: println("hello")
 
 // Forma 4: re-exportar publicamente / Public re-export
-pub import { println } from std.io;
+public from std.io import println
 
 // Módulo do arquivo / File module declaration
-module meu_modulo;
+module meu_modulo
 ```
 
 ---
@@ -205,17 +204,17 @@ module meu_modulo;
 ## 7. Estruturas de Controle — Resumo / Control Flow Summary
 
 ```spectra
-// if / elif / else
+// if / else if / else
 if condicao {
     // ...
-} elif outra {
+} else if outra {
     // ...
 } else {
     // ...
 }
 
-// unless (= if not)
-unless condicao {
+// if not
+if not condicao {
     // ...
 }
 
@@ -227,7 +226,7 @@ while condicao {
 // do-while
 do {
     // ...
-} while condicao;
+} while condicao
 
 // for com range / for with range
 for i in 0..10 { /* 0 a 9 */ }
@@ -239,20 +238,24 @@ for item in arr { /* ... */ }
 // loop infinito / infinite loop
 loop {
     // ...
-    break;    // necessário para sair / needed to exit
+    break
+    // necessário para sair / needed to exit
 }
 
 // switch (comparação por valor / value comparison)
 switch valor {
-    case 1 => { println("um"); }
-    case 2 => { println("dois"); }
-    else => { println("outro"); }
+    case 1: { println("um")
+ }
+    case 2: { println("dois")
+ }
+    else: { println("outro")
+ }
 }
 
 // match (pattern matching)
 match opcao {
-    Option::Some(v) => println(f"Tem: {v}"),
-    Option::None => println("Vazio")
+    when Option::Some(v) then println(f"Tem: {v}")
+    otherwise println("Vazio")
 }
 
 // if let
@@ -262,8 +265,10 @@ if let Option::Some(v) = possivel_valor {
 
 // Control: break / continue
 for i in 0..10 {
-    if i == 3 { continue; }
-    if i == 7 { break; }
+    if i == 3 { continue
+ }
+    if i == 7 { break
+ }
 }
 ```
 
@@ -273,16 +278,16 @@ for i in 0..10 {
 
 | Padrão | Sintaxe | Exemplo |
 |--------|---------|---------|
-| Literal inteiro | `42` | `case 42 =>` |
-| Literal string | `"hello"` | `case "ok" =>` |
-| Literal bool | `true` / `false` | `case true =>` |
-| Wildcard | `_` | `_ =>` |
-| Binding | `nome` | `x => println(x)` |
-| Enum unit | `Enum::Var` | `Cor::Azul =>` |
-| Enum tuple | `Enum::Var(a, b)` | `Ponto::Par(x, y) =>` |
-| Enum struct | `Enum::Var { campo }` | `Forma::Rect { w, h } =>` |
-| Multi-padrão | `pat1 \| pat2` | `1 \| 2 =>` |
-| Guard | `pat if cond` | Não implementado ainda |
+| Literal inteiro | `42` | `when 42 then ...` |
+| Literal string | `"hello"` | `when "ok" then ...` |
+| Literal bool | `true` / `false` | `when true then ...` |
+| Wildcard | `_` | `otherwise ...` |
+| Binding | `nome` | `when x then println(x)` |
+| Enum unit | `Enum::Var` | `when Cor::Azul then ...` |
+| Enum tuple | `Enum::Var(a, b)` | `when Ponto::Par(x, y) then ...` |
+| Enum struct | `Enum::Var { campo }` | `when Forma::Rect { w, h } then ...` |
+| Multi-padrão | `pat1 \| pat2` | `when 1 \| 2 then ...` |
+| Guard | `when pat if cond then ...` | Não implementado ainda |
 
 **Regra de exhaustividade / Exhaustiveness rule:**  
 Todo `match` deve cobrir **todos** os casos possíveis. Use `_` como wildcard.
@@ -294,14 +299,14 @@ Todo `match` deve cobrir **todos** os casos possíveis. Use `_` como wildcard.
 | Erro | Causa | Solução |
 |------|-------|---------|
 | `type mismatch: int and float` | Operação mista sem conversão | Use `int_to_float()` ou `float_to_int()` |
-| `non-exhaustive match` | Casos faltando no `match` | Adicione `_ =>` ou os casos faltantes |
+| `non-exhaustive match` | Casos faltando no `match` | Adicione `otherwise` ou os casos faltantes |
 | `return outside function` | `return` fora de função | Mova para dentro de uma função |
 | `undefined variable` | Uso fora do escopo | Garanta que `let` está no escopo correto |
 | `break/continue outside loop` | Fora de laço | Mova para dentro de `while`/`for`/`loop` |
-| `module declaration missing` | Arquivo sem `module nome;` | Adicione `module nome;` no topo |
-| `main not found` | Sem ponto de entrada válido | Adicione `pub fn main() -> int { return 0; }` |
+| `module declaration missing` | Arquivo sem `module nome` | Adicione `module nome` no topo |
+| `main not found` | Sem ponto de entrada válido | Adicione `public func main() returns int { return 0 }` |
 | `cannot use bool in arithmetic` | `bool + int` | Use `bool_to_int()` explicitamente |
-| `field not found` | Campo inexistente na struct | Verifique o nome do campo |
+| `field not found` | Campo inexistente no record | Verifique o nome do campo |
 
 ---
 
@@ -311,14 +316,14 @@ Todo `match` deve cobrir **todos** os casos possíveis. Use `_` como wildcard.
 |-----------|-----------|---------|
 | Variáveis | `snake_case` | `meu_valor`, `nome_usuario` |
 | Funções | `snake_case` | `calcular_area()` |
-| Parâmetros | `snake_case` | `fn f(valor_x: int)` |
-| Structs | `PascalCase` | `Ponto`, `UsuarioCadastrado` |
+| Parâmetros | `snake_case` | `func f(valor_x: int)` |
+| Records | `PascalCase` | `Ponto`, `UsuarioCadastrado` |
 | Enums | `PascalCase` | `Cor`, `ResultadoOp` |
 | Variantes de Enum | `PascalCase` | `Cor::VermelhoEscuro` |
 | Traits | `PascalCase` | `Exibivel`, `Calculavel` |
-| Módulos | `snake_case` | `module minha_lib;` |
+| Módulos | `snake_case` | `module minha_lib` |
 | Arquivos | `snake_case.spectra` | `minha_lib.spectra` |
-| Constantes | `UPPER_SNAKE` (convenção, `let` não diferencia) | `let MAX_PONTOS = 100;` |
+| Constantes | `UPPER_SNAKE` (convenção, `let` não diferencia) | `let MAX_PONTOS = 100` |
 
 ---
 
@@ -327,24 +332,24 @@ Todo `match` deve cobrir **todos** os casos possíveis. Use `_` como wildcard.
 ```ebnf
 programa      = declaracao_modulo? import* declaracao* ;
 
-declaracao_modulo = "module" IDENT ";" ;
+declaracao_modulo = "module" IDENT ;
 
-import        = "import" caminho_modulo ";"
-              | "import" caminho_modulo "as" IDENT ";"
-              | "import" "{" IDENT ("," IDENT)* "}" "from" caminho_modulo ";"
-              | "pub" "import" "{" IDENT ("," IDENT)* "}" "from" caminho_modulo ";" ;
+import        = "import" caminho_modulo
+              | "import" caminho_modulo "as" IDENT
+              | "from" caminho_modulo "import" IDENT ("," IDENT)*
+              | "public" "from" caminho_modulo "import" IDENT ("," IDENT)* ;
 
 declaracao    = decl_fn | decl_struct | decl_enum | decl_impl | decl_trait | decl_trait_impl ;
 
-decl_fn       = visib? "fn" IDENT genericos? "(" params? ")" (":" tipo)? bloco ;
+decl_fn       = visib? "func" IDENT genericos? "(" params? ")" ("returns" tipo)? bloco ;
 
-decl_struct   = visib? "struct" IDENT genericos? "{" campo* "}" ;
+decl_struct   = visib? "record" IDENT genericos? "{" campo* "}" ;
 
 decl_enum     = visib? "enum" IDENT genericos? "{" variante* "}" ;
 
 variante      = IDENT                                    (* unit *)
               | IDENT "(" tipo ("," tipo)* ")"           (* tupla *)
-              | IDENT "{" campo* "}"                     (* struct *)
+              | IDENT "{" campo* "}"                     (* record *)
               ;
 
 decl_impl     = "impl" genericos? IDENT ("{" metodo* "}")? ;
@@ -353,15 +358,15 @@ decl_trait    = visib? "trait" IDENT (":" IDENT)? "{" assinatura* "}" ;
 
 bloco         = "{" stmt* expr? "}" ;
 
-stmt          = decl_let | atribuicao | retorno | expr ";" | laço | condicional | match_stmt ;
+stmt          = decl_let | atribuicao | retorno | expr | laço | condicional | match_stmt ;
 
 match_stmt    = "match" expr "{" braço* "}" ";"? ;
 
-decl_let      = "let" "mut"? IDENT (":" tipo)? "=" expr ";" ;
+decl_let      = "let" "mut"? IDENT (":" tipo)? "=" expr ;
 
 expr          = literal | IDENT | binario | unario | chamada | met_call | f_string
-              | "if" expr bloco ("elif" expr bloco)* ("else" bloco)?
-              | "unless" expr bloco ("else" bloco)?
+              | "if" expr bloco ("else" "if" expr bloco)* ("else" bloco)?
+              | "if" "not" expr bloco ("else" bloco)?
               | "match" expr "{" braço* "}"
               | "|" params? "|" (expr | bloco)
               | "[" (expr ("," expr)*)? "]"
@@ -375,7 +380,7 @@ tipo          = "int" | "float" | "bool" | "string" | "char"
               | "(" tipo ("," tipo)* ")"   (* tupla *)
               ;
 
-visib         = "pub" | "internal" ;
+visib         = "public" | "internal" ;
 
 genericos     = "<" IDENT (":" IDENT ("+" IDENT)*)? ("," ...)* ">" ;
 ```

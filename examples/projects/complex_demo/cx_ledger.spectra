@@ -1,59 +1,68 @@
-module cx_ledger;
+module cx_ledger
 
-pub enum TxKind {
+public enum TxKind {
     Credit(int),
     Debit(int),
     Transfer(int),
 }
 
-pub enum AccountStatus {
+public enum AccountStatus {
     Active,
     Frozen,
     Closed,
 }
 
-pub struct Account {
+public record Account {
     id: int,
     balance: int,
 }
 
 impl Account {
-    pub fn get_balance(&self) -> int {
-        return self.balance;
+    public func get_balance( & self) returns int {
+        return self.balance
     }
 }
 
-pub fn make_account(id: int, balance: int) -> Account {
-    return Account { id: id, balance: balance };
+public func make_account(id: int, balance: int) returns Account {
+    return Account { id: id, balance: balance }
 }
 
-pub fn account_balance(a: Account) -> int {
-    return a.get_balance();
+public func account_balance(a: Account) returns int {
+    return a.get_balance()
 }
 
 // Returns the magnitude of the transaction amount
-pub fn tx_amount(t: TxKind) -> int {
+public func tx_amount(t: TxKind) returns int {
     match t {
-        TxKind::Credit(amt)   => { return amt; }
-        TxKind::Debit(amt)    => { return amt; }
-        TxKind::Transfer(amt) => { return amt; }
+        when TxKind::Credit(amt) then { return amt
+        }
+        when TxKind::Debit(amt) then { return amt
+        }
+        when TxKind::Transfer(amt) then { return amt
+        }
     }
 }
 
 // Applies a transaction to a balance and returns the new balance
-pub fn apply_tx(balance: int, t: TxKind) -> int {
+public func apply_tx(balance: int, t: TxKind) returns int {
     match t {
-        TxKind::Credit(amt)   => { return balance + amt; }
-        TxKind::Debit(amt)    => { return balance - amt; }
-        TxKind::Transfer(amt) => { return balance - amt; }
+        when TxKind::Credit(amt) then { return balance + amt
+        }
+        when TxKind::Debit(amt) then { return balance - amt
+        }
+        when TxKind::Transfer(amt) then { return balance - amt
+        }
     }
 }
 
 // Returns a numeric code for an account status
-pub fn status_code(s: AccountStatus) -> int {
+public func status_code(s: AccountStatus) returns int {
     match s {
-        AccountStatus::Active  => { return 1; }
-        AccountStatus::Frozen  => { return 2; }
-        AccountStatus::Closed  => { return 0; }
+        when AccountStatus::Active then { return 1
+        }
+        when AccountStatus::Frozen then { return 2
+        }
+        when AccountStatus::Closed then { return 0
+        }
     }
 }

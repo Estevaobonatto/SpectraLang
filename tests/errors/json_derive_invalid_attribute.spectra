@@ -1,11 +1,11 @@
-module json_derive_invalid_attribute;
+module json_derive_invalid_attribute
 
 #[derive(Serialize)]
-struct Profile {
+record Profile {
     #[json(skip)]
     id: int,
 }
 
-pub fn main() -> int {
-    return 0;
+public func main() returns int {
+    return 0
 }

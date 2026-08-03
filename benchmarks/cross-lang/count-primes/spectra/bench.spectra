@@ -1,36 +1,36 @@
 // Phase 31: count-primes (Spectra)
 // Count primes up to N using trial division, repeated.
 
-module bench_count_primes;
+module bench_count_primes
 
-pub fn main() -> int {
-    let iters = 500;
-    let n = 500;
-    let total = 0;
-    let it = 0;
+public func main() returns int {
+    let iters = 500
+    let n     = 500
+    let total = 0
+    let it    = 0
     while it < iters {
-        let count = 0;
-        let i = 2;
+        let count = 0
+        let i     = 2
         while i <= n {
-            let is_prime = 1;
-            let d = 2;
+            let is_prime = 1
+            let d        = 2
             while d * d <= i {
                 if i - (i / d) * d == 0 {
-                    is_prime = 0;
+                    is_prime = 0
                 }
-                d = d + 1;
+                d = d + 1
             }
             if is_prime == 1 {
-                count = count + 1;
+                count = count + 1
             }
-            i = i + 1;
+            i = i + 1
         }
         // Primes up to 500: 95
-        total = total + count;
-        it = it + 1;
+        total = total + count
+        it = it + 1
     }
     if total == 95 * iters {
-        return 0;
+        return 0
     }
-    return 1;
+    return 1
 }

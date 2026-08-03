@@ -1,86 +1,86 @@
-module range_production;
+module range_production
 
-import std.range;
+import std.range
 
-fn fail(code: int) -> int {
-    return code;
+func fail(code: int) returns int {
+    return code
 }
 
-fn sum_range(r: Range) -> int {
-    let total = 0;
+func sum_range(r: Range) returns int {
+    let total = 0
     for value in r {
-        total = total + value;
+        total = total + value
     }
-    return total;
+    return total
 }
 
-pub fn main() -> int {
-    let exclusive = 1..4;
+public func main() returns int {
+    let exclusive = 1 .. 4
     if len(exclusive) != 3 {
-        return fail(1);
+        return fail(1)
     }
     if at(exclusive, 0) != 1 {
-        return fail(2);
+        return fail(2)
     }
     if at(exclusive, 2) != 3 {
-        return fail(3);
+        return fail(3)
     }
     if sum_range(exclusive) != 6 {
-        return fail(4);
+        return fail(4)
     }
     if start(exclusive) != 1 {
-        return fail(5);
+        return fail(5)
     }
     if end(exclusive) != 4 {
-        return fail(6);
+        return fail(6)
     }
     if is_inclusive(exclusive) {
-        return fail(7);
+        return fail(7)
     }
 
-    let inclusive = 1..=4;
+    let inclusive = 1 ..= 4
     if len(inclusive) != 4 {
-        return fail(10);
+        return fail(10)
     }
     if at(inclusive, 3) != 4 {
-        return fail(11);
+        return fail(11)
     }
     if sum_range(inclusive) != 10 {
-        return fail(12);
+        return fail(12)
     }
-    if !is_inclusive(inclusive) {
-        return fail(13);
+    if not is_inclusive(inclusive) {
+        return fail(13)
     }
 
-    let same = create(1, 4, true);
+    let same = create(1, 4, true)
     if inclusive != same {
-        return fail(20);
+        return fail(20)
     }
     if inclusive == exclusive {
-        return fail(21);
+        return fail(21)
     }
-    if !eq(inclusive, same) {
-        return fail(22);
+    if not eq(inclusive, same) {
+        return fail(22)
     }
 
-    let empty = 5..2;
+    let empty = 5 .. 2
     if len(empty) != 0 {
-        return fail(30);
+        return fail(30)
     }
-    let empty_sum = 0;
+    let empty_sum = 0
     for value in empty {
-        empty_sum = empty_sum + value;
+        empty_sum = empty_sum + value
     }
     if empty_sum != 0 {
-        return fail(31);
+        return fail(31)
     }
 
-    let dynamic_start = 2;
-    let dynamic_end = 5;
-    let dynamic = dynamic_start..dynamic_end;
+    let dynamic_start = 2
+    let dynamic_end   = 5
+    let dynamic       = dynamic_start .. dynamic_end
     if sum_range(dynamic) != 9 {
-        return fail(40);
+        return fail(40)
     }
 
-    return 0;
+    return 0
 }

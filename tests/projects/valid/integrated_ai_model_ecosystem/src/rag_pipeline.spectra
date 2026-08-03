@@ -1,22 +1,22 @@
-module rag_pipeline;
+module rag_pipeline
 
-import std.ml as ml;
-import std.string as str;
-import std.tensor as tensor;
+import std.ml as ml
+import std.string as str
+import std.tensor as tensor
 
-pub fn validate_rag_pipeline() -> int {
-    tensor.free_all();
-    let index = ml.vector_index_new(4);
-    let doc = ml.text_embed("rag validation document", 4);
+public func validate_rag_pipeline() returns int {
+    tensor.free_all()
+    let index = ml.vector_index_new(4)
+    let doc   = ml.text_embed("rag validation document", 4)
     if ml.vector_index_insert(index, "doc-1", doc) != 1 {
-        return 3;
+        return 3
     }
-    let query = ml.text_embed("rag validation", 4);
-    let results = ml.vector_index_query(index, query, 1);
+    let query   = ml.text_embed("rag validation", 4)
+    let results = ml.vector_index_query(index, query, 1)
     if str.contains(results, "doc-1") {
-        tensor.free_all();
-        return 0;
+        tensor.free_all()
+        return 0
     }
-    tensor.free_all();
-    return 4;
+    tensor.free_all()
+    return 4
 }

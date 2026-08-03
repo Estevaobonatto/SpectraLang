@@ -1,31 +1,31 @@
-module string_utils;
+module string_utils
 
-pub fn repeat_str(s: string, n: int) -> string {
-    let out = "";
-    let i = 0;
+public func repeat_str(s: string, n: int) returns string {
+    let out = ""
+    let i   = 0
     while i < n {
-        out = out + s;
-        i = i + 1;
+        out = out + s
+        i = i + 1
     }
-    return out;
+    return out
 }
 
-pub fn join_two(a: string, b: string, sep: string) -> string {
-    return a + sep + b;
+public func join_two(a: string, b: string, sep: string) returns string {
+    return a + sep + b
 }
 
-pub fn join_three(a: string, b: string, c: string, sep: string) -> string {
-    return a + sep + b + sep + c;
+public func join_three(a: string, b: string, c: string, sep: string) returns string {
+    return a + sep + b + sep + c
 }
 
-pub fn shout(s: string) -> string {
-    return s + "!!!";
+public func shout(s: string) returns string {
+    return s + "!!!"
 }
 
-pub fn greet(name: string) -> string {
-    return "Hello, " + name + "!";
+public func greet(name: string) returns string {
+    return "Hello, " + name + "!"
 }
 
-pub fn reverse_pair(a: string, b: string) -> (string, string) {
-    return (b, a);
+public func reverse_pair(a: string, b: string) returns(string, string) {
+    return(b, a)
 }

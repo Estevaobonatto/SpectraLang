@@ -33,32 +33,33 @@
 
 ```spectra
 match expressão {
-    padrão1 => corpo1,
-    padrão2 => corpo2,
-    _ => corpo_padrão    // curinga / wildcard
+    when padrão1 then corpo1,
+    when padrão2 then corpo2,
+    otherwise then corpo_padrão    // curinga / wildcard
 }
 ```
 
 ### Padrões Literais / Literal Patterns
 
 ```spectra
-module match_demo;
+module match_demo
 
-import { println } from std.io;
+from std.io import println
 
-pub fn main() {
-    let x = 5;
+public func main() {
+    let x = 5
 
     let resultado = match x {
-        1 => "um",
-        2 => "dois",
-        3 => "três",
-        4 => "quatro",
-        5 => "cinco",
-        _ => "outro"
-    };
+        when 1 then "um",
+        when 2 then "dois",
+        when 3 then "três",
+        when 4 then "quatro",
+        when 5 then "cinco",
+        otherwise then "outro"
+    }
 
-    println(resultado);    // "cinco"
+    println(resultado)
+    // "cinco"
 }
 ```
 
@@ -71,10 +72,10 @@ Um identificador em um padrão **captura** o valor e o vincula a um nome para us
 An identifier in a pattern **captures** the value and binds it to a name for use in the arm body.
 
 ```spectra
-fn descrever(n: int) -> string {
+func descrever(n: int) returns string {
     match n {
-        0 => "zero",
-        x => f"o número {x}"    // x captura o valor / x captures the value
+        when 0 then "zero",
+        when x then f"o número {x}"    // x captura o valor / x captures the value
     }
 }
 ```
@@ -86,11 +87,11 @@ fn descrever(n: int) -> string {
 ```spectra
 enum Cor { Vermelho, Verde, Azul }
 
-fn nome_da_cor(c: Cor) -> string {
+func nome_da_cor(c: Cor) returns string {
     match c {
-        Cor::Vermelho => "Vermelho",
-        Cor::Verde    => "Verde",
-        Cor::Azul     => "Azul"
+        when Cor::Vermelho then "Vermelho",
+        when Cor::Verde then "Verde",
+        when Cor::Azul then "Azul"
     }
 }
 ```
@@ -104,11 +105,11 @@ enum Mensagem {
     Texto(string)
 }
 
-fn processar(msg: Mensagem) {
+func processar(msg: Mensagem) {
     match msg {
-        Mensagem::Sair          => println("Saindo..."),
-        Mensagem::Mover(x, y)   => println(f"Movendo para ({x}, {y})"),
-        Mensagem::Texto(t)      => println(f"Mensagem: {t}")
+        when Mensagem::Sair then println("Saindo..."),
+        when Mensagem::Mover(x, y) then println(f"Movendo para ({x}, {y})"),
+        when Mensagem::Texto(t) then println(f"Mensagem: {t}")
     }
 }
 ```
@@ -121,10 +122,10 @@ enum Forma {
     Retangulo { largura: float, altura: float }
 }
 
-fn calcular_area(f: Forma) -> float {
+func calcular_area(f: Forma) returns float {
     match f {
-        Forma::Circulo { raio }              => raio * raio * 3.14159,
-        Forma::Retangulo { largura, altura } => largura * altura
+        when Forma::Circulo { raio } then raio * raio * 3.14159,
+        when Forma::Retangulo { largura, altura } then largura * altura
     }
 }
 ```
@@ -137,7 +138,7 @@ enum Ponto3D {
 }
 
 match ponto {
-    Ponto3D::Cartesiano { x: a, y: b, z: c } => {
+    when Ponto3D::Cartesiano { x: a, y: b, z: c } then {
         // a, b, c são os valores de x, y, z
         println(f"({a}, {b}, {c})")
     }
@@ -153,27 +154,27 @@ match ponto {
 `_` captures any value and discards it. It is required when not all cases are listed.
 
 ```spectra
-let c = Cor::Azul;
+let c = Cor::Azul
 
 match c {
-    Cor::Vermelho => println("Vermelho!"),
-    _ => println("Não é vermelho.")    // captura Verde e Azul / captures Green and Blue
+    when Cor::Vermelho then println("Vermelho!"),
+    otherwise then println("Não é vermelho.")    // captura Verde e Azul / captures Green and Blue
 }
 ```
 
 ### Corpo de Bloco / Block Body
 
 ```spectra
-fn processar_forma(f: Forma) -> float {
+func processar_forma(f: Forma) returns float {
     match f {
-        Forma::Circulo { raio } => {
-            let area = raio * raio * 3.14159;
-            println(f"Círculo com raio {raio}");
+        when Forma::Circulo { raio } then {
+            let area = raio * raio * 3.14159
+            println(f"Círculo com raio {raio}")
             area    // retorno implícito do bloco / implicit block return
         }
-        Forma::Retangulo { largura, altura } => {
-            let area = largura * altura;
-            println(f"Retângulo {largura}x{altura}");
+        when Forma::Retangulo { largura, altura } then {
+            let area = largura * altura
+            println(f"Retângulo {largura}x{altura}")
             area
         }
     }
@@ -185,15 +186,15 @@ fn processar_forma(f: Forma) -> float {
 ```spectra
 // Como expressão: retorna valor / As expression: returns value
 let descricao = match x {
-    0 => "zero",
-    _ => "não-zero"
-};
+    when 0 then "zero",
+    otherwise then "não-zero"
+}
 
 // Como statement: apenas efeitos colaterais / As statement: only side effects
 match x {
-    0 => println("zero"),
-    _ => println("não-zero")
-};
+    when 0 then println("zero"),
+    otherwise then println("não-zero")
+}
 ```
 
 ### Exaustividade / Exhaustiveness
@@ -215,15 +216,15 @@ enum Status { Ativo, Inativo, Pendente }
 
 // OK: todos os casos / OK: all cases
 match s {
-    Status::Ativo    => "ativo",
-    Status::Inativo  => "inativo",
-    Status::Pendente => "pendente"
+    when Status::Ativo then "ativo",
+    when Status::Inativo then "inativo",
+    when Status::Pendente then "pendente"
 }
 
 // OK: com curinga / OK: with wildcard
 match s {
-    Status::Ativo => "ativo",
-    _ => "não ativo"
+    when Status::Ativo then "ativo",
+    otherwise then "não ativo"
 }
 ```
 
@@ -250,26 +251,28 @@ if let Padrão = expressão {
 ### Exemplos com Option / Examples with Option
 
 ```spectra
-module if_let_demo;
+module if_let_demo
 
-import { println } from std.io;
+from std.io import println
 
-pub fn main() {
-    let talvez: Option<int> = Option::Some(42);
-    let nada: Option<int> = Option::None;
+public func main() {
+    let talvez: Option<int> = Option::Some(42)
+    let nada: Option<int> = Option::None
 
     // Desestruturando Some / Destructuring Some
     if let Option::Some(valor) = talvez {
-        println(f"Tenho um valor: {valor}");    // "Tenho um valor: 42"
+        println(f"Tenho um valor: {valor}")
+    // "Tenho um valor: 42"
     } else {
-        println("Nenhum valor");
+        println("Nenhum valor")
     }
 
     // Se for None, cai no else / If None, falls to else
     if let Option::Some(v) = nada {
-        println(f"Valor: {v}");
+        println(f"Valor: {v}")
     } else {
-        println("Sem valor");    // Imprime isso / Prints this
+        println("Sem valor")
+    // Imprime isso / Prints this
     }
 }
 ```
@@ -277,15 +280,17 @@ pub fn main() {
 ### Exemplos com Result / Examples with Result
 
 ```spectra
-let resultado: Result<int, string> = Result::Ok(100);
-let erro: Result<int, string> = Result::Err("não encontrado");
+let resultado: Result<int, string> = Result::Ok(100)
+let erro: Result<int, string> = Result::Err("não encontrado")
 
 if let Result::Ok(valor) = resultado {
-    println(f"Sucesso: {valor}");    // "Sucesso: 100"
+    println(f"Sucesso: {valor}")
+    // "Sucesso: 100"
 }
 
 if let Result::Err(msg) = erro {
-    println(f"Erro: {msg}");        // "Erro: não encontrado"
+    println(f"Erro: {msg}")
+        // "Erro: não encontrado"
 }
 ```
 
@@ -298,11 +303,11 @@ enum Forma {
     Ponto
 }
 
-fn processar(f: Forma) {
+func processar(f: Forma) {
     if let Forma::Circulo { raio } = f {
-        println(f"É um círculo com raio {raio}");
+        println(f"É um círculo com raio {raio}")
     } else {
-        println("Não é um círculo");
+        println("Não é um círculo")
     }
 }
 ```
@@ -310,31 +315,31 @@ fn processar(f: Forma) {
 ### if let Encadeados / Chained if let
 
 ```spectra
-fn obter_nome_usuario(id: int) -> Option<string> {
+func obter_nome_usuario(id: int) returns Option<string> {
     if id == 1 {
-        return Option::Some("Alice");
+        return Option::Some("Alice")
     }
-    return Option::None;
+    return Option::None
 }
 
-fn obter_email(nome: string) -> Option<string> {
+func obter_email(nome: string) returns Option<string> {
     if nome == "Alice" {
-        return Option::Some("alice@exemplo.com");
+        return Option::Some("alice@exemplo.com")
     }
-    return Option::None;
+    return Option::None
 }
 
-pub fn main() {
-    let id = 1;
+public func main() {
+    let id = 1
 
     if let Option::Some(nome) = obter_nome_usuario(id) {
         if let Option::Some(email) = obter_email(nome) {
-            println(f"Email do usuário: {email}");
+            println(f"Email do usuário: {email}")
         } else {
-            println("Usuário sem email");
+            println("Usuário sem email")
         }
     } else {
-        println("Usuário não encontrado");
+        println("Usuário não encontrado")
     }
 }
 ```
@@ -350,41 +355,41 @@ pub fn main() {
 `while let` combines a pattern with a loop: it keeps executing as long as the pattern matches. When the pattern no longer matches, the loop terminates.
 
 ```spectra
-module while_let_demo;
+module while_let_demo
 
-import { println } from std.io;
+from std.io import println
 
-fn encontrar_positivo(n: int) -> Option<int> {
+func encontrar_positivo(n: int) returns Option<int> {
     if n > 0 {
-        return Option::Some(n);
+        return Option::Some(n)
     }
-    return Option::None;
+    return Option::None
 }
 
-pub fn main() {
-    let contador = 5;
+public func main() {
+    let contador = 5
 
     while let Option::Some(n) = encontrar_positivo(contador) {
-        println(f"Valor positivo: {n}");
-        contador = contador - 1;
+        println(f"Valor positivo: {n}")
+        contador = contador - 1
     }
     // Imprime 5, 4, 3, 2, 1 e para quando contador == 0
 
     // Processando itens de uma fila / Processing queue items
-    let itens = [10, 20, 30];
-    let idx = 0;
+    let itens = [10, 20, 30]
+    let idx = 0
 
     while let Option::Some(item) = obter_item(itens, idx, 3) {
-        println(f"Processando: {item}");
-        idx = idx + 1;
+        println(f"Processando: {item}")
+        idx = idx + 1
     }
 }
 
-fn obter_item(arr: [int], idx: int, tamanho: int) -> Option<int> {
+func obter_item(arr: [int], idx: int, tamanho: int) returns Option<int> {
     if idx < tamanho {
-        return Option::Some(arr[idx]);
+        return Option::Some(arr[idx])
     }
-    return Option::None;
+    return Option::None
 }
 ```
 
@@ -411,42 +416,46 @@ fn obter_item(arr: [int], idx: int, tamanho: int) -> Option<int> {
 - `Option::None` — there is no value
 
 ```spectra
-fn dividir_seguro(a: int, b: int) -> Option<int> {
+func dividir_seguro(a: int, b: int) returns Option<int> {
     if b == 0 {
-        return Option::None;
+        return Option::None
     }
-    return Option::Some(a / b);
+    return Option::Some(a / b)
 }
 
-fn obter_primeiro(arr: [int], n: int) -> Option<int> {
+func obter_primeiro(arr: [int], n: int) returns Option<int> {
     if n == 0 {
-        return Option::None;
+        return Option::None
     }
-    return Option::Some(arr[0]);
+    return Option::Some(arr[0])
 }
 
-pub fn main() {
+public func main() {
     // Usando match / Using match
-    let resultado = dividir_seguro(10, 2);
+    let resultado = dividir_seguro(10, 2)
     match resultado {
-        Option::Some(v) => println(f"Resultado: {v}"),  // "Resultado: 5"
-        Option::None    => println("Divisão por zero!")
+        when Option::Some(v) then println(f"Resultado: {v}"),  // "Resultado: 5"
+        when Option::None then println("Divisão por zero!")
     }
 
     // Usando if let / Using if let
     if let Option::Some(n) = dividir_seguro(10, 0) {
-        println(f"Valor: {n}");
+        println(f"Valor: {n}")
     } else {
-        println("Sem resultado");    // Imprime isso
+        println("Sem resultado")
+    // Imprime isso
     }
 
     // Funções da stdlib para Option / Stdlib functions for Option
-    import std.option;
+    import std.option
 
-    let opt = Option::Some(42);
-    let tem = std.option.is_some(opt);      // true
-    let val = std.option.option_unwrap(opt);// 42 (erro de runtime se None)
-    let ou  = std.option.option_unwrap_or(Option::None, 0);  // 0 (padrão)
+    let opt = Option::Some(42)
+    let tem = std.option.is_some(opt)
+      // true
+    let val = std.option.option_unwrap(opt)
+// 42 (erro de runtime se None)
+    let ou  = std.option.option_unwrap_or(Option::None, 0)
+  // 0 (padrão)
 }
 ```
 
@@ -463,49 +472,53 @@ pub fn main() {
 - `Result::Err(error)` — operation failed with error information
 
 ```spectra
-import std.convert;
+import std.convert
 
-fn analisar_inteiro(s: string) -> Result<int, string> {
-    let n = std.convert.string_to_int(s);
+func analisar_inteiro(s: string) returns Result<int, string> {
+    let n = std.convert.string_to_int(s)
     if n == 0 && s != "0" {
-        return Result::Err(f"'{s}' não é um inteiro válido");
+        return Result::Err(f"'{s}' não é um inteiro válido")
     }
-    return Result::Ok(n);
+    return Result::Ok(n)
 }
 
-fn dividir(a: int, b: int) -> Result<int, string> {
+func dividir(a: int, b: int) returns Result<int, string> {
     if b == 0 {
-        return Result::Err("divisão por zero");
+        return Result::Err("divisão por zero")
     }
-    return Result::Ok(a / b);
+    return Result::Ok(a / b)
 }
 
-pub fn main() {
+public func main() {
     // Correspondência exaustiva / Exhaustive matching
     match analisar_inteiro("42") {
-        Result::Ok(n)    => println(f"Sucesso: {n}"),
-        Result::Err(msg) => println(f"Erro: {msg}")
+        when Result::Ok(n) then println(f"Sucesso: {n}"),
+        when Result::Err(msg) then println(f"Erro: {msg}")
     }
 
     match analisar_inteiro("abc") {
-        Result::Ok(n)    => println(f"Sucesso: {n}"),
-        Result::Err(msg) => println(f"Erro: {msg}")    // Imprime isso
+        when Result::Ok(n) then println(f"Sucesso: {n}"),
+        when Result::Err(msg) then println(f"Erro: {msg}")    // Imprime isso
     }
 
     // Encadeamento de operações / Chaining operations
     if let Result::Ok(n) = analisar_inteiro("10") {
         if let Result::Ok(resultado) = dividir(n, 2) {
-            println(f"10 / 2 = {resultado}");    // 5
+            println(f"10 / 2 = {resultado}")
+    // 5
         }
     }
 
     // Funções da stdlib / Stdlib functions
-    import std.result;
+    import std.result
 
-    let r = Result::Ok(100);
-    let ok     = std.result.is_ok(r);               // true
-    let val    = std.result.result_unwrap(r);        // 100
-    let padrao = std.result.result_unwrap_or(Result::Err("e"), 0); // 0
+    let r = Result::Ok(100)
+    let ok     = std.result.is_ok(r)
+               // true
+    let val    = std.result.result_unwrap(r)
+        // 100
+    let padrao = std.result.result_unwrap_or(Result::Err("e"), 0)
+ // 0
 }
 ```
 
@@ -513,18 +526,18 @@ pub fn main() {
 
 ```spectra
 // Option → Result
-fn opcao_para_resultado(opt: Option<int>, msg_erro: string) -> Result<int, string> {
+func opcao_para_resultado(opt: Option<int>, msg_erro: string) returns Result<int, string> {
     match opt {
-        Option::Some(v) => Result::Ok(v),
-        Option::None    => Result::Err(msg_erro)
+        when Option::Some(v) then Result::Ok(v),
+        when Option::None then Result::Err(msg_erro)
     }
 }
 
 // Result → Option (descartando o erro)
-fn resultado_para_opcao(res: Result<int, string>) -> Option<int> {
+func resultado_para_opcao(res: Result<int, string>) returns Option<int> {
     match res {
-        Result::Ok(v)  => Option::Some(v),
-        Result::Err(_) => Option::None
+        when Result::Ok(v) then Option::Some(v),
+        when Result::Err(_) then Option::None
     }
 }
 ```
@@ -540,20 +553,21 @@ O operador `?` é uma forma concisa de propagar erros. Quando aplicado a um `Res
 The `?` operator is a concise way to propagate errors. When applied to a `Result` or `Option`, it unwraps the value if `Ok`/`Some`, or early-returns from the function with the `Err`/`None` otherwise.
 
 ```spectra
-fn processar_entrada(entrada: string) -> Result<int, string> {
+func processar_entrada(entrada: string) returns Result<int, string> {
     // Sem o operador ? / Without the ? operator
-    let r = analisar_inteiro(entrada);
+    let r = analisar_inteiro(entrada)
     let n = match r {
-        Result::Ok(v)    => v,
-        Result::Err(msg) => return Result::Err(msg)    // Propagação manual
-    };
-    return Result::Ok(n * 2);
+        when Result::Ok(v) then v,
+        when Result::Err(msg) then return Result::Err(msg)    // Propagação manual
+    }
+    return Result::Ok(n * 2)
 }
 
-fn processar_entrada_conciso(entrada: string) -> Result<int, string> {
+func processar_entrada_conciso(entrada: string) returns Result<int, string> {
     // Com o operador ? / With the ? operator
-    let n = analisar_inteiro(entrada)?;    // Propaga o erro automaticamente
-    return Result::Ok(n * 2);
+    let n = analisar_inteiro(entrada)?
+    // Propaga o erro automaticamente
+    return Result::Ok(n * 2)
 }
 ```
 
@@ -561,22 +575,22 @@ fn processar_entrada_conciso(entrada: string) -> Result<int, string> {
 
 ```spectra
 // Encadeamento elegante com ? / Elegant chaining with ?
-fn calcular_pipeline(a: string, b: string) -> Result<int, string> {
-    let x = analisar_inteiro(a)?;
-    let y = analisar_inteiro(b)?;
-    let resultado = dividir(x, y)?;
-    return Result::Ok(resultado);
+func calcular_pipeline(a: string, b: string) returns Result<int, string> {
+    let x = analisar_inteiro(a)?
+    let y = analisar_inteiro(b)?
+    let resultado = dividir(x, y)?
+    return Result::Ok(resultado)
 }
 
-pub fn main() {
+public func main() {
     match calcular_pipeline("10", "2") {
-        Result::Ok(v)  => println(f"Resultado: {v}"),   // "Resultado: 5"
-        Result::Err(e) => println(f"Erro: {e}")
+        when Result::Ok(v) then println(f"Resultado: {v}"),   // "Resultado: 5"
+        when Result::Err(e) then println(f"Erro: {e}")
     }
 
     match calcular_pipeline("10", "0") {
-        Result::Ok(v)  => println(f"Resultado: {v}"),
-        Result::Err(e) => println(f"Erro: {e}")          // "Erro: divisão por zero"
+        when Result::Ok(v) then println(f"Resultado: {v}"),
+        when Result::Err(e) then println(f"Erro: {e}")          // "Erro: divisão por zero"
     }
 }
 ```
@@ -594,10 +608,10 @@ Todo arquivo SpectraLang começa com uma declaração `module`. O caminho do mó
 Every SpectraLang file starts with a `module` declaration. The module path uses dots as separators.
 
 ```spectra
-module app;
-module app.utils;
-module app.controladores.usuarios;
-module biblioteca.colecoes;
+module app
+module app.utils
+module app.controladores.usuarios
+module biblioteca.colecoes
 ```
 
 ### Importações / Imports
@@ -612,12 +626,14 @@ There are four practical import forms in the language today:
 
 ```spectra
 // Importar o módulo completo e usar com prefixo / Import whole module and use with prefix
-import std.io;
-import std.math as math;
+import std.io
+import std.math as math
 
-pub fn main() {
-    std.io.println("Olá");            // prefixo completo / full prefix
-    let raiz = math.sqrt_f(16.0);    // prefixo de alias / alias prefix
+public func main() {
+    std.io.println("Olá")
+            // prefixo completo / full prefix
+    let raiz = math.sqrt_f(16.0)
+    // prefixo de alias / alias prefix
 }
 ```
 
@@ -625,12 +641,14 @@ pub fn main() {
 
 ```spectra
 // Importar nomes específicos diretamente / Import specific names directly
-import { println, print } from std.io;
-import { abs, sqrt_f as sqrt } from std.math;
+from std.io import println, print
+from std.math import abs, sqrt_f as sqrt
 
-pub fn main() {
-    println("Sem prefixo!");    // sem qualificação / no qualification
-    let r = sqrt(25.0);         // usando alias local / using local alias
+public func main() {
+    println("Sem prefixo!")
+    // sem qualificação / no qualification
+    let r = sqrt(25.0)
+         // usando alias local / using local alias
 }
 ```
 
@@ -638,7 +656,7 @@ pub fn main() {
 
 ```spectra
 // Tornar uma importação pública (re-exportar) / Make an import public (re-export)
-pub import { println } from std.io;
+public from std.io import println
 
 // Outros módulos podem importar println deste módulo / Other modules can import println from this module
 ```
@@ -646,12 +664,12 @@ pub import { println } from std.io;
 #### 4. Importação de Módulo para Uso Não Qualificado / Whole-Module Import for Unqualified Use
 
 ```spectra
-import std.io;
+import std.io
 
-pub fn main() -> int {
-    println("Olá sem prefixo");
-    std.io.println("Olá com prefixo");
-    return 0;
+public func main() returns int {
+    println("Olá sem prefixo")
+    std.io.println("Olá com prefixo")
+    return 0
 }
 ```
 
@@ -666,11 +684,11 @@ enum Token {
     Number(int),
 }
 
-fn peso(token: Token) -> int {
+func peso(token: Token) returns int {
     return match token {
-        Token::Number(value) => value,
-        Token::Plus | Token::Minus => 1
-    };
+        when Token::Number(value) then value,
+        when Token::Plus | Token::Minus then 1
+    }
 }
 ```
 
@@ -720,31 +738,31 @@ SpectraLang has three visibility levels:
 | Modificador / Modifier | Escopo PT-BR | Scope EN-US |
 |---|---|---|
 | (padrão / default) | Privado — apenas no módulo | Private — current module only |
-| `pub` | Público — acessível de outros módulos | Public — accessible from other modules |
+| `public` | Público — acessível de outros módulos | Public — accessible from other modules |
 | `internal` | Interno — acessível dentro do pacote | Internal — accessible within the package |
 
 ```spectra
-module minha.biblioteca;
+module minha.biblioteca
 
 // Pública — qualquer módulo pode usar / Public — any module can use
-pub struct Ponto {
-    pub x: int,    // campo público / public field
-    pub y: int
+public record Ponto {
+    public x: int,    // campo público / public field
+    public y: int
 }
 
 // Interna — apenas no pacote / Internal — package only
-internal fn utilitario_interno() -> int {
-    return 42;
+internal func utilitario_interno() returns int {
+    return 42
 }
 
 // Privada — apenas neste módulo / Private — this module only
-fn helper() -> int {
-    return utilitario_interno();
+func helper() returns int {
+    return utilitario_interno()
 }
 
 // Pública com impl público / Public with public impl
-pub impl Ponto {
-    pub fn novo(x: int, y: int) -> Ponto {
+public impl Ponto {
+    public func novo(x: int, y: int) returns Ponto {
         Ponto { x: x, y: y }
     }
 }
@@ -754,7 +772,7 @@ pub impl Ponto {
 
 **PT-BR:**  
 - Funções públicas **não podem** expor tipos privados nas assinaturas
-- Structs públicas **não podem** expor tipos privados nos campos
+- Records públicos **não podem** expor tipos privados nos campos
 - Enums públicos **não podem** expor tipos privados nas variantes
 - Parâmetros genéricos e tipos built-in (`int`, `float`, etc.) são exceções
 
@@ -766,21 +784,22 @@ pub impl Ponto {
 
 ```spectra
 // Tipo privado / Private type
-struct Interno {
+record Interno {
     dados: int
 }
 
 // ERRO: função pública expõe tipo privado / ERROR: public function exposes private type
-// pub fn obter_interno() -> Interno { ... }
+// public func obter_interno() returns Interno { ... }
 
 // OK: usa tipo built-in / OK: uses builtin type
-pub fn calcular() -> int { return 42; }
+public func calcular() returns int { return 42
+ }
 
 // OK: tipo público / OK: public type
-pub struct Publico {
+public record Publico {
     valor: int
 }
-pub fn obter_publico() -> Publico { Publico { valor: 1 } }
+public func obter_publico() returns Publico { Publico { valor: 1 } }
 ```
 
 ---
@@ -794,47 +813,47 @@ F-strings (`f"..."`) suportam expressões arbitrárias dentro de `{...}`. Pratic
 F-strings (`f"..."`) support arbitrary expressions inside `{...}`. Virtually any valid SpectraLang expression can be interpolated.
 
 ```spectra
-module fstrings_avancado;
+module fstrings_avancado
 
-import { println } from std.io;
+from std.io import println
 
-pub fn main() {
-    let nome = "Alice";
-    let pontos = 850;
-    let nivel = 5;
+public func main() {
+    let nome = "Alice"
+    let pontos = 850
+    let nivel = 5
 
     // Variáveis simples / Simple variables
-    println(f"Jogador: {nome}");
+    println(f"Jogador: {nome}")
 
     // Expressões aritméticas / Arithmetic expressions
-    println(f"Próximo nível: {nivel + 1}");
-    println(f"Pontos necessários: {(nivel + 1) * 200 - pontos}");
+    println(f"Próximo nível: {nivel + 1}")
+    println(f"Pontos necessários: {(nivel + 1) * 200 - pontos}")
 
     // Chamadas de função / Function calls
-    println(f"Dobro dos pontos: {dobrar(pontos)}");
+    println(f"Dobro dos pontos: {dobrar(pontos)}")
 
     // Acesso a campos / Field access
-    let p = Ponto { x: 10, y: 20 };
-    println(f"Posição: ({p.x}, {p.y})");
+    let p = Ponto { x: 10, y: 20 }
+    println(f"Posição: ({p.x}, {p.y})")
 
     // Comparações / Comparisons
-    println(f"Nível máximo: {nivel == 10}");
+    println(f"Nível máximo: {nivel == 10}")
 
     // Literais / Literals
-    println(f"Total: {pontos + 150}");
+    println(f"Total: {pontos + 150}")
 
     // Expressões complexas / Complex expressions
-    let media = (80 + 90 + 75) / 3;
-    println(f"Média: {media}");
+    let media = (80 + 90 + 75) / 3
+    println(f"Média: {media}")
 
     // Interpolação dentro de interpolação (cuidado com clareza)
     // Interpolation within interpolation (be careful with clarity)
-    let lista = [1, 2, 3];
-    println(f"Primeiro: {lista[0]}, Último: {lista[2]}");
+    let lista = [1, 2, 3]
+    println(f"Primeiro: {lista[0]}, Último: {lista[2]}")
 }
 
-fn dobrar(x: int) -> int { x * 2 }
-struct Ponto { x: int, y: int }
+func dobrar(x: int) returns int { x * 2 }
+record Ponto { x: int, y: int }
 ```
 
 ### Casos Especiais / Special Cases
@@ -842,13 +861,14 @@ struct Ponto { x: int, y: int }
 ```spectra
 // Chaves literais — não suportadas diretamente / Literal braces — not directly supported
 // Use uma variável intermediária / Use an intermediate variable
-let chave_esq = "{";
-let chave_dir = "}";
-println(f"Objeto JS: {chave_esq}valor{chave_dir}");
+let chave_esq = "{"
+let chave_dir = "}"
+println(f"Objeto JS: {chave_esq}valor{chave_dir}")
 
 // Strings vazias / Empty strings
-let vazio = "";
-println(f"Campo: '{vazio}'");    // Campo: ''
+let vazio = ""
+println(f"Campo: '{vazio}'")
+    // Campo: ''
 
 // Valores de retorno void (unit) não devem ser interpolados
 // Void (unit) return values should not be interpolated
@@ -865,40 +885,42 @@ Em SpectraLang, **blocos são expressões**. O valor de um bloco é a última ex
 In SpectraLang, **blocks are expressions**. The value of a block is its last expression (without a semicolon). This applies to functions, if/else, match, and anonymous blocks.
 
 ```spectra
-module blocos;
+module blocos
 
-pub fn main() {
+public func main() {
     // Bloco como expressão / Block as expression
     let resultado = {
-        let a = 10;
-        let b = 20;
+        let a = 10
+        let b = 20
         a + b    // Retorno implícito do bloco: 30 / Implicit block return: 30
-    };
+    }
     // resultado == 30
 
     // if como expressão / if as expression
-    let max = if 10 > 5 { 10 } else { 5 };    // max == 10
+    let max = if 10 > 5 { 10 } else { 5 }
+    // max == 10
 
     // match como expressão / match as expression
     let descricao = match resultado {
-        0..=10  => "baixo",
-        11..=50 => "médio",
-        _       => "alto"
-    };
+        when 0..=10 then "baixo",
+        when 11..=50 then "médio",
+        otherwise then "alto"
+    }
     // descricao == "médio"
 
     // Função com retorno implícito / Function with implicit return
-    println(calcular(5, 3));    // 8
+    println(calcular(5, 3))
+    // 8
 }
 
 // Retorno implícito na última linha / Implicit return on last line
-fn calcular(a: int, b: int) -> int {
-    let soma = a + b;
+func calcular(a: int, b: int) returns int {
+    let soma = a + b
     soma    // Retorna soma / Returns soma
 }
 
 // Retorno implícito em ramo if / Implicit return in if branch
-fn classificar(n: int) -> string {
+func classificar(n: int) returns string {
     if n < 0 {
         "negativo"
     } else if n == 0 {
@@ -912,28 +934,28 @@ fn classificar(n: int) -> string {
 ### Regras Importantes / Important Rules
 
 **PT-BR:**  
-- Expressão **sem** `;` ao final do bloco → retorno implícito
-- Expressão **com** `;` ao final do bloco → descartada, bloco retorna `unit`
-- `return expr;` funciona em qualquer ponto da função (inclui retorno antecipado)
+- A expressão final termina por quebra de linha ou `}` e produz retorno implícito
+- `return expr` funciona em qualquer ponto da função (inclui retorno antecipado)
 
 **EN-US:**  
-- Expression **without** `;` at block end → implicit return
-- Expression **with** `;` at block end → discarded, block returns `unit`
-- `return expr;` works anywhere in a function (includes early return)
+- The final expression ends at a line break or `}` and produces an implicit return
+- `return expr` works anywhere in a function (includes early return)
 
 ```spectra
-fn exemplo1() -> int {
+func exemplo1() returns int {
     42          // Retorna 42 / Returns 42
 }
 
-fn exemplo2() -> int {
-    42;         // 42 descartado, retorna unit — ERRO DE TIPO / 42 discarded, returns unit — TYPE ERROR
-    // O compilador lançará um erro pois a assinatura diz -> int mas o bloco retorna unit
+func exemplo2() returns int {
+    42
+         // 42 descartado, retorna unit — ERRO DE TIPO / 42 discarded, returns unit — TYPE ERROR
+// O compilador lançará um erro pois a assinatura diz returns int mas o bloco retorna unit
 }
 
-fn exemplo3() -> int {
-    let x = 42;
-    return x;   // Retorno explícito / Explicit return
+func exemplo3() returns int {
+    let x = 42
+    return x
+   // Retorno explícito / Explicit return
     // O código após return nunca será executado / Code after return is never reached
 }
 ```

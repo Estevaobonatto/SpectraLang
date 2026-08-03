@@ -1,3 +1,4 @@
-module exact_width_overflow;
-const TOO_WIDE: i8 = 128;
-pub fn main() -> int { return TOO_WIDE as int; }
+module exact_width_overflow
+const TOO_WIDE: i8 = 128
+public func main() returns int { return TOO_WIDE as int
+}

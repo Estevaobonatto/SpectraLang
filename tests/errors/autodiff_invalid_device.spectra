@@ -1,12 +1,12 @@
-module autodiff_invalid_device;
+module autodiff_invalid_device
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    let x = tensor.full_f(2, 1.0);
-    let y = tensor.to_device(x, 2);
+public func main() returns int {
+    let x = tensor.full_f(2, 1.0)
+    let y = tensor.to_device(x, 2)
     let z = diff {
         tensor.sum_t(y)
-    };
-    return tensor.len(z);
+    }
+    return tensor.len(z)
 }

@@ -505,13 +505,13 @@ priority = "P0"
 status = "complete"
 risk = "high"
 dependencies = ["R-106", "R-103", "R-105"]
-summary = "Promote `switch`, `unless`, `do-while`, and `loop` from experimental gates to stable production syntax with parser, semantic, lowering, JIT, CLI, and documentation alignment."
+summary = "Promote `switch`, `do-while`, and `loop` from experimental gates to stable production syntax, and align negated conditionals on the canonical `if not` form with parser, semantic, lowering, JIT, CLI, and documentation."
 acceptance = [
-  "`switch`, `unless`, `do-while`, and `loop` parse without `--enable-experimental`",
+  "`switch`, `do-while`, `loop`, and `if not` parse without `--enable-experimental`",
   "`spectralang --list-experimental` reports no active experimental syntax gates",
   "`tests/validation/120_stable_promoted_control_flow.spectra` runs successfully through the normal CLI JIT path",
   "lowering does not emit instructions or branches after terminated blocks in promoted control-flow bodies",
-  "return-path analysis recognizes exhaustive `switch`, `unless`, block, and `if let` return paths",
+  "return-path analysis recognizes exhaustive `switch`, block, and `if let` return paths",
   "language reference, maturity policy, CLI help, and planning docs agree on stable status"
 ]
 
@@ -1310,6 +1310,25 @@ acceptance = [
 ]
 
 [[items]]
+id = "R-1303"
+title = "Human-Readable Syntax Surface"
+phase = "phase_13"
+owner = "frontend"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-106", "R-118", "R-2102", "R-2601"]
+summary = "Adopt the report-selected readable language surface across the parser, semantic pipeline, formatter, LSP, source corpus, and documentation."
+acceptance = [
+  "canonical `module`, `from ... import`, `func ... returns`, `record`, `public`, `else if`, `if not`, word-form logical operators, and `when ... then` match syntax parse, type-check, lower, and run",
+  "statement and declaration semicolons are rejected with actionable parser diagnostics",
+  "legacy `fn`, `struct`, `pub`, `elif`, `unless`, `of`, arrow returns, brace imports, and match arrows are rejected by the parser",
+  "fixtures, examples, packages, formatter, LSP, and fenced documentation use the canonical surface",
+  "`scripts/migrate_syntax_surface.py --check`, `scripts/migrate_embedded_spectra_in_rust.py --check`, `scripts/migrate_embedded_spectra_in_python.py --check`, and the documentation migration check report no pending work",
+  "the standalone syntax audit report remains preserved as an input artifact"
+]
+
+[[items]]
 id = "R-1401"
 title = "First-Class Tensor Language Constructs"
 phase = "phase_14"
@@ -1936,7 +1955,7 @@ acceptance = [
   "`C:\\Users\\estev\\.cargo\\bin\\cargo.exe run -p spectra-cli -- package test --root tests\\projects\\valid\\integrated_basic_deep_components` exits with status 0",
   "the former known-failure project is promoted into `tests/projects/valid/integrated_basic_deep_components` and registered in the R-2008 integrated matrix",
   "IR verification reports an undefined value diagnostic before backend codegen if a future invalid IR value is encountered",
-  "regression coverage preserves cross-module struct construction, enum tuple and struct payload matching, trait-method dispatch, `while let`, `unless`, and mutable loop state",
+  "regression coverage preserves cross-module record construction, enum tuple and record payload matching, trait-method dispatch, `while let`, `if not`, and mutable loop state",
   "`scripts/validate_r2008_language_feature_matrix.py` passes after the project is promoted"
 ]
 
@@ -1970,23 +1989,23 @@ dependencies = []
 summary = "Decide the asynchronous execution model for Spectra: stackless coroutines vs stackful, polling vs callback, Task<T>/Stream<T> types, cancellation, and pinning semantics."
 acceptance = [
   "ADR `docs/adr/0010-async-execution-model.md` is committed and approved",
-  "the ADR fixes the syntax surface for `async fn`, `await`, `Task<T>`, `Stream<T>`, and `Pin`",
+  "the ADR fixes the syntax surface for `async func`, `await`, `Task<T>`, `Stream<T>`, and `Pin`",
   "the ADR covers lowering strategy to a state machine SSA and the runtime scheduler interface",
   "the ADR addresses Send/Sync rules, structured concurrency, and cancellation propagation"
 ]
 
 [[items]]
 id = "R-2102"
-title = "Async fn and Async Block in Frontend"
+title = "Async func and Async Block in Frontend"
 phase = "phase_21"
 owner = "frontend"
 priority = "P0"
 status = "complete"
 risk = "high"
 dependencies = ["R-2101"]
-summary = "Parse and represent `async fn`, async block expressions, and async closures in the lexer, parser, and AST."
+summary = "Parse and represent `async func`, async block expressions, and async closures in the lexer, parser, and AST."
 acceptance = [
-  "`async fn` is parsed in function declarations and method declarations",
+  "`async func` is parsed in function declarations and method declarations",
   "`async { ... }` is parsed as an async block expression",
   "AST preserves async markers on function, method, trait method, and closure nodes and represents `async { ... }` as `AsyncBlock`",
   "the parser produces actionable diagnostics for missing or misplaced `async`/`await`",
@@ -2110,7 +2129,7 @@ priority = "P1"
 status = "complete"
 risk = "medium"
 dependencies = ["R-2107"]
-summary = "Provide `#[spectra_async_test]` plus a `block_on` runtime so API test code can use plain `async fn` without manual setup."
+summary = "Provide `#[spectra_async_test]` plus a `block_on` runtime so API test code can use plain `async func` without manual setup."
 acceptance = [
   "`#[spectra_async_test]` runs async test functions inside the Spectra test runner",
   "`block_on(future)` is available in test code without external setup",
@@ -2461,7 +2480,7 @@ dependencies = ["R-2210"]
 summary = "Define the `api.handler` trait that user handlers implement and that the router calls to produce a `Response`."
 acceptance = [
   "`std.api.handler` exports `Handler`, `AsyncHandler`, and `IntoResponse` traits plus handler/error handle types",
-  "the trait surface supports `async fn` and synchronous handlers over `Request -> Response`",
+  "the trait surface supports `async func` and synchronous handlers over `Request -> Response`",
   "handlers can return values that implement `IntoResponse`, including native `Response`, text, bytes, unit, handler errors, and `Result<T, HandlerError>` in `spectra-api`",
   "`HandlerError` flows through `error_response` and `last_error_message` so R-2301/R-2314 unified error middleware can consume typed handler failures",
   "tests cover synchronous handlers, async handlers, `IntoResponse`, handler handle dispatch, and error-to-response conversion in `tests/validation/139_api_handler_response_return.spectra`",
@@ -2568,7 +2587,7 @@ dependencies = ["R-2215"]
 summary = "Define the middleware trait, the chain composition, and the deterministic ordering rules (request order, response reverse order)."
 acceptance = [
   "`std.api.middleware` exposes `Middleware`, `AsyncMiddleware`, `MiddlewareChain`, sync and async middleware handles, and trace inspection through compiler builtins, midend lowering, runtime contracts, and the `spectra-api` host-call table",
-  "the middleware trait supports `async fn` and synchronous middleware",
+  "the middleware trait supports `async func` and synchronous middleware",
   "middleware order is deterministic and documented in the book chapter `docs/book/10-middleware-chain.md`",
   "the response chain runs in reverse order after normal execution and after short-circuit",
   "tests cover ordering, short-circuit, and post-response hooks in `packages/spectra-api/src/middleware.rs` and `tests/validation/148_api_middleware_chain.spectra`",
@@ -4790,5 +4809,3 @@ acceptance = [
   "the focused gate run_tests.ps1 -Phase phase31_r3133_async_echo executes unit tests, roadmap/report validation, evidence generation, and git diff --check",
   "R-3103 is complete; R-3104 may be in_progress or complete only after its own backend codegen and baseline gates pass"
 ]
-
-

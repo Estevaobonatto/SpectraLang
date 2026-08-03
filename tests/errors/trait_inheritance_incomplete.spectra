@@ -1,26 +1,26 @@
 // Teste de erro: trait inheritance incompleta
-module test_error;
+module test_error
 
 trait Printable {
-    fn to_string(&self) -> int;
+    func to_string( & self) returns int
 }
 
 trait Debug: Printable {
-    fn debug(&self) -> int;
+    func debug( & self) returns int
 }
 
-struct Point {
+record Point {
     x: int,
     y: int
 }
 
 // Erro: implementa Debug mas não implementa to_string de Printable
 impl Debug for Point {
-    fn debug(&self) -> int {
+    func debug( & self) returns int {
         self.x * self.y
     }
 }
 
-fn main() -> int {
+func main() returns int {
     0
 }

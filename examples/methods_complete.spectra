@@ -1,38 +1,38 @@
 // Exemplo completo demonstrando todas as features de métodos
-module methods_complete;
+module methods_complete
 
-struct Point {
+record Point {
     x: int,
     y: int
 }
 
 impl Point {
     // Constructor estático
-    fn new(x: int, y: int) -> Point {
+    func new(x: int, y: int) returns Point {
         Point { x: x, y: y }
     }
-    
+
     // Método de acesso (getter)
-    fn get_x(&self) -> int {
+    func get_x( & self) returns int {
         self.x
     }
-    
-    fn get_y(&self) -> int {
+
+    func get_y( & self) returns int {
         self.y
     }
-    
+
     // Método com cálculo
-    fn distance_from_origin(&self) -> int {
-        self.x + self.y  // Simplificado
+    func distance_from_origin( & self) returns int {
+        self.x + self.y // Simplificado
     }
-    
+
     // Método que retorna Point (para chaining)
-    fn move_by(&self, dx: int, dy: int) -> Point {
+    func move_by( & self, dx: int, dy: int) returns Point {
         Point { x: self.x + dx, y: self.y + dy }
     }
 }
 
-struct Rectangle {
+record Rectangle {
     top_left: Point,
     width: int,
     height: int
@@ -40,44 +40,44 @@ struct Rectangle {
 
 impl Rectangle {
     // Constructor com Point
-    fn new(x: int, y: int, w: int, h: int) -> Rectangle {
+    func new(x: int, y: int, w: int, h: int) returns Rectangle {
         Rectangle {
             top_left: Point::new(x, y),
             width: w,
             height: h
         }
     }
-    
+
     // Método que acessa campos de struct aninhado
-    fn get_x(&self) -> int {
-        self.top_left.get_x()  // Method call em field
+    func get_x( & self) returns int {
+        self.top_left.get_x() // Method call em field
     }
-    
+
     // Método com múltiplos argumentos
-    fn area(&self) -> int {
+    func area( & self) returns int {
         self.width * self.height
     }
 }
 
-fn main() -> int {
+func main() returns int {
     // 1. Constructor estático
-    let p1 = Point::new(10, 20);
-    
+    let p1 = Point::new(10, 20)
+
     // 2. Chamadas simples de método
-    let x = p1.get_x();
-    let y = p1.get_y();
-    
+    let x = p1.get_x()
+    let y = p1.get_y()
+
     // 3. Método com cálculo usando self.field
-    let dist = p1.distance_from_origin();
-    
+    let dist = p1.distance_from_origin()
+
     // 4. Method chaining
-    let p2 = p1.move_by(5, 5).move_by(3, 3);
-    
+    let p2 = p1.move_by(5, 5) .move_by(3, 3)
+
     // 5. Struct aninhado com métodos
-    let rect = Rectangle::new(0, 0, 100, 50);
-    let rect_x = rect.get_x();
-    let area = rect.area();
-    
+    let rect   = Rectangle::new(0, 0, 100, 50)
+    let rect_x = rect.get_x()
+    let area   = rect.area()
+
     // Resultado: combinação de todos os valores
     x + y + dist + rect_x + area
 }

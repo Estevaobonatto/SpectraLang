@@ -36,15 +36,15 @@ fn lower_source(source: &str) -> TensorGraph {
 fn tensor_graph_snapshot_covers_real_lowered_program() {
     let graph = lower_source(
         r#"
-        module tensor_graph_snapshot;
+        module tensor_graph_snapshot
 
-        pub fn main() -> int {
-            let flat = std.tensor.arange(1, 5, 1);
-            let matrix = std.tensor.reshape(flat, 2, 2);
-            let product = std.tensor.matmul(matrix, matrix);
-            let activated = std.tensor.relu(product);
-            std.tensor.free_all();
-            return std.tensor.len(activated);
+        public func main()  returns  int {
+            let flat = std.tensor.arange(1, 5, 1)
+            let matrix = std.tensor.reshape(flat, 2, 2)
+            let product = std.tensor.matmul(matrix, matrix)
+            let activated = std.tensor.relu(product)
+            std.tensor.free_all()
+            return std.tensor.len(activated)
         }
         "#,
     );
@@ -57,11 +57,11 @@ fn tensor_graph_snapshot_covers_real_lowered_program() {
 fn tensor_graph_infers_negative_arange_shape() {
     let graph = lower_source(
         r#"
-        module tensor_graph_negative_arange;
+        module tensor_graph_negative_arange
 
-        pub fn main() -> int {
-            let values = std.tensor.arange(5, 1, -2);
-            return std.tensor.len(values);
+        public func main()  returns  int {
+            let values = std.tensor.arange(5, 1, -2)
+            return std.tensor.len(values)
         }
         "#,
     );
@@ -211,15 +211,15 @@ fn tensor_graph_optimizer_fuses_elementwise_into_reduction() {
 fn tensor_graph_optimizer_snapshot_covers_lowered_elementwise_program() {
     let graph = lower_source(
         r#"
-        module tensor_graph_optimization_snapshot;
+        module tensor_graph_optimization_snapshot
 
-        pub fn main() -> int {
-            let base = std.tensor.full_f(8, 1.0);
-            let relu = std.tensor.relu(base);
-            let tanh = std.tensor.tanh_f(relu);
-            let loss = std.tensor.sum_t(tanh);
-            std.tensor.backward(loss);
-            return 0;
+        public func main()  returns  int {
+            let base = std.tensor.full_f(8, 1.0)
+            let relu = std.tensor.relu(base)
+            let tanh = std.tensor.tanh_f(relu)
+            let loss = std.tensor.sum_t(tanh)
+            std.tensor.backward(loss)
+            return 0
         }
         "#,
     );

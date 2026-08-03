@@ -1,30 +1,30 @@
-module test;
+module test
 
 // Test: Identifier binding captura qualquer valor
-fn test_simple() -> int {
-    let x = 42;
+func test_simple() returns int {
+    let x = 42
     match x {
-        value => value + 10
+        when value then value + 10
     }
 }
 
 // Test: Múltiplos arms com identifiers
-fn test_multiple_arms() -> int {
-    let x = 5;
+func test_multiple_arms() returns int {
+    let x = 5
     match x {
-        first => first * 2
+        when first then first * 2
     }
 }
 
 // Test: Identifier com underscore ignora
-fn test_wildcard_vs_identifier() -> int {
-    let x = 100;
+func test_wildcard_vs_identifier() returns int {
+    let x = 100
     match x {
-        _ => 1,
-        y => y  // Este nunca será alcançado devido ao wildcard antes
+        otherwise then 1,
+        when y then y // Este nunca será alcançado devido ao wildcard antes
     }
 }
 
-fn main() -> int {
-    test_simple()  // 52
+func main() returns int {
+    test_simple() // 52
 }

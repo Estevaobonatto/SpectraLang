@@ -1,29 +1,29 @@
 // Teste de constructors estáticos: Type::new()
-module test41;
+module test41
 
-struct Point {
+record Point {
     x: int,
     y: int
 }
 
 impl Point {
     // Constructor estático (sem self)
-    fn new(x: int, y: int) -> Point {
+    func new(x: int, y: int) returns Point {
         Point { x: x, y: y }
     }
-    
+
     // Método regular (com self)
-    fn get_x(&self) -> int {
+    func get_x( & self) returns int {
         self.x
     }
 }
 
-fn main() -> int {
+func main() returns int {
     // Syntax sugar: Type::method()
-    let p = Point::new(10, 20);
-    
+    let p = Point::new(10, 20)
+
     // Método regular
-    let x = p.get_x();
-    
+    let x = p.get_x()
+
     x
 }

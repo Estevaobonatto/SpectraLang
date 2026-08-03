@@ -1,10 +1,10 @@
-module closure_argument_arity_mismatch;
+module closure_argument_arity_mismatch
 
-fn apply_pair(f: fn(int, int) -> int) -> int {
-    return f(1, 2);
+func apply_pair(f: func(int, int) returns int) returns int {
+    return f(1, 2)
 }
 
-pub fn main() -> int {
-    let only_one: fn(int) -> int = |value: int| value + 1;
-    return apply_pair(only_one);
+public func main() returns int {
+    let only_one: func(int) returns int = | value: int | value + 1
+    return apply_pair(only_one)
 }

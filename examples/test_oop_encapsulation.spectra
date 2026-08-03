@@ -1,21 +1,21 @@
 // ============================================================
 // OOP Test 1 — Encapsulation (Phase 1)
-// Testa: pub / internal / private em campos e métodos
+// Testa: public / internal / private em campos e métodos
 // ============================================================
-module test_oop_encapsulation;
+module test_oop_encapsulation
 
-import std.io;
+import std.io
 
 // Struct com visibilidade mista nos campos
-struct BankAccount {
-    pub owner: string,          // leitura pública
-    internal balance: int,      // visível dentro do módulo
-    secret_pin: int,            // private — só o impl acessa
+record BankAccount {
+    public owner: string, // leitura pública
+    internal balance: int, // visível dentro do módulo
+    secret_pin: int, // private — só o impl acessa
 }
 
 impl BankAccount {
     // Constructor público
-    pub fn new(owner: string, initial: int, pin: int) -> BankAccount {
+    public func new(owner: string, initial: int, pin: int) returns BankAccount {
         BankAccount {
             owner: owner,
             balance: initial,
@@ -24,96 +24,96 @@ impl BankAccount {
     }
 
     // Getter público para o saldo
-    pub fn get_balance(&self) -> int {
+    public func get_balance( & self) returns int {
         self.balance
     }
 
     // Método interno: visível no módulo, não externamente
-    internal fn adjust_balance(&mut self, delta: int) {
-        self.balance = self.balance + delta;
+    internal func adjust_balance( & mut self, delta: int) {
+        self.balance = self.balance + delta
     }
 
     // Método privado: só chamado por outros métodos deste impl
-    fn verify_pin(&self, pin: int) -> bool {
+    func verify_pin( & self, pin: int) returns bool {
         self.secret_pin == pin
     }
 
     // Saque autenticado: usa verify_pin (privado) internamente
-    pub fn withdraw(&mut self, amount: int, pin: int) -> bool {
+    public func withdraw( & mut self, amount: int, pin: int) returns bool {
         if self.verify_pin(pin) {
             if self.balance >= amount {
-                self.adjust_balance(0 - amount);
-                return true;
+                self.adjust_balance(0 - amount)
+                return true
             }
         }
-        return false;
+        return false
     }
 
     // Depósito público
-    pub fn deposit(&mut self, amount: int) {
-        self.adjust_balance(amount);
+    public func deposit( & mut self, amount: int) {
+        self.adjust_balance(amount)
     }
 }
 
 // Struct simples para testar visibilidade de campos no acesso direto
-struct Point {
-    pub x: int,
-    pub y: int,
-    label: string,   // private
+record Point {
+    public x: int,
+    public y: int,
+    label: string, // private
 }
 
 impl Point {
-    pub fn new(x: int, y: int) -> Point {
+    public func new(x: int, y: int) returns Point {
         Point { x: x, y: y, label: "point" }
     }
 
-    pub fn describe(&self) -> string {
+    public func describe( & self) returns string {
         f"Point({self.x}, {self.y})"
     }
 
     // Acessa o campo privado internamente
-    pub fn get_label(&self) -> string {
+    public func get_label( & self) returns string {
         self.label
     }
 }
 
-pub fn main() -> int {
+public func main() returns int {
     // --- BankAccount ---
-    let acc = BankAccount::new("Alice", 1000, 1234);
+    let acc = BankAccount::new("Alice", 1000, 1234)
 
-    // Acessa campo pub diretamente
-    println(acc.owner);
+    // Acessa campo public diretamente
+    println(acc.owner)
 
     // Getter para campo internal
-    let bal = acc.get_balance();
-    println(f"Saldo inicial: {bal}");
+    let bal = acc.get_balance()
+    println(f"Saldo inicial: {bal}")
 
     // Saque válido com PIN correto
-    let ok = acc.withdraw(200, 1234);
-    let after_withdraw = acc.get_balance();
-    println(f"Saque bem-sucedido: {ok}");
-    println(f"Saldo após saque: {after_withdraw}");
+    let ok             = acc.withdraw(200, 1234)
+    let after_withdraw = acc.get_balance()
+    println(f"Saque bem-sucedido: {ok}")
+    println(f"Saldo após saque: {after_withdraw}")
 
     // Saque com PIN errado — deve falhar
-    let fail = acc.withdraw(100, 9999);
-    println(f"Saque com PIN errado: {fail}");
+    let fail = acc.withdraw(100, 9999)
+    println(f"Saque com PIN errado: {fail}")
 
     // Depósito
-    acc.deposit(500);
-    let after_deposit = acc.get_balance();
-    println(f"Saldo após depósito: {after_deposit}");
+    acc.deposit(500)
+    let after_deposit = acc.get_balance()
+    println(f"Saldo após depósito: {after_deposit}")
 
     // --- Point ---
-    let p = Point::new(3, 4);
+    let p = Point::new(3, 4)
 
-    // Campos pub acessíveis diretamente
-    println(f"x={p.x}, y={p.y}");
+    // Campos public acessíveis diretamente
+    println(f"x={p.x}, y={p.y}")
 
-    // Método pub
-    println(p.describe());
+    // Método public
+    println(p.describe())
 
     // Campo private acessado pelo getter
-    println(p.get_label());
+    println(p.get_label())
 
-    return 0;
+    return 0
 }

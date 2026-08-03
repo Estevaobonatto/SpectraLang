@@ -254,25 +254,28 @@ codes when no stable subcode exists.
 
 ## 1.4 Language Surface Stabilization
 
-Current state: complete for the current Phase 1 maturity-policy baseline.
-The language maturity policy documents stable, beta, experimental, and
-deferred features. `switch`, `unless`, `do-while`, and `loop` have been
-promoted from experimental gates to stable syntax; the CLI reports no active
-experimental syntax gates through `--list-experimental`; and the main runner
-validates docs/source/CLI agreement.
+Current state: complete for the current Phase 1 maturity-policy baseline and
+the human-readable syntax migration. The language maturity policy documents
+stable, beta, experimental, and deferred features. The canonical surface uses
+`module`, `from ... import`, `func ... returns`, `record`, `public`, `else if`,
+`if not`, word-form logical operators, and line-based statement termination;
+the CLI reports no active experimental syntax gates through
+`--list-experimental`; and the main runner validates docs/source/CLI agreement.
 
 ### Tasks
 
 - Mark current stable subset explicitly.
 - Freeze syntax for:
   - module/imports
+  - `module`, `from ... import`, and line-based statement termination
+  - `func ... returns`, `record`, and `public`
   - traits/generics
   - closures
   - `if let` / `while let`
+  - `else if`, `if not`, `and`, `or`, and `not`
   - enums and patterns
 - Keep promoted core control flow stable:
   - `switch`
-  - `unless`
   - `do-while`
   - `loop`
 - Future experimental syntax must add a documented gate, CLI list entry, and
@@ -293,8 +296,9 @@ validates docs/source/CLI agreement.
 - `spectralang --list-experimental` reports no active experimental syntax gates.
 - `scripts/validate_feature_maturity.py`
 - `run_tests.ps1` includes the R-106 feature maturity gate.
-- `R-118` completes the production promotion of `switch`, `unless`,
-  `do-while`, and `loop`.
+- `R-118` completes the production promotion of `switch`, `do-while`, and
+  `loop`; the readability migration standardizes the conditional form as
+  `if not`.
 
 ---
 
@@ -1210,6 +1214,35 @@ wired into the repository validation runner.
   for all AI examples.
 - `run_tests.ps1` executes all six AI examples as gated Phase 13 checks.
 
+## 13.3 Human-Readable Language Surface
+
+Current state: complete. The report-driven syntax pass selected the changes
+that improve readability without expanding the primitive type system: explicit
+`func ... returns` declarations, `record`/`public`, `from ... import` names,
+`else if`, `if not`, word-form logical operators, `when ... then` match arms,
+and line-based statement termination. The migration is intentionally breaking:
+legacy spellings such as `fn`, `struct`, `pub`, `elif`, `unless`, `of`, arrow
+returns, brace imports, and statement semicolons are rejected by the parser.
+
+### Acceptance Criteria
+
+- canonical syntax parses, type-checks, lowers, and runs through the normal CLI;
+- legacy spellings fail with actionable parser diagnostics;
+- fixtures, examples, packages, formatter, LSP, and fenced documentation use
+  the canonical surface;
+- the migration scripts report no remaining source or embedded-fixture work;
+- the standalone report remains preserved as the audit input and is not
+  overwritten by the implementation.
+
+### Current Implementation
+
+- `scripts/migrate_syntax_surface.py`
+- `scripts/migrate_embedded_spectra_in_rust.py`
+- `scripts/migrate_embedded_spectra_in_python.py`
+- `scripts/migrate_syntax_docs.py`
+- `tests/validation/syntax_human_surface.spectra`
+- `compiler/tests/syntax_readability.rs`
+
 ---
 
 # Cross-Cutting Non-Functional Requirements
@@ -1542,7 +1575,7 @@ AI users.
 - `R-2006 Tensor and std Performance Refresh`: fresh release benchmark evidence for materialization, elementwise chains, reductions, matmul, autodiff, and buffer reuse.
 - `R-2007 Backend and Codegen Robustness Cleanup`: warning cleanup and typed backend errors for reachable IR/codegen edge cases.
 - `R-2008 Language Feature Project Matrix`: matrix mapping basic language and AI Support features to concrete checked-in `.spectra` project validation scenarios, with project paths, entrypoints, required files, exact commands, expected outcomes, and owners.
-- `R-2009 Basic Components Integration Projects`: complete checked-in `.spectra` projects for modules, functions, structs/classes, traits, generics, closures, control flow, and stdlib composition.
+- `R-2009 Basic Components Integration Projects`: complete checked-in `.spectra` projects for modules, functions, records, traits, generics, closures, control flow, and stdlib composition.
 - `R-2010 AI Support Integration Projects`: complete checked-in `.spectra` projects for tensors, autodiff, graph/fusion, data, experiment, ONNX, RAG, serving, evaluation, safety, and monitoring.
 - `R-2011 Full Pipeline Project Runner`: project-level runner for the matrix-declared `.spectra` projects via `spectralang run`, `spectralang package check`, and `spectralang package test` with JSON evidence.
 - `R-2012 Failure-To-Roadmap Triage Gate`: completed gate where every unfixed integrated `.spectra` project failure must become a roadmap item with owner, phase, dependencies, risk, reproduction command, affected project path, and acceptance criteria.
@@ -1550,7 +1583,7 @@ AI users.
 - `R-2014 Multi-Module Aggregate and Trait Codegen Recovery`: completed
   correction for a valid multi-module `.spectra` package that previously
   failed codegen with `Value 13 not found` while combining cross-module
-  structs, enum payloads, trait dispatch, `match`, `while let`, `unless`, and
+  records, enum payloads, trait dispatch, `match`, `while let`, `if not`, and
   mutable loop state.
 
 ### Acceptance Direction
@@ -1705,7 +1738,7 @@ insufficient for sustained 10k+ concurrent connections.
 `R-2101` is complete through `docs/adr/0010-async-execution-model.md`. The
 accepted model is stackless async lowered to state-machine SSA, driven by a
 polling scheduler and platform reactor boundary. The public surface is fixed
-around `async fn`, `async {}`, `await`, `Task<T>`, and `Stream<T>`; pinning is
+around `async func`, `async {}`, `await`, `Task<T>`, and `Stream<T>`; pinning is
 internal to runtime-managed task frames. Structured concurrency, cooperative
 cancellation, and `Send`/`Sync` validation are required gates for the remaining
 Phase 21 implementation items.
@@ -1739,7 +1772,7 @@ baselines.
 ### Phase 21 — Async Language Core
 
 - `R-2101` ADR: Async/Await Execution Model (complete; ADR 0010 accepted)
-- `R-2102` `async fn` and async block in frontend (complete; parser/AST,
+- `R-2102` `async func` and async block in frontend (complete; parser/AST,
   diagnostics, language-service labels, and validation gate landed)
 - `R-2103` `await` expression and async lowering (complete; `Task<T>` baseline,
   explicit suspend/resume/ready IR markers, deterministic task host calls, and
@@ -2257,7 +2290,7 @@ that gate and the dependent R-2013 certification now pass independently.
 ## Architectural Principles for the API Platform
 
 1. **Async by default, sync where it makes sense.** Handlers can be
-   `async fn` or synchronous; the runtime and the reactor drive both
+   `async func` or synchronous; the runtime and the reactor drive both
    through the same task scheduler.
 2. **Typed HTTP.** `Request`, `Response`, `Method`, `Status`, `Header`,
    and `Cookie` are first-class types, not raw strings. The `api.Error`

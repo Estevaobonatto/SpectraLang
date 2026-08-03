@@ -1,6 +1,6 @@
-module lint_warning_unused;
+module lint_warning_unused
 
-pub fn main() -> int {
-    let never_used = 42;
-    return 0;
+public func main() returns int {
+    let never_used = 42
+    return 0
 }

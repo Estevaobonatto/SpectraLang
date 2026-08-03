@@ -1,24 +1,24 @@
-module counter;
+module counter
 
-pub struct Counter {
-    pub value: int,
-    pub step: int
+public record Counter {
+    public value: int,
+    public step: int
 }
 
 impl Counter {
-    pub fn new(step: int) -> Counter {
-        return Counter { value: 0, step: step };
+    public func new(step: int) returns Counter {
+        return Counter { value: 0, step: step }
     }
 
-    pub fn with_value(value: int, step: int) -> Counter {
-        return Counter { value: value, step: step };
+    public func with_value(value: int, step: int) returns Counter {
+        return Counter { value: value, step: step }
     }
 
-    pub fn tick(&self) -> Counter {
-        return Counter { value: self.value + self.step, step: self.step };
+    public func tick( & self) returns Counter {
+        return Counter { value: self.value + self.step, step: self.step }
     }
 
-    pub fn read(&self) -> int {
-        return self.value;
+    public func read( & self) returns int {
+        return self.value
     }
 }

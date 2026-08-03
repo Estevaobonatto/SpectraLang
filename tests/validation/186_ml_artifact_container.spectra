@@ -1,36 +1,49 @@
 // R-3003: round-trip real tensors through the native Spectra Artifact Container v1.
-module ml_artifact_container;
+module ml_artifact_container
 
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-pub fn main() -> int {
-    tensor.free_all();
-    let weights = tensor.full_f(4, 1.5);
-    let bias = tensor.full_f(2, -0.25);
-    let path = "target/r3003-artifacts/cli-checkpoint.spar";
+public func main() returns int {
+    tensor.free_all()
+    let weights = tensor.full_f(4, 1.5)
+    let bias    = tensor.full_f(2, -0.25)
+    let path    = "target/r3003-artifacts/cli-checkpoint.spar"
 
-    let artifact = ml.artifact_new("cli-checkpoint", "model-v1", "checkpoint");
-    if artifact == 0 { return 1; }
-    if !ml.artifact_set_metadata(artifact, "framework", "spectralang") { return 2; }
-    if !ml.artifact_set_metadata(artifact, "model_version", "model-v1") { return 3; }
-    if !ml.artifact_add_tensor(artifact, "weights", weights) { return 4; }
-    if !ml.artifact_add_tensor(artifact, "bias", bias) { return 5; }
-    if !ml.artifact_save(artifact, path) { return 6; }
-    if !ml.artifact_validate(path) { return 7; }
+    let artifact = ml.artifact_new("cli-checkpoint", "model-v1", "checkpoint")
+    if artifact == 0 { return 1
+    }
+    if not ml.artifact_set_metadata(artifact, "framework", "spectralang") { return 2
+    }
+    if not ml.artifact_set_metadata(artifact, "model_version", "model-v1") { return 3
+    }
+    if not ml.artifact_add_tensor(artifact, "weights", weights) { return 4
+    }
+    if not ml.artifact_add_tensor(artifact, "bias", bias) { return 5
+    }
+    if not ml.artifact_save(artifact, path) { return 6
+    }
+    if not ml.artifact_validate(path) { return 7
+    }
 
-    let loaded = ml.artifact_load(path);
-    if loaded == 0 { return 8; }
-    if ml.artifact_metadata(loaded, "framework") != "spectralang" { return 9; }
-    let loaded_weights = ml.artifact_tensor(loaded, "weights");
-    let loaded_bias = ml.artifact_tensor(loaded, "bias");
-    if loaded_weights == 0 || loaded_bias == 0 { return 10; }
-    if tensor.len(loaded_weights) != 4 || tensor.len(loaded_bias) != 2 { return 11; }
-    if tensor.get_f(loaded_weights, 0) != 1.5 { return 12; }
-    if tensor.get_f(loaded_bias, 0) != -0.25 { return 13; }
+    let loaded = ml.artifact_load(path)
+    if loaded == 0 { return 8
+    }
+    if ml.artifact_metadata(loaded, "framework") != "spectralang" { return 9
+    }
+    let loaded_weights = ml.artifact_tensor(loaded, "weights")
+    let loaded_bias    = ml.artifact_tensor(loaded, "bias")
+    if loaded_weights == 0 or loaded_bias == 0 { return 10
+    }
+    if tensor.len(loaded_weights) != 4 or tensor.len(loaded_bias) != 2 { return 11
+    }
+    if tensor.get_f(loaded_weights, 0) != 1.5 { return 12
+    }
+    if tensor.get_f(loaded_bias, 0) != -0.25 { return 13
+    }
 
-    ml.artifact_free(loaded);
-    ml.artifact_free(artifact);
-    tensor.free_all();
-    return 0;
+    ml.artifact_free(loaded)
+    ml.artifact_free(artifact)
+    tensor.free_all()
+    return 0
 }

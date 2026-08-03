@@ -1,36 +1,36 @@
-module main;
+module main
 
-import std.io;
-import calc;
+import std.io
+import calc
 
-pub fn main() -> int {
-    println("=== Calculator ===");
-    println("--- arithmetic ---");
-    println(add(10, 5));
-    println(sub(10, 5));
-    println(mul(10, 5));
-    println(div(10, 5));
-    println(div(10, 0));
+public func main() returns int {
+    println("=== Calculator ===")
+    println("--- arithmetic ---")
+    println(add(10, 5))
+    println(sub(10, 5))
+    println(mul(10, 5))
+    println(div(10, 5))
+    println(div(10, 0))
 
-    println("--- power/absolute/clamp ---");
-    println(power(2, 8));
-    println(power(3, 3));
-    println(abs_val(-42));
-    println(abs_val(42));
-    println(clamp(150, 0, 100));
-    println(clamp(-5, 0, 100));
-    println(clamp(50, 0, 100));
+    println("--- power/absolute/clamp ---")
+    println(power(2, 8))
+    println(power(3, 3))
+    println(abs_val(-42))
+    println(abs_val(42))
+    println(clamp(150, 0, 100))
+    println(clamp(-5, 0, 100))
+    println(clamp(50, 0, 100))
 
-    println("--- expression pipeline ---");
-    let a = add(3, 4);
-    let b = mul(a, 2);
-    let c = sub(b, 5);
-    let d = abs_val(c);
-    println(d);
+    println("--- expression pipeline ---")
+    let a = add(3, 4)
+    let b = mul(a, 2)
+    let c = sub(b, 5)
+    let d = abs_val(c)
+    println(d)
 
-    let e = power(add(1, 1), 4);
-    let f = clamp(e, 0, 10);
-    println(f);
+    let e = power(add(1, 1), 4)
+    let f = clamp(e, 0, 10)
+    println(f)
 
-    return 0;
+    return 0
 }

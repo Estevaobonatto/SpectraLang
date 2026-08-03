@@ -1,8 +1,9 @@
 // Teste: Variável não declarada
-module test_undefined_var;
+module test_undefined_var
 
-pub fn main() {
-    let x = 10;
-    let y = undefined_variable; // ERRO: variável não definida
-    return;
+public func main() {
+    let x = 10
+    let y = undefined_variable
+    // ERRO: variável não definida
+    return
 }

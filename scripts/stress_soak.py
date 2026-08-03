@@ -21,7 +21,7 @@ EXPERIMENTAL_FLAGS = [
     "--enable-experimental",
     "switch",
     "--enable-experimental",
-    "unless",
+    "if not",
     "--enable-experimental",
     "do-while",
     "--enable-experimental",

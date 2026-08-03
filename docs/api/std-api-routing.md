@@ -17,12 +17,12 @@ the semantic layer keeps the public types distinct.
 ## Registering Routes
 
 ```spectra
-import { method_get } from std.api.http;
-import { router, get, route_add } from std.api.routing;
+from std.api.http import method_get
+from std.api.routing import router, get, route_add
 
-let routes = router();
-let users = get(routes, "/users");
-let order = route_add(routes, method_get(), "/orders/{id:\\d+}");
+let routes = router()
+let users = get(routes, "/users")
+let order = route_add(routes, method_get(), "/orders/{id:\\d+}")
 ```
 
 Convenience functions:
@@ -51,9 +51,9 @@ literal constraints. Invalid patterns are rejected.
 ## Matching and Parameters
 
 ```spectra
-let hit = route_match(routes, method_get(), "/orders/123");
-let route = match_route_id(hit);
-let id = match_param_int(hit, "id");
+let hit = route_match(routes, method_get(), "/orders/123")
+let route = match_route_id(hit)
+let id = match_param_int(hit, "id")
 ```
 
 - `route_match(router, method, path)` returns a `RouteMatch` handle or `0`.
@@ -69,9 +69,9 @@ wildcard patterns that can match the same method/path are rejected with a
 conflict message containing both patterns.
 
 ```spectra
-let first = get(routes, "/users/{id}");
-let duplicate = get(routes, "/users/me");
-let message = last_conflict();
+let first = get(routes, "/users/{id}")
+let duplicate = get(routes, "/users/me")
+let message = last_conflict()
 ```
 
 ## Validation

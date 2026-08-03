@@ -1,13 +1,13 @@
 // Negative: ml.linear requires input [batch, in], weight [in, out], bias [out].
-module ml_linear_shape_mismatch;
+module ml_linear_shape_mismatch
 
-import std.tensor as tensor;
-import std.ml as ml;
+import std.tensor as tensor
+import std.ml as ml
 
-pub fn main() -> int {
-    let input: Tensor<float, rank2, dim2, dim3, row_major, cpu> = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-    let weight: Tensor<float, rank2, dim4, dim2, row_major, cpu> = [[0.5, 0.25], [0.5, 0.25], [0.5, 0.25], [0.5, 0.25]];
-    let bias: Tensor<float, rank1, dim2, row_major, cpu> = [0.0, 0.0];
-    let prediction = ml.linear(input, weight, bias);
-    return tensor.rank(prediction);
+public func main() returns int {
+    let input: Tensor<float, rank2, dim2, dim3, row_major, cpu> = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+    let weight: Tensor<float, rank2, dim4, dim2, row_major, cpu> = [[0.5, 0.25], [0.5, 0.25], [0.5, 0.25], [0.5, 0.25]]
+    let bias: Tensor<float, rank1, dim2, row_major, cpu> = [0.0, 0.0]
+    let prediction = ml.linear(input, weight, bias)
+    return tensor.rank(prediction)
 }

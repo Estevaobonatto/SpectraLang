@@ -1,150 +1,155 @@
 // SpectraLang - Exemplo Prático: Calculadora
 // Demonstra sintaxe simples em um caso de uso real
 
-module calculator;
-import std.io;
+module calculator
+import std.io
 
-pub fn main() {
-    println("=== Simple Calculator ===");
-    
+public func main() {
+    println("=== Simple Calculator ===")
+
     // Testes de operações
-    test_addition();
-    test_subtraction();
-    test_multiplication();
-    test_division();
-    test_complex();
-    
-    return;
+    test_addition()
+    test_subtraction()
+    test_multiplication()
+    test_division()
+    test_complex()
+
+    return
 }
 
-fn test_addition() {
-    println("Testing Addition:");
-    let result = add(5, 3);
-    println(result); // Expected: 8
-    return;
+func test_addition() {
+    println("Testing Addition:")
+    let result = add(5, 3)
+    println(result)
+    // Expected: 8
+    return
 }
 
-fn test_subtraction() {
-    println("Testing Subtraction:");
-    let result = subtract(10, 4);
-    println(result); // Expected: 6
-    return;
+func test_subtraction() {
+    println("Testing Subtraction:")
+    let result = subtract(10, 4)
+    println(result)
+    // Expected: 6
+    return
 }
 
-fn test_multiplication() {
-    println("Testing Multiplication:");
-    let result = multiply(6, 7);
-    println(result); // Expected: 42
-    return;
+func test_multiplication() {
+    println("Testing Multiplication:")
+    let result = multiply(6, 7)
+    println(result)
+    // Expected: 42
+    return
 }
 
-fn test_division() {
-    println("Testing Division:");
-    let result = divide(20, 4);
-    println(result); // Expected: 5
-    return;
+func test_division() {
+    println("Testing Division:")
+    let result = divide(20, 4)
+    println(result)
+    // Expected: 5
+    return
 }
 
-fn test_complex() {
-    println("Testing Complex Expression:");
-    let result = calculate_complex(10, 5, 2);
-    println(result); // Expected: ((10 + 5) * 2) - 5 = 25
-    return;
+func test_complex() {
+    println("Testing Complex Expression:")
+    let result = calculate_complex(10, 5, 2)
+    println(result)
+    // Expected: ((10 + 5) * 2) - 5 = 25
+    return
 }
 
 // Operações básicas
-fn add(a: int, b: int) -> int {
-    return a + b;
+func add(a: int, b: int) returns int {
+    return a + b
 }
 
-fn subtract(a: int, b: int) -> int {
-    return a - b;
+func subtract(a: int, b: int) returns int {
+    return a - b
 }
 
-fn multiply(a: int, b: int) -> int {
-    return a * b;
+func multiply(a: int, b: int) returns int {
+    return a * b
 }
 
-fn divide(a: int, b: int) -> int {
+func divide(a: int, b: int) returns int {
     if b == 0 {
-        println("Error: Division by zero!");
-        return 0;
+        println("Error: Division by zero!")
+        return 0
     }
-    return a / b;
+    return a / b
 }
 
 // Operação complexa
-fn calculate_complex(a: int, b: int, c: int) -> int {
-    let sum = add(a, b);
-    let product = multiply(sum, c);
-    let result = subtract(product, 5);
-    return result;
+func calculate_complex(a: int, b: int, c: int) returns int {
+    let sum     = add(a, b)
+    let product = multiply(sum, c)
+    let result  = subtract(product, 5)
+    return result
 }
 
 // Verifica se número é par
-fn is_even(n: int) -> bool {
-    return n % 2 == 0;
+func is_even(n: int) returns bool {
+    return n % 2 == 0
 }
 
 // Verifica se número é positivo
-fn is_positive(n: int) -> bool {
-    return n > 0;
+func is_positive(n: int) returns bool {
+    return n > 0
 }
 
 // Calcula fatorial de forma iterativa
-fn factorial(n: int) -> int {
+func factorial(n: int) returns int {
     if n <= 1 {
-        return 1;
+        return 1
     }
-    
-    let result = 1;
-    let i = 2;
-    
+
+    let result = 1
+    let i      = 2
+
     while i <= n {
-        result = result * i;
-        i = i + 1;
+        result = result * i
+        i = i + 1
     }
-    
-    return result;
+
+    return result
 }
 
 // Calcula potência
-fn power(base: int, exponent: int) -> int {
+func power(base: int, exponent: int) returns int {
     if exponent == 0 {
-        return 1;
+        return 1
     }
-    
-    let result = base;
-    let i = 1;
-    
+
+    let result = base
+    let i      = 1
+
     while i < exponent {
-        result = result * base;
-        i = i + 1;
+        result = result * base
+        i = i + 1
     }
-    
-    return result;
+
+    return result
 }
 
 // Encontra o maior entre dois números
-fn max(a: int, b: int) -> int {
+func max(a: int, b: int) returns int {
     if a > b {
-        return a;
+        return a
     } else {
-        return b;
+        return b
     }
 }
 
 // Encontra o menor entre dois números
-fn min(a: int, b: int) -> int {
+func min(a: int, b: int) returns int {
     if a < b {
-        return a;
+        return a
     } else {
-        return b;
+        return b
     }
 }
 
 // Calcula média de três números
-fn average_three(a: int, b: int, c: int) -> int {
-    let sum = a + b + c;
-    return sum / 3;
+func average_three(a: int, b: int, c: int) returns int {
+    let sum = a + b + c
+    return sum / 3
 }

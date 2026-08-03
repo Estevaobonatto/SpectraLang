@@ -1,17 +1,17 @@
-module mathutils;
+module mathutils
 
-pub fn triple(x: int) -> int {
-    return x * 3;
+public func triple(x: int) returns int {
+    return x * 3
 }
 
-pub fn sum_to(n: int) -> int {
-    let total = 0;
-    let i = 0;
+public func sum_to(n: int) returns int {
+    let total = 0
+    let i     = 0
 
     while i <= n {
-        total = total + i;
-        i = i + 1;
+        total = total + i
+        i = i + 1
     }
 
-    return total;
+    return total
 }

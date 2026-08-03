@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Import, Module},
+    ast::{Import, Module, NamedImport},
     span::span_union,
     token::Keyword,
 };
@@ -8,7 +8,7 @@ use super::Parser;
 
 impl Parser {
     pub(super) fn parse_module(&mut self) -> Module {
-        // Expect: module <name>;
+        // Expect: module <name>
         let start_span = match self.consume_keyword(Keyword::Module, "Expected 'module' keyword") {
             Ok(span) => span,
             Err(_) => {
@@ -37,7 +37,9 @@ impl Parser {
             name.push_str(&segment);
         }
 
-        let end_span = match self.consume_symbol(';', "Expected ';' after module name") {
+        let end_span = match self
+            .consume_statement_terminator("Expected a line break after module name")
+        {
             Ok(span) => span,
             Err(_) => {
                 self.synchronize();
@@ -60,72 +62,15 @@ impl Parser {
     }
 
     pub(super) fn parse_import(&mut self, is_reexport: bool) -> Result<Import, ()> {
-        // Supports three forms:
-        //   import path.to.module;
-        //   import path.to.module as alias;
-        //   import { name1, name2 } from path.to.module;
-        //   pub import ...   (re-export: exposes imported symbols to callers)
+        // Supports namespace imports and public re-exports. Named imports use
+        // the canonical `from path import name` order and are parsed by
+        // `parse_from_import`.
         let start_span = self.consume_keyword(Keyword::Import, "Expected 'import' keyword")?;
 
-        // Check for named-import form: import { ... } from path;
-        if self.check_symbol('{') {
-            self.advance(); // consume '{'
-            let mut names = Vec::new();
-            loop {
-                let (name, _) = self.consume_identifier("Expected import name")?;
-                names.push(name);
-                if self.check_symbol(',') {
-                    self.advance(); // consume ','
-                    if self.check_symbol('}') {
-                        break; // trailing comma
-                    }
-                } else {
-                    break;
-                }
-            }
-            self.consume_symbol('}', "Expected '}' after import names")?;
-
-            // Expect 'from' identifier
-            match &self.current().kind {
-                crate::token::TokenKind::Identifier(kw) if kw == "from" => {
-                    self.advance(); // consume 'from'
-                }
-                _ => {
-                    self.error_at("Expected 'from' after import names", self.current().span);
-                    return Err(());
-                }
-            }
-
-            let mut path = Vec::new();
-            let (first, _) = self.consume_identifier("Expected module path")?;
-            path.push(first);
-            while self.check_symbol('.') {
-                self.advance();
-                let (seg, _) = self.consume_identifier("Expected identifier after '.'")?;
-                path.push(seg);
-            }
-            let end_span = self.consume_symbol(';', "Expected ';' after import path")?;
-
-            return Ok(Import {
-                path,
-                alias: None,
-                names: Some(names),
-                is_reexport,
-                span: span_union(start_span, end_span),
-            });
-        }
-
         // Standard path form
-        let mut path = Vec::new();
-        let (name, _) = self.consume_identifier("Expected module path")?;
-        path.push(name);
-        while self.check_symbol('.') {
-            self.advance();
-            let (seg, _) = self.consume_identifier("Expected identifier after '.'")?;
-            path.push(seg);
-        }
+        let (path, path_span) = self.parse_module_path()?;
 
-        // Optional alias: import path as alias;
+        // Optional namespace alias: import path as alias
         let alias = match &self.current().kind {
             crate::token::TokenKind::Keyword(Keyword::As) => {
                 self.advance(); // consume 'as'
@@ -135,14 +80,73 @@ impl Parser {
             _ => None,
         };
 
-        let end_span = self.consume_symbol(';', "Expected ';' after import")?;
+        let end_span = self.consume_statement_terminator("Expected a line break after import")?;
 
         Ok(Import {
             path,
             alias,
             names: None,
             is_reexport,
-            span: span_union(start_span, end_span),
+            span: span_union(start_span, span_union(path_span, end_span)),
         })
+    }
+
+    pub(super) fn parse_from_import(&mut self, is_reexport: bool) -> Result<Import, ()> {
+        let start_span = self.consume_keyword(Keyword::From, "Expected 'from' keyword")?;
+        let (path, path_span) = self.parse_module_path()?;
+        self.consume_keyword(Keyword::Import, "Expected 'import' after module path")?;
+
+        let mut names = Vec::new();
+        loop {
+            let (name, name_span) = self.consume_identifier("Expected imported name")?;
+            let (alias, end_span) = self.parse_import_alias(name_span)?;
+            names.push(NamedImport {
+                name,
+                alias,
+                span: span_union(name_span, end_span),
+            });
+
+            if !self.check_symbol(',') {
+                break;
+            }
+            self.advance();
+            if self.statement_ends_before_current() {
+                break;
+            }
+        }
+
+        let end_span = self
+            .consume_statement_terminator("Expected a line break after import declaration")?;
+        Ok(Import {
+            path,
+            alias: None,
+            names: Some(names),
+            is_reexport,
+            span: span_union(start_span, span_union(path_span, end_span)),
+        })
+    }
+
+    fn parse_module_path(&mut self) -> Result<(Vec<String>, crate::span::Span), ()> {
+        let (first, first_span) = self.consume_identifier("Expected module path")?;
+        let mut path = vec![first];
+        let mut end_span = first_span;
+        while self.check_symbol('.') {
+            self.advance();
+            let (segment, segment_span) =
+                self.consume_identifier("Expected identifier after '.' in module path")?;
+            path.push(segment);
+            end_span = segment_span;
+        }
+        Ok((path, end_span))
+    }
+
+    fn parse_import_alias(&mut self, name_span: crate::span::Span) -> Result<(Option<String>, crate::span::Span), ()> {
+        if self.check_keyword(Keyword::As) {
+            self.advance();
+            let (alias, alias_span) = self.consume_identifier("Expected alias after 'as'")?;
+            Ok((Some(alias), alias_span))
+        } else {
+            Ok((None, name_span))
+        }
     }
 }

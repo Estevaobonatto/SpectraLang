@@ -1,4 +1,4 @@
-module test;
+module test
 
 enum Option<T> {
     Some(T),
@@ -11,41 +11,42 @@ enum Result<T> {
 }
 
 // Teste básico de match
-fn unwrap_or(opt: Option<int>, default: int) -> int {
+func unwrap_or(opt: Option<int>, default: int) returns int {
     match opt {
-        Option::Some(value) => value,
-        Option::None => default
+        when Option::Some(value) then value,
+        when Option::None then default
     }
 }
 
 // Match com Result
-fn handle_result(res: Result<int>) -> int {
+func handle_result(res: Result<int>) returns int {
     match res {
-        Result::Ok(value) => value,
-        Result::Err(code) => code * -1
+        when Result::Ok(value) then value,
+        when Result::Err(code) then code * -1
     }
 }
 
 // Match aninhado
-fn process(opt: Option<int>) -> int {
+func process(opt: Option<int>) returns int {
     match opt {
-        Option::Some(x) => {
+        when Option::Some(x) then {
             match x {
-                _ => x + 10
+                otherwise then x + 10
             }
         },
-        Option::None => 0
+        when Option::None then 0
     }
 }
 
-fn main() -> int {
-    let some_val: Option<int> = Option::Some(42);
-    let result = unwrap_or(some_val, 0);
-    let status: Option<string> = Option::Some("ready");
-    let message = match status {
-        Option::Some(text) => text,
-        Option::None => "unknown",
-    };
-    let _ = message; // Apenas para evitar warnings
+func main() returns int {
+    let some_val: Option<int>  = Option::Some(42)
+    let result                 = unwrap_or(some_val, 0)
+    let status: Option<string> = Option::Some("ready")
+    let message                = match status {
+        when Option::Some(text) then text,
+        when Option::None then "unknown",
+    }
+    let _ = message
+    // Apenas para evitar warnings
     result
 }

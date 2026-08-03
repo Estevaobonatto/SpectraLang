@@ -1,5 +1,5 @@
-module demo_direct;
+module demo_direct
 
-pub fn main() {
-    std.io.print("Direct call without import");
+public func main() {
+    std.io.print("Direct call without import")
 }

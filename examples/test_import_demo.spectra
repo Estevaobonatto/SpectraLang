@@ -1,7 +1,7 @@
-module demo_imports;
-import std.io;
+module demo_imports
+import std.io
 
-pub fn main() {
-    println("Hello from imported std.io!");
-    println(42);
+public func main() {
+    println("Hello from imported std.io!")
+    println(42)
 }

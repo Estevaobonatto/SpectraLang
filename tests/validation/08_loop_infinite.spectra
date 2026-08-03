@@ -1,19 +1,19 @@
 // Teste 8: Loop infinito com break
-module loop_infinite;
+module loop_infinite
 
-fn count_to_five() -> int {
-    let counter = 0;
-    
+func count_to_five() returns int {
+    let counter = 0
+
     loop {
-        counter = counter + 1;
+        counter = counter + 1
         if counter >= 5 {
-            break;
+            break
         }
     }
-    
-    return counter;
+
+    return counter
 }
 
-fn main() -> int {
-    return count_to_five();
+func main() returns int {
+    return count_to_five()
 }

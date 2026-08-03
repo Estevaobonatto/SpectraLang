@@ -1,21 +1,25 @@
 // Extended validation: allocation counters and release lifecycle.
-module tensor_statistics_lifecycle;
+module tensor_statistics_lifecycle
 
-import std.tensor as tensor;
+import std.tensor as tensor
 
-pub fn main() -> int {
-    tensor.free_all();
-    tensor.reset_stats();
-    let first = tensor.full_f(32, 1.0);
-    let transformed = tensor.relu(first);
-    tensor.free(transformed);
-    tensor.free(first);
-    let reused = tensor.full_f(32, 2.0);
-    if tensor.stats_allocations() <= 0 { return 1; }
-    if tensor.stats_peak_bytes() <= 0 { return 2; }
-    if tensor.stats_pool_hits() <= 0 { return 3; }
-    if tensor.sum_f(reused) as int != 64 { return 4; }
-    tensor.free(reused);
-    tensor.free_all();
-    return 0;
+public func main() returns int {
+    tensor.free_all()
+    tensor.reset_stats()
+    let first       = tensor.full_f(32, 1.0)
+    let transformed = tensor.relu(first)
+    tensor.free(transformed)
+    tensor.free(first)
+    let reused = tensor.full_f(32, 2.0)
+    if tensor.stats_allocations() <= 0 { return 1
+    }
+    if tensor.stats_peak_bytes() <= 0 { return 2
+    }
+    if tensor.stats_pool_hits() <= 0 { return 3
+    }
+    if tensor.sum_f(reused) as int != 64 { return 4
+    }
+    tensor.free(reused)
+    tensor.free_all()
+    return 0
 }
