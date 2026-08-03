@@ -1,0 +1,19 @@
+// Extended validation: typed tensor literals and static matrix multiplication.
+module tensor_static_shape_literals;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let vector: Tensor<float, rank1, dim3, row_major, cpu> = [1.0, 2.0, 3.0];
+    if tensor.rank(vector) != 1 || tensor.len(vector) != 3 { return 1; }
+    if tensor.sum_f(vector) as int != 6 { return 2; }
+
+    let left: Tensor<float, rank2, dim2, dim3, row_major, cpu> = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    let right: Tensor<float, rank2, dim3, dim1, row_major, cpu> = [[1.0], [1.0], [1.0]];
+    let product: Tensor<float, rank2> = tensor.matmul(left, right);
+    if tensor.rows(product) != 2 || tensor.cols(product) != 1 { return 3; }
+    if tensor.get_f(product, 0) as int != 6 { return 4; }
+    tensor.free_all();
+    return 0;
+}

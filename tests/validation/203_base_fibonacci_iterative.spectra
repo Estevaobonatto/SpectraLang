@@ -1,0 +1,22 @@
+// Extended validation: iterative Fibonacci and loop-carried state.
+module base_fibonacci_iterative;
+
+fn fibonacci(n: int) -> int {
+    let previous = 0;
+    let current = 1;
+    let index = 0;
+    while index < n {
+        let next = previous + current;
+        previous = current;
+        current = next;
+        index = index + 1;
+    }
+    return previous;
+}
+
+pub fn main() -> int {
+    if fibonacci(12) != 144 { return 1; }
+    if fibonacci(15) != 610 { return 2; }
+    if fibonacci(0) != 0 { return 3; }
+    return 0;
+}

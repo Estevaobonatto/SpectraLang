@@ -1,0 +1,15 @@
+// Extended validation: CPU placement and stable host-visible tensor values.
+module tensor_cpu_placement;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let source = tensor.ones(4);
+    if tensor.device(source) != 0 { return 1; }
+    let cpu_value = tensor.cpu(source);
+    if tensor.device(cpu_value) != 0 { return 2; }
+    if tensor.sum(cpu_value) != 4 { return 3; }
+    tensor.free_all();
+    return 0;
+}

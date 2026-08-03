@@ -1,0 +1,35 @@
+// Extended validation: enum state transitions and match destructuring.
+module base_enum_state_machine;
+
+enum Machine {
+    Counting { value: int },
+    Done,
+}
+
+fn transition(value: int) -> Machine {
+    if value < 3 { return Machine::Counting { value: value + 1 }; }
+    return Machine::Done;
+}
+
+fn trace() -> int {
+    let value = 0;
+    let total = 0;
+    let steps = 0;
+    while steps < 4 {
+        let state = transition(value);
+        match state {
+            Machine::Counting { value: next } => {
+                value = next;
+                total = total + next;
+            }
+            Machine::Done => { return total * 10 + steps; }
+        };
+        steps = steps + 1;
+    }
+    return -1;
+}
+
+pub fn main() -> int {
+    if trace() != 63 { return 1; }
+    return 0;
+}

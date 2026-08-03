@@ -1,0 +1,26 @@
+// Extended validation: deterministic integer and floating RNG streams.
+module tensor_rng_reproducibility;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.seed(20260802);
+    let first = tensor.uniform(8, 0, 100);
+    let first_float = tensor.uniform_f(4, 0.0, 1.0);
+    tensor.seed(20260802);
+    let second = tensor.uniform(8, 0, 100);
+    let second_float = tensor.uniform_f(4, 0.0, 1.0);
+    let index = 0;
+    while index < 8 {
+        if tensor.get(first, index) != tensor.get(second, index) { return 1; }
+        index = index + 1;
+    }
+    let float_index = 0;
+    while float_index < 4 {
+        if tensor.get_f(first_float, float_index) != tensor.get_f(second_float, float_index) { return 2; }
+        float_index = float_index + 1;
+    }
+    tensor.free_all();
+    return 0;
+}

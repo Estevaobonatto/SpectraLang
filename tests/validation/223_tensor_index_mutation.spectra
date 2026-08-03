@@ -1,0 +1,17 @@
+// Extended validation: two-dimensional indexing and mutation.
+module tensor_index_mutation;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let grid = tensor.full2(2, 3, 0);
+    if tensor.rows(grid) != 2 || tensor.cols(grid) != 3 { return 1; }
+    tensor.set2(grid, 0, 0, 2);
+    tensor.set2(grid, 1, 2, 5);
+    if tensor.get2(grid, 0, 0) != 2 { return 2; }
+    if tensor.get2(grid, 1, 2) != 5 { return 3; }
+    if tensor.sum(grid) != 7 { return 4; }
+    tensor.free_all();
+    return 0;
+}

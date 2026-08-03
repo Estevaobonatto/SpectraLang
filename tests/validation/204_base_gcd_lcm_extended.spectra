@@ -1,0 +1,25 @@
+// Extended validation: Euclid's algorithm and overflow-safe LCM ordering.
+module base_gcd_lcm_extended;
+
+fn gcd(a: int, b: int) -> int {
+    let x = a;
+    let y = b;
+    while y != 0 {
+        let remainder = x % y;
+        x = y;
+        y = remainder;
+    }
+    return x;
+}
+
+fn lcm(a: int, b: int) -> int {
+    return (a / gcd(a, b)) * b;
+}
+
+pub fn main() -> int {
+    if gcd(1071, 462) != 21 { return 1; }
+    if gcd(48, 180) != 12 { return 2; }
+    if lcm(21, 6) != 42 { return 3; }
+    if lcm(462, 1071) != 23562 { return 4; }
+    return 0;
+}

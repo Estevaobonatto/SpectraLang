@@ -1,0 +1,17 @@
+// Extended validation: transcendental kernels and finite square roots.
+module tensor_exp_log_sqrt;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let ones = tensor.full_f(4, 1.0);
+    let exponent = tensor.exp_f(ones);
+    let logarithm = tensor.log_f(exponent);
+    let roots = tensor.sqrt_f(tensor.full_f(4, 4.0));
+    if tensor.len(exponent) != 4 || tensor.len(logarithm) != 4 { return 1; }
+    if tensor.get_f(roots, 0) as int != 2 { return 2; }
+    if tensor.get_f(logarithm, 0) as int != 1 { return 3; }
+    tensor.free_all();
+    return 0;
+}

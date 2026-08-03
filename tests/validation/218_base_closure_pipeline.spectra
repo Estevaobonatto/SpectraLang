@@ -1,0 +1,23 @@
+// Extended validation: closure capture, higher-order application and folding.
+module base_closure_pipeline;
+
+fn apply(value: int, transform: fn(int) -> int) -> int {
+    return transform(value);
+}
+
+fn fold_three(a: int, b: int, c: int, combine: fn(int, int) -> int) -> int {
+    return combine(combine(a, b), c);
+}
+
+pub fn main() -> int {
+    let offset = 7;
+    let shifted = apply(5, |x: int| x + offset);
+    if shifted != 12 { return 1; }
+
+    let doubled = apply(9, |x: int| x * 2);
+    if doubled != 18 { return 2; }
+
+    let sum = fold_three(2, 3, 4, |left: int, right: int| left + right);
+    if sum != 9 { return 3; }
+    return 0;
+}

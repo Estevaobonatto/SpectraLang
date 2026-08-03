@@ -1,0 +1,43 @@
+// Extended validation: Levenshtein distance with rolling rows.
+module base_edit_distance;
+
+fn min3(a: int, b: int, c: int) -> int {
+    let best = a;
+    if b < best { best = b; }
+    if c < best { best = c; }
+    return best;
+}
+
+fn distance() -> int {
+    let previous = [0, 1, 2, 3];
+    let current = [0, 0, 0, 0];
+    let left = [99, 99, 99];
+    let right = [99, 99, 99];
+    left[0] = 99; left[1] = 97; left[2] = 116;
+    right[0] = 99; right[1] = 117; right[2] = 116;
+    let row = 1;
+    while row <= 3 {
+        current[0] = row;
+        let col = 1;
+        while col <= 3 {
+            if left[row - 1] == right[col - 1] {
+                current[col] = previous[col - 1];
+            } else {
+                current[col] = min3(previous[col], current[col - 1], previous[col - 1]) + 1;
+            }
+            col = col + 1;
+        }
+        let copy = 0;
+        while copy <= 3 {
+            previous[copy] = current[copy];
+            copy = copy + 1;
+        }
+        row = row + 1;
+    }
+    return previous[3];
+}
+
+pub fn main() -> int {
+    if distance() != 1 { return 1; }
+    return 0;
+}

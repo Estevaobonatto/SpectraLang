@@ -1,0 +1,2257 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Proposta de uma superfície de sintaxe high-level e fácil de ler para humanos em SpectraLang.">
+    <title>SpectraLang — Sintaxe para humanos</title>
+    <style>
+      :root {
+        --paper: #f3eee6;
+        --paper-deep: #e9e0d5;
+        --ink: #24221f;
+        --muted: #746d65;
+        --line: #d8cec1;
+        --line-strong: #bdb0a0;
+        --accent: #bd5d45;
+        --accent-dark: #873c2d;
+        --accent-soft: #eed3c8;
+        --sage: #527260;
+        --night: #202421;
+        --night-2: #2a302b;
+        --night-text: #f4f0e9;
+        --night-muted: #afb8af;
+        --shadow: 0 18px 42px rgba(68, 49, 35, 0.08);
+        --radius: 14px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.55;
+        text-rendering: optimizeLegibility;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.08;
+        background-image: radial-gradient(rgba(36, 34, 31, 0.55) 0.45px, transparent 0.55px);
+        background-size: 7px 7px;
+        z-index: 20;
+      }
+
+      a {
+        color: inherit;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      code,
+      pre,
+      .mono,
+      .eyebrow,
+      .section-number,
+      .tag,
+      .status,
+      .metric-value {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      .site-header {
+        border-bottom: 1px solid var(--line);
+        background: rgba(243, 238, 230, 0.92);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        backdrop-filter: blur(12px);
+      }
+
+      .header-inner {
+        max-width: 1440px;
+        margin: 0 auto;
+        min-height: 62px;
+        padding: 0 38px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 11px;
+        text-decoration: none;
+        font-weight: 760;
+        letter-spacing: -0.03em;
+      }
+
+      .brand-mark {
+        width: 27px;
+        height: 27px;
+        border: 1px solid var(--ink);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 11px;
+        color: var(--accent-dark);
+        background: var(--accent-soft);
+      }
+
+      .header-note {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+      }
+
+      .page-shell {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 0 38px 80px;
+      }
+
+      .hero {
+        min-height: 650px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+        align-items: center;
+        gap: clamp(38px, 7vw, 112px);
+        padding: 88px 0 86px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .eyebrow,
+      .section-number,
+      .tag,
+      .status {
+        text-transform: uppercase;
+        letter-spacing: 0.13em;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--accent-dark);
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 34px;
+        height: 1px;
+        background: var(--accent);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 760px;
+        margin-bottom: 26px;
+        font-size: clamp(48px, 7.4vw, 103px);
+        line-height: 0.94;
+        letter-spacing: -0.075em;
+        font-weight: 790;
+      }
+
+      h1 em {
+        color: var(--accent-dark);
+        font-style: normal;
+      }
+
+      .hero-lead {
+        max-width: 630px;
+        margin-bottom: 30px;
+        color: #554f49;
+        font-size: clamp(18px, 2vw, 23px);
+        line-height: 1.4;
+        letter-spacing: -0.02em;
+      }
+
+      .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+      }
+
+      .tag {
+        padding: 8px 10px;
+        border: 1px solid var(--line-strong);
+        color: var(--muted);
+        letter-spacing: 0.08em;
+      }
+
+      .tag.highlight {
+        border-color: var(--accent);
+        color: var(--accent-dark);
+        background: rgba(238, 211, 200, 0.54);
+      }
+
+      .hero-console {
+        position: relative;
+        padding: 28px 28px 30px;
+        background: var(--night);
+        color: var(--night-text);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        transform: rotate(1.4deg);
+      }
+
+      .hero-console::before {
+        content: "superfície proposta";
+        position: absolute;
+        top: -12px;
+        right: 18px;
+        padding: 5px 8px;
+        color: var(--paper);
+        background: var(--accent);
+        font: 700 10px "SFMono-Regular", Consolas, monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .console-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding-bottom: 22px;
+        margin-bottom: 21px;
+        border-bottom: 1px solid rgba(244, 240, 233, 0.16);
+      }
+
+      .console-dots {
+        display: flex;
+        gap: 6px;
+      }
+
+      .console-dots i {
+        display: block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      .console-dots i:nth-child(2) {
+        opacity: 0.65;
+      }
+
+      .console-dots i:nth-child(3) {
+        opacity: 0.35;
+      }
+
+      .console-title {
+        color: var(--night-muted);
+        font: 11px "SFMono-Regular", Consolas, monospace;
+      }
+
+      .code-display {
+        margin: 0;
+        overflow: auto;
+        color: #e9eee8;
+        font: 13px/1.82 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        white-space: pre;
+      }
+
+      .kw {
+        color: #f0a493;
+      }
+
+      .type {
+        color: #b9d4aa;
+      }
+
+      .fn {
+        color: #f1d49a;
+      }
+
+      .str {
+        color: #d2e4be;
+      }
+
+      .comment {
+        color: #829087;
+      }
+
+      .op {
+        color: #d5b8e0;
+      }
+
+      .note-inline {
+        margin: 25px 0 0;
+        color: var(--night-muted);
+        font-size: 12px;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 195px minmax(0, 1fr);
+        gap: clamp(36px, 7vw, 105px);
+        padding-top: 64px;
+      }
+
+      .rail {
+        align-self: start;
+        position: sticky;
+        top: 92px;
+      }
+
+      .rail-kicker {
+        margin-bottom: 16px;
+        color: var(--accent-dark);
+        font: 700 10px "SFMono-Regular", Consolas, monospace;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .rail nav {
+        display: grid;
+        gap: 2px;
+      }
+
+      .rail a {
+        display: block;
+        padding: 8px 10px;
+        color: var(--muted);
+        text-decoration: none;
+        border-left: 1px solid transparent;
+        font-size: 12px;
+        transition: color 180ms ease, border-color 180ms ease, padding 180ms ease;
+      }
+
+      .rail a:hover,
+      .rail a.active {
+        padding-left: 14px;
+        color: var(--ink);
+        border-left-color: var(--accent);
+      }
+
+      .rail a.active {
+        font-weight: 700;
+      }
+
+      .rail-foot {
+        margin-top: 30px;
+        padding-top: 15px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.6;
+      }
+
+      .content {
+        min-width: 0;
+      }
+
+      .section {
+        padding: 4px 0 92px;
+        scroll-margin-top: 90px;
+      }
+
+      .section + .section {
+        padding-top: 72px;
+        border-top: 1px solid var(--line);
+      }
+
+      .section-heading {
+        display: grid;
+        grid-template-columns: 46px minmax(0, 1fr);
+        gap: 18px;
+        margin-bottom: 34px;
+      }
+
+      .section-number {
+        padding-top: 7px;
+        color: var(--accent-dark);
+      }
+
+      h2 {
+        max-width: 800px;
+        margin-bottom: 12px;
+        font-size: clamp(30px, 4.5vw, 58px);
+        line-height: 1;
+        letter-spacing: -0.06em;
+      }
+
+      .section-intro {
+        max-width: 720px;
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .verdict {
+        display: grid;
+        grid-template-columns: 1.08fr 0.92fr;
+        gap: 22px;
+        align-items: stretch;
+      }
+
+      .verdict-copy {
+        padding: 28px 30px;
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent);
+        background: rgba(255, 252, 247, 0.48);
+      }
+
+      .verdict-copy h3 {
+        margin-bottom: 12px;
+        font-size: 22px;
+        letter-spacing: -0.04em;
+      }
+
+      .verdict-copy p {
+        margin-bottom: 0;
+        color: #5c554e;
+      }
+
+      .axis {
+        display: grid;
+        gap: 0;
+        border-top: 1px solid var(--line-strong);
+      }
+
+      .axis-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        border-bottom: 1px solid var(--line-strong);
+      }
+
+      .axis-cell {
+        min-height: 77px;
+        padding: 14px 16px;
+      }
+
+      .axis-cell + .axis-cell {
+        border-left: 1px solid var(--line-strong);
+        background: rgba(238, 211, 200, 0.42);
+      }
+
+      .axis-label {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--muted);
+        font: 10px "SFMono-Regular", Consolas, monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .axis-value {
+        display: block;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .principles {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 30px;
+        border-top: 1px solid var(--line-strong);
+      }
+
+      .principle {
+        display: grid;
+        grid-template-columns: 45px minmax(0, 1fr);
+        gap: 16px;
+        padding: 22px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .principle-index {
+        color: var(--accent-dark);
+        font: 700 12px "SFMono-Regular", Consolas, monospace;
+      }
+
+      .principle h3 {
+        margin-bottom: 6px;
+        font-size: 17px;
+        letter-spacing: -0.03em;
+      }
+
+      .principle p {
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .surface-table {
+        border-top: 1px solid var(--line-strong);
+      }
+
+      .surface-row {
+        display: grid;
+        grid-template-columns: 74px minmax(160px, 0.82fr) minmax(215px, 1.1fr) minmax(180px, 0.9fr);
+        gap: 20px;
+        padding: 20px 0;
+        border-bottom: 1px solid var(--line);
+        align-items: start;
+      }
+
+      .surface-row.header {
+        padding: 12px 0;
+        color: var(--muted);
+        font: 10px "SFMono-Regular", Consolas, monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .priority {
+        display: inline-block;
+        width: fit-content;
+        padding: 5px 7px;
+        font: 700 10px "SFMono-Regular", Consolas, monospace;
+        letter-spacing: 0.08em;
+        color: var(--paper);
+        background: var(--accent-dark);
+      }
+
+      .priority.p1 {
+        background: var(--sage);
+      }
+
+      .priority.p2 {
+        color: var(--ink);
+        background: var(--paper-deep);
+        border: 1px solid var(--line-strong);
+      }
+
+      .surface-row strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 15px;
+        letter-spacing: -0.02em;
+      }
+
+      .surface-row p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .surface-row code {
+        display: inline-block;
+        padding: 3px 5px;
+        color: var(--accent-dark);
+        background: rgba(238, 211, 200, 0.58);
+        font-size: 11px;
+      }
+
+      .simulator-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      .filter-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .filter {
+        cursor: pointer;
+        padding: 8px 11px;
+        border: 1px solid var(--line-strong);
+        color: var(--muted);
+        background: transparent;
+        font: 10px "SFMono-Regular", Consolas, monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        transition: transform 180ms ease, background 180ms ease, color 180ms ease;
+      }
+
+      .filter:hover,
+      .filter:active {
+        transform: translateY(-1px);
+      }
+
+      .filter.active {
+        color: var(--paper);
+        background: var(--ink);
+        border-color: var(--ink);
+      }
+
+      .simulator-note {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        text-align: right;
+      }
+
+      .comparisons {
+        display: grid;
+        gap: 26px;
+      }
+
+      .comparison {
+        border-top: 1px solid var(--line-strong);
+        padding-top: 18px;
+      }
+
+      .comparison[hidden] {
+        display: none;
+      }
+
+      .comparison-heading {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 15px;
+      }
+
+      .comparison-heading h3 {
+        margin-bottom: 0;
+        font-size: 20px;
+        letter-spacing: -0.04em;
+      }
+
+      .comparison-heading span {
+        color: var(--muted);
+        font: 10px "SFMono-Regular", Consolas, monospace;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .comparison-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .code-panel {
+        min-width: 0;
+        overflow: hidden;
+        background: var(--night);
+        border-radius: 10px;
+      }
+
+      .code-panel.proposed {
+        background: #26342b;
+      }
+
+      .code-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 13px;
+        border-bottom: 1px solid rgba(244, 240, 233, 0.14);
+        color: var(--night-muted);
+        font: 10px "SFMono-Regular", Consolas, monospace;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .code-panel.proposed .code-panel-header {
+        color: #c4d7c5;
+      }
+
+      .copy-button {
+        cursor: pointer;
+        padding: 3px 6px;
+        border: 1px solid rgba(244, 240, 233, 0.28);
+        color: inherit;
+        background: transparent;
+        font: inherit;
+        text-transform: uppercase;
+        transition: background 180ms ease, color 180ms ease, transform 180ms ease;
+      }
+
+      .copy-button:hover,
+      .copy-button:active {
+        transform: translateY(-1px);
+        color: var(--paper);
+        background: rgba(244, 240, 233, 0.14);
+      }
+
+      .code-panel pre {
+        margin: 0;
+        padding: 17px 18px 20px;
+        overflow: auto;
+        color: #edf0e9;
+        font: 12px/1.75 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        white-space: pre;
+      }
+
+      .code-panel.proposed pre {
+        color: #f0f4ec;
+      }
+
+      .comparison-explain {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 10px;
+      }
+
+      .comparison-explain p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .comparison-explain strong {
+        color: var(--ink);
+      }
+
+      .spec-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.18fr) minmax(220px, 0.82fr);
+        gap: 30px;
+        align-items: start;
+      }
+
+      .spec-code {
+        margin: 0;
+        padding: 25px 26px;
+        overflow: auto;
+        border-radius: var(--radius);
+        color: #edf0e9;
+        background: var(--night);
+        box-shadow: var(--shadow);
+        font: 12px/1.8 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        white-space: pre;
+      }
+
+      .spec-aside {
+        border-top: 1px solid var(--line-strong);
+      }
+
+      .spec-rule {
+        padding: 16px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .spec-rule h3 {
+        margin-bottom: 5px;
+        font-size: 15px;
+      }
+
+      .spec-rule p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .tradeoffs {
+        display: grid;
+        gap: 0;
+        border-top: 1px solid var(--line-strong);
+      }
+
+      .tradeoff {
+        display: grid;
+        grid-template-columns: minmax(135px, 0.7fr) minmax(190px, 1fr) minmax(190px, 1fr) minmax(190px, 1fr);
+        gap: 20px;
+        padding: 21px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .tradeoff h3 {
+        margin-bottom: 0;
+        font-size: 16px;
+        letter-spacing: -0.03em;
+      }
+
+      .tradeoff p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .tradeoff strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--ink);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .migration {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0;
+        border-top: 1px solid var(--line-strong);
+        border-bottom: 1px solid var(--line-strong);
+      }
+
+      .migration-step {
+        min-height: 205px;
+        padding: 20px 18px 22px;
+        border-right: 1px solid var(--line);
+      }
+
+      .migration-step:last-child {
+        border-right: 0;
+      }
+
+      .migration-step .step-number {
+        display: block;
+        margin-bottom: 28px;
+        color: var(--accent-dark);
+        font: 700 12px "SFMono-Regular", Consolas, monospace;
+      }
+
+      .migration-step h3 {
+        margin-bottom: 7px;
+        font-size: 16px;
+        letter-spacing: -0.03em;
+      }
+
+      .migration-step p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .callout {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 28px;
+        align-items: center;
+        margin-top: 25px;
+        padding: 22px 24px;
+        background: var(--accent-soft);
+        border-left: 4px solid var(--accent);
+      }
+
+      .callout p {
+        margin: 0;
+        color: #63382e;
+        font-size: 14px;
+      }
+
+      .callout .mono {
+        color: var(--accent-dark);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+      }
+
+      .keep-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 30px;
+        border-top: 1px solid var(--line-strong);
+      }
+
+      .keep-item {
+        display: grid;
+        grid-template-columns: 25px minmax(0, 1fr);
+        gap: 12px;
+        padding: 18px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .keep-mark {
+        color: var(--sage);
+        font-size: 17px;
+      }
+
+      .keep-item h3 {
+        margin-bottom: 5px;
+        font-size: 15px;
+      }
+
+      .keep-item p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .gates {
+        border-top: 1px solid var(--line-strong);
+      }
+
+      .gate-row {
+        display: grid;
+        grid-template-columns: 0.72fr 1.2fr 1fr;
+        gap: 20px;
+        padding: 18px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .gate-row strong {
+        font-size: 14px;
+      }
+
+      .gate-row p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .evidence-list {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 30px;
+        border-top: 1px solid var(--line-strong);
+      }
+
+      .evidence-item {
+        padding: 16px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .evidence-item a {
+        font: 12px "SFMono-Regular", Consolas, monospace;
+        color: var(--accent-dark);
+      }
+
+      .evidence-item p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      details {
+        margin-top: 24px;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      summary {
+        cursor: pointer;
+        padding: 15px 0;
+        color: var(--accent-dark);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      details p {
+        max-width: 780px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .footer p {
+        margin: 0;
+      }
+
+      .reveal {
+        animation: rise-in 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      .reveal.delay {
+        animation-delay: 110ms;
+      }
+
+      @keyframes rise-in {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      @media (max-width: 1120px) {
+        .surface-row {
+          grid-template-columns: 63px minmax(150px, 0.82fr) minmax(180px, 1fr);
+        }
+
+        .surface-row > :last-child {
+          grid-column: 2 / -1;
+        }
+
+        .tradeoff {
+          grid-template-columns: 0.7fr 1fr 1fr;
+        }
+
+        .tradeoff > :last-child {
+          grid-column: 2 / -1;
+        }
+      }
+
+      @media (max-width: 900px) {
+        .page-shell {
+          padding-right: 24px;
+          padding-left: 24px;
+        }
+
+        .header-inner {
+          padding-right: 24px;
+          padding-left: 24px;
+        }
+
+        .hero {
+          grid-template-columns: 1fr;
+          min-height: auto;
+          padding-top: 70px;
+        }
+
+        .hero-console {
+          max-width: 680px;
+          margin-left: auto;
+          margin-right: 5%;
+        }
+
+        .layout {
+          grid-template-columns: 1fr;
+          gap: 32px;
+        }
+
+        .rail {
+          position: static;
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          border-bottom: 1px solid var(--line);
+          padding-bottom: 16px;
+        }
+
+        .rail-kicker {
+          margin-bottom: 0;
+          white-space: nowrap;
+        }
+
+        .rail nav {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px 12px;
+        }
+
+        .rail a {
+          padding: 4px 0;
+          border-left: 0;
+          border-bottom: 1px solid transparent;
+        }
+
+        .rail a:hover,
+        .rail a.active {
+          padding-left: 0;
+          border-left: 0;
+          border-bottom-color: var(--accent);
+        }
+
+        .rail-foot {
+          display: none;
+        }
+
+        .spec-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .migration {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .migration-step:nth-child(2) {
+          border-right: 0;
+        }
+
+        .migration-step:nth-child(-n + 2) {
+          border-bottom: 1px solid var(--line);
+        }
+
+        .migration-step:nth-child(3) {
+          border-right: 1px solid var(--line);
+        }
+      }
+
+      @media (max-width: 680px) {
+        .header-inner {
+          min-height: 55px;
+        }
+
+        .header-note {
+          display: none;
+        }
+
+        .page-shell {
+          padding-right: 17px;
+          padding-left: 17px;
+        }
+
+        .hero {
+          padding: 56px 0 60px;
+          gap: 42px;
+        }
+
+        h1 {
+          font-size: clamp(45px, 15vw, 72px);
+        }
+
+        .hero-lead {
+          font-size: 17px;
+        }
+
+        .hero-console {
+          margin-right: 0;
+          padding: 22px 18px 23px;
+          transform: none;
+        }
+
+        .code-display,
+        .spec-code {
+          font-size: 11px;
+        }
+
+        .rail {
+          display: block;
+        }
+
+        .rail-kicker {
+          margin-bottom: 12px;
+        }
+
+        .section {
+          padding-bottom: 68px;
+        }
+
+        .section + .section {
+          padding-top: 55px;
+        }
+
+        .section-heading {
+          grid-template-columns: 33px minmax(0, 1fr);
+          gap: 10px;
+        }
+
+        h2 {
+          font-size: 37px;
+        }
+
+        .verdict,
+        .principles,
+        .comparison-grid,
+        .comparison-explain,
+        .keep-grid,
+        .evidence-list {
+          grid-template-columns: 1fr;
+        }
+
+        .verdict {
+          gap: 15px;
+        }
+
+        .principles {
+          gap: 0;
+        }
+
+        .surface-row,
+        .surface-row.header {
+          grid-template-columns: 55px minmax(0, 1fr);
+          gap: 12px;
+        }
+
+        .surface-row.header > :nth-child(3),
+        .surface-row.header > :nth-child(4) {
+          display: none;
+        }
+
+        .surface-row > :nth-child(3),
+        .surface-row > :nth-child(4) {
+          grid-column: 2;
+        }
+
+        .surface-row > :last-child {
+          grid-column: 2;
+        }
+
+        .simulator-toolbar {
+          display: block;
+        }
+
+        .simulator-note {
+          margin-top: 12px;
+          text-align: left;
+        }
+
+        .comparison-heading {
+          display: block;
+        }
+
+        .comparison-heading span {
+          display: block;
+          margin-top: 5px;
+        }
+
+        .tradeoff {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        .tradeoff > :last-child {
+          grid-column: auto;
+        }
+
+        .migration {
+          grid-template-columns: 1fr;
+        }
+
+        .migration-step,
+        .migration-step:nth-child(3) {
+          min-height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .migration-step:last-child {
+          border-bottom: 0;
+        }
+
+        .callout {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        .gate-row {
+          grid-template-columns: 1fr;
+          gap: 7px;
+        }
+
+        .footer {
+          display: block;
+        }
+
+        .footer p + p {
+          margin-top: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="#verdict">
+          <span class="brand-mark">SL</span>
+          <span>SpectraLang / Human Surface</span>
+        </a>
+        <p class="header-note">segunda edição · proposta high-level</p>
+      </div>
+    </header>
+
+    <div class="page-shell">
+      <section class="hero" id="verdict">
+        <div class="reveal">
+          <span class="eyebrow">SINTAXE · REVISÃO 02</span>
+          <h1>Uma linguagem deve soar como <em>uma ideia clara.</em></h1>
+          <p class="hero-lead">
+            Esta segunda versão propõe uma superfície mais próxima de uma linguagem
+            de alto nível: menos pontuação estrutural, nomes de construção mais
+            descritivos e uma única forma canônica para cada decisão.
+          </p>
+          <div class="hero-meta" aria-label="Resumo da proposta">
+            <span class="tag highlight">blocos com chaves</span>
+            <span class="tag">func / record</span>
+            <span class="tag">let + atribuição</span>
+            <span class="tag">when / otherwise</span>
+          </div>
+        </div>
+
+        <div class="hero-console reveal delay" aria-label="Exemplo da superfície proposta">
+          <div class="console-bar">
+            <div class="console-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <span class="console-title">orders.spectra · leitura humana</span>
+          </div>
+          <pre class="code-display"><span class="kw">module</span> orders
+
+<span class="kw">from</span> std.collections <span class="kw">import</span> length
+
+<span class="kw">record</span> <span class="type">Order</span> {
+    id: <span class="type">Integer</span>
+    customer: <span class="type">Text</span>
+    amount: <span class="type">Decimal</span>
+    paid: <span class="type">Boolean</span> = <span class="kw">false</span>
+}
+
+<span class="kw">public async func</span> <span class="fn">summarize</span>(
+    orders: <span class="type">List</span>&lt;<span class="type">Order</span>&gt;
+) <span class="kw">returns</span> <span class="type">Text</span> {
+    <span class="kw">let</span> total = 0
+
+    <span class="kw">for</span> order <span class="kw">in</span> orders {
+        total = total + order.amount
+    }
+
+    <span class="kw">return</span> <span class="str">"Total: {total} e pedidos: {length(orders)}"</span>
+}</pre>
+          <p class="note-inline">A intenção fica visível sem depender de conhecer convenções de baixo nível.</p>
+        </div>
+      </section>
+
+      <div class="layout">
+        <aside class="rail">
+          <div class="rail-kicker">navegar</div>
+          <nav aria-label="Seções do relatório">
+            <a href="#verdict-section">Veredito</a>
+            <a href="#principles">Princípios</a>
+            <a href="#surface">Superfície</a>
+            <a href="#simulator">Simulador</a>
+            <a href="#spec">Exemplo</a>
+            <a href="#tradeoffs">Trade-offs</a>
+            <a href="#migration">Migração</a>
+            <a href="#gates">Gates</a>
+            <a href="#evidence">Base</a>
+          </nav>
+          <p class="rail-foot">
+            Documento de design. As formas propostas são simuladas e não alteram
+            o parser atual.
+          </p>
+        </aside>
+
+        <main class="content">
+          <section class="section" id="verdict-section">
+            <div class="section-heading">
+              <span class="section-number">01</span>
+              <div>
+                <h2>O problema não é poder. É esforço de leitura.</h2>
+                <p class="section-intro">
+                  A sintaxe atual é expressiva e cobre uma base sólida de linguagem,
+                  mas sua aparência é marcada por decisões de sistemas. Para quem
+                  lê código como descrição de negócio, cada abreviação e cada
+                  variação cobra uma pequena taxa mental.
+                </p>
+              </div>
+            </div>
+
+            <div class="verdict">
+              <div class="verdict-copy">
+                <h3>Diagnóstico</h3>
+                <p>
+                  Spectra já tem os ingredientes de uma linguagem de alto nível:
+                  inferência local, blocos como expressão, async/await, tipos
+                  agregados e pattern matching. A mudança recomendada é de
+                  superfície e coerência: fazer a primeira leitura funcionar
+                  para alguém que não precise pensar em Rust, parser ou AST.
+                </p>
+              </div>
+              <div class="axis" aria-label="Comparação entre a superfície atual e a proposta">
+                <div class="axis-row">
+                  <div class="axis-cell">
+                    <span class="axis-label">hoje</span>
+                    <span class="axis-value">compacta e Rust-like</span>
+                  </div>
+                  <div class="axis-cell">
+                    <span class="axis-label">proposta</span>
+                    <span class="axis-value">descritiva e linear</span>
+                  </div>
+                </div>
+                <div class="axis-row">
+                  <div class="axis-cell">
+                    <span class="axis-label">hoje</span>
+                    <span class="axis-value">várias grafias possíveis</span>
+                  </div>
+                  <div class="axis-cell">
+                    <span class="axis-label">proposta</span>
+                    <span class="axis-value">uma grafia canônica</span>
+                  </div>
+                </div>
+                <div class="axis-row">
+                  <div class="axis-cell">
+                    <span class="axis-label">hoje</span>
+                    <span class="axis-value">blocos com pontuação</span>
+                  </div>
+                  <div class="axis-cell">
+                    <span class="axis-label">proposta</span>
+                    <span class="axis-value">blocos com palavras</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="section" id="principles">
+            <div class="section-heading">
+              <span class="section-number">02</span>
+              <div>
+                <h2>Seis regras para a leitura humana.</h2>
+                <p class="section-intro">
+                  A proposta não tenta transformar código em prosa artificial.
+                  Ela reduz decisões acidentais e deixa as decisões importantes
+                  explícitas.
+                </p>
+              </div>
+            </div>
+
+            <div class="principles">
+              <article class="principle">
+                <span class="principle-index">R1</span>
+                <div>
+                  <h3>Uma ideia, uma palavra</h3>
+                  <p>
+                    Escolher <code>else if</code>, não manter <code>elif</code> e
+                    <code>elseif</code> como sinônimos. Escolher
+                    <code>for ... in</code>, não duplicar com <code>of</code>.
+                  </p>
+                </div>
+              </article>
+              <article class="principle">
+                <span class="principle-index">R2</span>
+                <div>
+                  <h3>O bloco fala por si</h3>
+                  <p>
+                    Usar chaves para encerrar funções, condições, loops e tipos.
+                    A quebra de linha encerra instruções e a indentação continua
+                    sendo estilo, não uma regra invisível do parser.
+                  </p>
+                </div>
+              </article>
+              <article class="principle">
+                <span class="principle-index">R3</span>
+                <div>
+                  <h3>A mutação é um verbo</h3>
+                  <p>
+                    <code>let</code> declara valores e a atribuição direta torna
+                    a alteração visível. O leitor não precisa aprender uma
+                    palavra nova para cada mudança de estado.
+                  </p>
+                </div>
+              </article>
+              <article class="principle">
+                <span class="principle-index">R4</span>
+                <div>
+                  <h3>Declarações se leem como títulos</h3>
+                  <p>
+                    Preferir <code>func</code>, <code>record</code>,
+                    <code>public</code> e <code>impl</code> na superfície
+                    principal. Abreviações podem existir como compatibilidade.
+                  </p>
+                </div>
+              </article>
+              <article class="principle">
+                <span class="principle-index">R5</span>
+                <div>
+                  <h3>Tipos aparecem onde decidem</h3>
+                  <p>
+                    Inferir variáveis locais, mas declarar tipos em APIs,
+                    records e retornos públicos. Isso mantém o código curto sem
+                    esconder contratos.
+                  </p>
+                </div>
+              </article>
+              <article class="principle">
+                <span class="principle-index">R6</span>
+                <div>
+                  <h3>Palavras antes de glifos</h3>
+                  <p>
+                    Preferir <code>returns</code>, <code>and</code>,
+                    <code>or</code> e <code>not</code> quando isso melhora a
+                    leitura. Os operadores simbólicos podem permanecer como
+                    forma curta para código numérico.
+                  </p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="section" id="surface">
+            <div class="section-heading">
+              <span class="section-number">03</span>
+              <div>
+                <h2>O novo contrato de superfície.</h2>
+                <p class="section-intro">
+                  Estas são as mudanças que mais aproximam a linguagem de um
+                  ambiente high-level. A coluna de impacto existe para deixar
+                  claro que legibilidade também tem custo de implementação.
+                </p>
+              </div>
+            </div>
+
+            <div class="surface-table">
+              <div class="surface-row header" aria-hidden="true">
+                <span>nível</span>
+                <span>decisão</span>
+                <span>forma proposta</span>
+                <span>por que vale</span>
+              </div>
+              <div class="surface-row">
+                <span><b class="priority">P0</b></span>
+                <div>
+                  <strong>Blocos sem pontuação</strong>
+                  <p>Remover ponto e vírgula da forma canônica.</p>
+                </div>
+                <div><code>func ... returns Text { ... }</code></div>
+                <div><p>O olho acompanha a estrutura sem contar chaves.</p></div>
+              </div>
+              <div class="surface-row">
+                <span><b class="priority">P0</b></span>
+                <div>
+                  <strong>Declarações completas</strong>
+                  <p>Adicionar palavras descritivas como forma principal.</p>
+                </div>
+                <div><code>public func</code> · <code>record</code> · <code>impl</code></div>
+                <div><p>O leitor entende a intenção antes dos detalhes.</p></div>
+              </div>
+              <div class="surface-row">
+                <span><b class="priority">P0</b></span>
+                <div>
+                  <strong>Import em ordem natural</strong>
+                  <p>Colocar origem antes dos nomes importados.</p>
+                </div>
+                <div><code>from std.io import println</code></div>
+                <div><p>Reduz a inversão mental de módulo e símbolo.</p></div>
+              </div>
+              <div class="surface-row">
+                <span><b class="priority">P0</b></span>
+                <div>
+                  <strong>Mutação explícita</strong>
+                  <p>Separar criação de alteração.</p>
+                </div>
+                <div><code>let total = 0</code> · <code>total = total + value</code></div>
+                <div><p>Leitura local revela quando o estado muda.</p></div>
+              </div>
+              <div class="surface-row">
+                <span><b class="priority p1">P1</b></span>
+                <div>
+                  <strong>Match verbal</strong>
+                  <p>Unificar ramificações com <code>when</code> e <code>otherwise</code>.</p>
+                </div>
+                <div><code>match value</code> · <code>when Pending</code> · <code>otherwise</code></div>
+                <div><p>Pattern matching fica menos parecido com tabela de tokens.</p></div>
+              </div>
+              <div class="surface-row">
+                <span><b class="priority p1">P1</b></span>
+                <div>
+                  <strong>Negação previsível</strong>
+                  <p>Retirar <code>unless</code> da escrita recomendada.</p>
+                </div>
+                <div><code>if not condition</code></div>
+                <div><p>Há um único caminho para entender condições negativas.</p></div>
+              </div>
+              <div class="surface-row">
+                <span><b class="priority p1">P1</b></span>
+                <div>
+                  <strong>Tipos de alto nível</strong>
+                  <p>Oferecer aliases semânticos para tipos básicos e coleções.</p>
+                </div>
+                <div><code>Integer</code> · <code>Text</code> · <code>List&lt;Order&gt;</code></div>
+                <div><p>Assinaturas comunicam domínio, não representação.</p></div>
+              </div>
+              <div class="surface-row">
+                <span><b class="priority p2">P2</b></span>
+                <div>
+                  <strong>Interpolação natural</strong>
+                  <p>Tratar interpolação como comportamento padrão de texto.</p>
+                </div>
+                <div><code>"Total: {total}"</code> · <code>raw"..."</code></div>
+                <div><p>Mensagens deixam de carregar um prefixo técnico.</p></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="section" id="simulator">
+            <div class="section-heading">
+              <span class="section-number">04</span>
+              <div>
+                <h2>Simulado lado a lado.</h2>
+                <p class="section-intro">
+                  A coluna verde é uma proposta de superfície, não uma promessa
+                  de que o parser atual já a aceite. Use os filtros para observar
+                  o impacto por família de construção.
+                </p>
+              </div>
+            </div>
+
+            <div class="simulator-toolbar">
+              <div class="filter-group" role="group" aria-label="Filtrar comparações">
+                <button class="filter active" type="button" data-filter="all">tudo</button>
+                <button class="filter" type="button" data-filter="declarations">declarações</button>
+                <button class="filter" type="button" data-filter="control">controle</button>
+                <button class="filter" type="button" data-filter="data">dados</button>
+                <button class="filter" type="button" data-filter="text">texto</button>
+              </div>
+              <p class="simulator-note" id="copy-status" aria-live="polite">clique em copiar para levar um exemplo</p>
+            </div>
+
+            <div class="comparisons">
+              <article class="comparison" data-topic="declarations">
+                <div class="comparison-heading">
+                  <h3>01 · módulo e imports</h3>
+                  <span>origem antes do símbolo</span>
+                </div>
+                <div class="comparison-grid">
+                  <div class="code-panel">
+                    <div class="code-panel-header"><span>atual</span><button class="copy-button" type="button" data-copy-target="current-imports">copiar</button></div>
+                    <pre><code id="current-imports"><span class="kw">module</span> orders
+<span class="kw">import</span> { println, length } <span class="kw">from</span> std.io
+<span class="kw">import</span> std.orders <span class="kw">as</span> orders_api</code></pre>
+                  </div>
+                  <div class="code-panel proposed">
+                    <div class="code-panel-header"><span>proposta humana</span><button class="copy-button" type="button" data-copy-target="proposed-imports">copiar</button></div>
+                    <pre><code id="proposed-imports"><span class="kw">module</span> orders
+
+<span class="kw">from</span> std.io <span class="kw">import</span> println, length
+<span class="kw">from</span> std.orders <span class="kw">import</span> api <span class="kw">as</span> orders_api</code></pre>
+                  </div>
+                </div>
+                <div class="comparison-explain">
+                  <p><strong>Hoje:</strong> a palavra <code>import</code> aparece antes de descobrir a origem ou depois de uma lista de nomes.</p>
+                  <p><strong>Depois:</strong> a frase começa pela fonte e termina no que será usado.</p>
+                </div>
+              </article>
+
+              <article class="comparison" data-topic="declarations">
+                <div class="comparison-heading">
+                  <h3>02 · função pública assíncrona</h3>
+                  <span>declaração como título</span>
+                </div>
+                <div class="comparison-grid">
+                  <div class="code-panel">
+                    <div class="code-panel-header"><span>atual</span><button class="copy-button" type="button" data-copy-target="current-func">copiar</button></div>
+                    <pre><code id="current-func"><span class="kw">pub async fn</span> <span class="fn">list_orders</span>(
+    user_id: <span class="type">int</span>
+) <span class="op">-&gt;</span> [<span class="type">Order</span>] {
+    <span class="kw">let</span> orders = <span class="kw">await</span> repository.all(user_id)
+    orders
+}</code></pre>
+                  </div>
+                  <div class="code-panel proposed">
+                    <div class="code-panel-header"><span>proposta humana</span><button class="copy-button" type="button" data-copy-target="proposed-func">copiar</button></div>
+                    <pre><code id="proposed-func"><span class="kw">public async func</span> <span class="fn">list_orders</span>(
+    user_id: <span class="type">Integer</span>
+) <span class="kw">returns</span> <span class="type">List</span>&lt;<span class="type">Order</span>&gt; {
+    <span class="kw">let</span> orders = <span class="kw">await</span> repository.all(user_id)
+    <span class="kw">return</span> orders
+}</code></pre>
+                  </div>
+                </div>
+                <div class="comparison-explain">
+                  <p><strong>Hoje:</strong> <code>pub</code>, <code>fn</code> e <code>-&gt;</code> são eficientes, mas exigem vocabulário prévio.</p>
+                  <p><strong>Depois:</strong> a assinatura pode ser lida como “função pública retorna lista”.</p>
+                </div>
+              </article>
+
+              <article class="comparison" data-topic="declarations">
+                <div class="comparison-heading">
+                  <h3>03 · criação versus alteração</h3>
+                  <span>mutação como verbo</span>
+                </div>
+                <div class="comparison-grid">
+                  <div class="code-panel">
+                    <div class="code-panel-header"><span>atual</span><button class="copy-button" type="button" data-copy-target="current-mutation">copiar</button></div>
+                    <pre><code id="current-mutation"><span class="kw">let</span> total = 0
+<span class="kw">for</span> order <span class="kw">in</span> orders {
+    total = total + order.amount
+}</code></pre>
+                  </div>
+                  <div class="code-panel proposed">
+                    <div class="code-panel-header"><span>proposta humana</span><button class="copy-button" type="button" data-copy-target="proposed-mutation">copiar</button></div>
+                    <pre><code id="proposed-mutation"><span class="kw">let</span> total = 0
+<span class="kw">for</span> order <span class="kw">in</span> orders {
+    total = total + order.amount
+}</code></pre>
+                  </div>
+                </div>
+                <div class="comparison-explain">
+                  <p><strong>Hoje:</strong> o leitor descobre a mutabilidade olhando usos posteriores.</p>
+                  <p><strong>Depois:</strong> a atribuição direta marca cada mudança de estado sem criar uma palavra nova.</p>
+                </div>
+              </article>
+
+              <article class="comparison" data-topic="control">
+                <div class="comparison-heading">
+                  <h3>04 · condição sem aliases</h3>
+                  <span>uma leitura linear</span>
+                </div>
+                <div class="comparison-grid">
+                  <div class="code-panel">
+                    <div class="code-panel-header"><span>atual</span><button class="copy-button" type="button" data-copy-target="current-condition">copiar</button></div>
+                    <pre><code id="current-condition"><span class="kw">if</span> score &gt; 90 {
+    grade = <span class="str">"A"</span>
+} <span class="kw">elif</span> score &gt; 60 {
+    grade = <span class="str">"B"</span>
+} <span class="kw">else</span> {
+    grade = <span class="str">"C"</span>
+}</code></pre>
+                  </div>
+                  <div class="code-panel proposed">
+                    <div class="code-panel-header"><span>proposta humana</span><button class="copy-button" type="button" data-copy-target="proposed-condition">copiar</button></div>
+                    <pre><code id="proposed-condition"><span class="kw">if</span> score &gt; 90 {
+    grade = <span class="str">"A"</span>
+} <span class="kw">else if</span> score &gt; 60 {
+    grade = <span class="str">"B"</span>
+} <span class="kw">else</span> {
+    grade = <span class="str">"C"</span>
+}</code></pre>
+                  </div>
+                </div>
+                <div class="comparison-explain">
+                  <p><strong>Hoje:</strong> <code>elif</code> e <code>elseif</code> competem com <code>else if</code> na documentação e no editor.</p>
+                  <p><strong>Depois:</strong> a estrutura aparece como três frases e termina em um marcador explícito.</p>
+                </div>
+              </article>
+
+              <article class="comparison" data-topic="control">
+                <div class="comparison-heading">
+                  <h3>05 · loop e negação</h3>
+                  <span>vocabulário previsível</span>
+                </div>
+                <div class="comparison-grid">
+                  <div class="code-panel">
+                    <div class="code-panel-header"><span>atual</span><button class="copy-button" type="button" data-copy-target="current-loop">copiar</button></div>
+                    <pre><code id="current-loop"><span class="kw">unless</span> orders.is_empty() {
+    <span class="kw">for</span> item <span class="kw">of</span> orders {
+        print(item)
+    }
+}</code></pre>
+                  </div>
+                  <div class="code-panel proposed">
+                    <div class="code-panel-header"><span>proposta humana</span><button class="copy-button" type="button" data-copy-target="proposed-loop">copiar</button></div>
+                    <pre><code id="proposed-loop"><span class="kw">if not</span> orders.is_empty() {
+    <span class="kw">for</span> item <span class="kw">in</span> orders {
+        print(item)
+    }
+}</code></pre>
+                  </div>
+                </div>
+                <div class="comparison-explain">
+                  <p><strong>Hoje:</strong> há duas decisões independentes para lembrar: <code>unless</code> e <code>of</code>.</p>
+                  <p><strong>Depois:</strong> condições negativas e iteração usam palavras únicas e familiares.</p>
+                </div>
+              </article>
+
+              <article class="comparison" data-topic="control">
+                <div class="comparison-heading">
+                  <h3>06 · match como decisão legível</h3>
+                  <span>when / otherwise</span>
+                </div>
+                <div class="comparison-grid">
+                  <div class="code-panel">
+                    <div class="code-panel-header"><span>atual</span><button class="copy-button" type="button" data-copy-target="current-match">copiar</button></div>
+                    <pre><code id="current-match"><span class="kw">let</span> label = <span class="kw">match</span> status {
+    Status::Pending <span class="op">=&gt;</span> <span class="str">"aguardando"</span>
+    Status::Paid <span class="op">=&gt;</span> <span class="str">"pago"</span>
+    _ <span class="op">=&gt;</span> <span class="str">"desconhecido"</span>
+}</code></pre>
+                  </div>
+                  <div class="code-panel proposed">
+                    <div class="code-panel-header"><span>proposta humana</span><button class="copy-button" type="button" data-copy-target="proposed-match">copiar</button></div>
+                    <pre><code id="proposed-match"><span class="kw">let</span> label = <span class="kw">match</span> status {
+    <span class="kw">when</span> Pending <span class="kw">then</span> <span class="str">"aguardando"</span>
+    <span class="kw">when</span> Paid <span class="kw">then</span> <span class="str">"pago"</span>
+    <span class="kw">otherwise</span> <span class="str">"desconhecido"</span>
+}</code></pre>
+                  </div>
+                </div>
+                <div class="comparison-explain">
+                  <p><strong>Hoje:</strong> a seta e o wildcard são concisos, mas visualmente próximos de uma tabela interna do compilador.</p>
+                  <p><strong>Depois:</strong> cada caso se lê como uma condição. <code>otherwise</code> comunica a intenção.</p>
+                </div>
+              </article>
+
+              <article class="comparison" data-topic="data">
+                <div class="comparison-heading">
+                  <h3>07 · dados e comportamento</h3>
+                  <span>record / impl</span>
+                </div>
+                <div class="comparison-grid">
+                  <div class="code-panel">
+                    <div class="code-panel-header"><span>atual</span><button class="copy-button" type="button" data-copy-target="current-record">copiar</button></div>
+                    <pre><code id="current-record"><span class="kw">struct</span> <span class="type">User</span> {
+    name: <span class="type">string</span>
+    active: <span class="type">bool</span>
+}
+
+<span class="kw">impl</span> <span class="type">User</span> {
+    <span class="kw">fn</span> label(&amp;self) <span class="op">-&gt;</span> <span class="type">string</span> {
+        self.name
+    }
+}</code></pre>
+                  </div>
+                  <div class="code-panel proposed">
+                    <div class="code-panel-header"><span>proposta humana</span><button class="copy-button" type="button" data-copy-target="proposed-record">copiar</button></div>
+                    <pre><code id="proposed-record"><span class="kw">record</span> <span class="type">User</span> {
+    name: <span class="type">Text</span>
+    active: <span class="type">Boolean</span>
+}
+
+<span class="kw">impl</span> <span class="type">User</span> {
+    <span class="kw">func</span> <span class="fn">label</span>(self) <span class="kw">returns</span> <span class="type">Text</span> {
+        <span class="kw">return</span> self.name
+    }
+}</code></pre>
+                  </div>
+                </div>
+                <div class="comparison-explain">
+                  <p><strong>Hoje:</strong> <code>struct</code> e <code>impl</code> são termos de uma família específica de linguagens.</p>
+                  <p><strong>Depois:</strong> o código diferencia “registro de dados” e “comportamento implementado”.</p>
+                </div>
+              </article>
+
+              <article class="comparison" data-topic="text">
+                <div class="comparison-heading">
+                  <h3>08 · texto interpolado</h3>
+                  <span>string por padrão</span>
+                </div>
+                <div class="comparison-grid">
+                  <div class="code-panel">
+                    <div class="code-panel-header"><span>atual</span><button class="copy-button" type="button" data-copy-target="current-text">copiar</button></div>
+                    <pre><code id="current-text"><span class="kw">let</span> message = f<span class="str">"Total: {total} e pedidos: {count}"</span></code></pre>
+                  </div>
+                  <div class="code-panel proposed">
+                    <div class="code-panel-header"><span>proposta humana</span><button class="copy-button" type="button" data-copy-target="proposed-text">copiar</button></div>
+                    <pre><code id="proposed-text"><span class="kw">let</span> message = <span class="str">"Total: {total} e pedidos: {count}"</span>
+<span class="comment"># use raw"..." somente quando não quiser interpolação</span></code></pre>
+                  </div>
+                </div>
+                <div class="comparison-explain">
+                  <p><strong>Hoje:</strong> o prefixo <code>f</code> é uma pista técnica que todo texto dinâmico precisa carregar.</p>
+                  <p><strong>Depois:</strong> a forma mais comum é a mais simples. O caso especial ganha um marcador explícito.</p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="section" id="spec">
+            <div class="section-heading">
+              <span class="section-number">05</span>
+              <div>
+                <h2>Como ficaria um módulo completo.</h2>
+                <p class="section-intro">
+                  O exemplo combina as decisões sem inventar uma nova linguagem de
+                  domínio. Ainda é código. A diferença é que a leitura principal
+                  não depende de símbolos compactos.
+                </p>
+              </div>
+            </div>
+
+            <div class="spec-layout">
+              <pre class="spec-code"><span class="kw">module</span> billing
+
+<span class="kw">from</span> std.collections <span class="kw">import</span> length
+
+<span class="kw">record</span> <span class="type">Order</span> {
+    id: <span class="type">Integer</span>
+    customer: <span class="type">Text</span>
+    amount: <span class="type">Decimal</span>
+    paid: <span class="type">Boolean</span> = <span class="kw">false</span>
+}
+
+<span class="kw">public async func</span> <span class="fn">list_open_orders</span>(
+    customer: <span class="type">Text</span>
+) <span class="kw">returns</span> <span class="type">List</span>&lt;<span class="type">Order</span>&gt; {
+    <span class="kw">let</span> orders = <span class="kw">await</span> repository.all_orders(customer)
+    <span class="kw">let</span> open_orders = []
+
+    <span class="kw">for</span> order <span class="kw">in</span> orders
+    <span class="kw">if not</span> order.paid {
+        add open_orders, order
+    }
+
+    <span class="kw">return</span> open_orders
+}
+
+<span class="kw">public func</span> <span class="fn">summarize</span>(
+    orders: <span class="type">List</span>&lt;<span class="type">Order</span>&gt;
+) <span class="kw">returns</span> <span class="type">Text</span> {
+    <span class="kw">let</span> total: <span class="type">Decimal</span> = 0
+
+    <span class="kw">for</span> order <span class="kw">in</span> orders {
+        total = total + order.amount
+    }
+
+    <span class="kw">return</span> <span class="str">"Total: {total} e pedidos: {length(orders)}"</span>
+}</pre>
+
+              <div class="spec-aside">
+                <div class="spec-rule">
+                  <h3>O que fica óbvio</h3>
+                  <p>O módulo importa, declara dados, expõe funções, busca valores e altera somente o estado marcado.</p>
+                </div>
+                <div class="spec-rule">
+                  <h3>O que continua técnico</h3>
+                  <p>Tipos genéricos, async/await, chamadas de método e operações ainda são explícitos para não esconder o custo real.</p>
+                </div>
+                <div class="spec-rule">
+                  <h3>O que é proposta</h3>
+                  <p><code>Decimal</code>, <code>List&lt;T&gt;</code>, <code>add</code> e a interpolação sem prefixo precisam de contrato de biblioteca e parser.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="section" id="tradeoffs">
+            <div class="section-heading">
+              <span class="section-number">06</span>
+              <div>
+                <h2>Legibilidade não elimina trade-offs.</h2>
+                <p class="section-intro">
+                  A superfície sugerida privilegia o leitor. O design só é bom se
+                  as consequências para parser, diagnósticos, formatter e
+                  compatibilidade ficarem visíveis desde o início.
+                </p>
+              </div>
+            </div>
+
+            <div class="tradeoffs">
+              <div class="tradeoff">
+                <h3>chaves versus indentação</h3>
+                <div><strong>ganho</strong><p>Chaves são familiares, fecham o bloco visualmente e não criam uma nova palavra estrutural.</p></div>
+                <div><strong>custo</strong><p>O leitor ainda vê pontuação de bloco e o formatter precisa cuidar do alinhamento.</p></div>
+                <div><strong>decisão</strong><p>Manter chaves para blocos e deixar a quebra de linha encerrar instruções sem um terminador extra.</p></div>
+              </div>
+              <div class="tradeoff">
+                <h3>let e atribuição direta</h3>
+                <div><strong>ganho</strong><p>A mesma forma serve para declarar e atualizar um valor, sem espalhar vocabulário pela linguagem.</p></div>
+                <div><strong>custo</strong><p>É preciso documentar claramente a mutabilidade atual e usar lint para sugerir valores que não mudam.</p></div>
+                <div><strong>decisão</strong><p>Preservar a semântica atual de <code>let</code> e tornar a atribuição em linha a forma recomendada.</p></div>
+              </div>
+              <div class="tradeoff">
+                <h3>palavras versus símbolos</h3>
+                <div><strong>ganho</strong><p><code>returns</code>, <code>and</code> e <code>not</code> podem ser lidos sem consultar uma tabela de operadores.</p></div>
+                <div><strong>custo</strong><p>Mais palavras viram keywords e podem colidir com identificadores de projetos antigos.</p></div>
+                <div><strong>decisão</strong><p>Oferecer palavras como forma canônica e preservar símbolos em expressões numéricas.</p></div>
+              </div>
+              <div class="tradeoff">
+                <h3><code>when</code> versus operadores de seta</h3>
+                <div><strong>ganho</strong><p>Cases parecem frases condicionais, e <code>otherwise</code> é autoexplicativo.</p></div>
+                <div><strong>custo</strong><p>Pattern matching precisa manter exaustividade, guards e expressão de cauda.</p></div>
+                <div><strong>decisão</strong><p>Mapear a nova sintaxe para o AST de <code>match</code>, sem criar um segundo modelo de controle.</p></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="section" id="migration">
+            <div class="section-heading">
+              <span class="section-number">07</span>
+              <div>
+                <h2>Migração sem quebrar a linguagem.</h2>
+                <p class="section-intro">
+                  A superfície pode mudar em camadas. O ponto central é manter
+                  uma única verdade semântica no AST e fazer o formatter orientar
+                  o ecossistema para a forma humana.
+                </p>
+              </div>
+            </div>
+
+            <div class="migration">
+              <article class="migration-step">
+                <span class="step-number">F1 · aceitar</span>
+                <h3>Aliases de entrada</h3>
+                <p>
+                  O lexer/parser aceitam <code>func</code>, <code>record</code>,
+                  <code>public</code>, <code>returns</code> e o novo import,
+                  baixando tudo para os nós existentes.
+                </p>
+              </article>
+              <article class="migration-step">
+                <span class="step-number">F2 · formatar</span>
+                <h3>Uma saída oficial</h3>
+                <p>
+                  <code>spectralang fmt</code> imprime a forma humana, remove
+                  terminadores artificiais e escolhe sempre <code>else if</code>,
+                  <code>for ... in</code> e <code>match</code>.
+                </p>
+              </article>
+              <article class="migration-step">
+                <span class="step-number">F3 · orientar</span>
+                <h3>Avisos úteis</h3>
+                <p>
+                  O compilador e o LSP avisam quando o código usa a grafia antiga,
+                  mostram a substituição e preservam a posição do diagnóstico.
+                </p>
+              </article>
+              <article class="migration-step">
+                <span class="step-number">F4 · simplificar</span>
+                <h3>Remover duplicidade</h3>
+                <p>
+                  Só depois de documentação, examples, testes e tooling migrarem,
+                  deprecar <code>elif</code>, <code>elseif</code>, <code>of</code>,
+                  <code>unless</code> e aliases incompatíveis.
+                </p>
+              </article>
+            </div>
+
+            <div class="callout">
+              <p>
+                Regra de segurança: a nova superfície não deve criar um segundo
+                compilador. Sintaxe humana é apenas outra entrada para o mesmo
+                AST, semântica, lowering e backend.
+              </p>
+              <span class="mono">uma verdade · duas grafias durante a transição</span>
+            </div>
+          </section>
+
+          <section class="section" id="keep">
+            <div class="section-heading">
+              <span class="section-number">08</span>
+              <div>
+                <h2>O que não deve ser sacrificado.</h2>
+                <p class="section-intro">
+                  “High-level” não precisa significar uma linguagem vaga ou
+                  excessivamente natural. A clareza deve conviver com contratos
+                  verificáveis e com o desempenho do backend atual.
+                </p>
+              </div>
+            </div>
+
+            <div class="keep-grid">
+              <article class="keep-item">
+                <span class="keep-mark">+</span>
+                <div>
+                  <h3>Inferência local</h3>
+                  <p>Manter declarações curtas quando o tipo é evidente. Exigir contratos em fronteiras públicas.</p>
+                </div>
+              </article>
+              <article class="keep-item">
+                <span class="keep-mark">+</span>
+                <div>
+                  <h3>async/await</h3>
+                  <p>As palavras já são compreensíveis e dão visibilidade ao custo de esperar uma operação.</p>
+                </div>
+              </article>
+              <article class="keep-item">
+                <span class="keep-mark">+</span>
+                <div>
+                  <h3>match exaustivo</h3>
+                  <p>A segurança do pattern matching deve continuar. Apenas a forma de escrever cases fica mais verbal.</p>
+                </div>
+              </article>
+              <article class="keep-item">
+                <span class="keep-mark">+</span>
+                <div>
+                  <h3>expressões de cauda</h3>
+                  <p>Podem permanecer para funções pequenas, mas o formatter e o lint devem sugerir <code>return</code> em APIs.</p>
+                </div>
+              </article>
+              <article class="keep-item">
+                <span class="keep-mark">+</span>
+                <div>
+                  <h3>literais familiares</h3>
+                  <p>Parênteses, colchetes e chaves continuam úteis para chamadas, listas e records. O alvo são blocos, não todos os símbolos.</p>
+                </div>
+              </article>
+              <article class="keep-item">
+                <span class="keep-mark">+</span>
+                <div>
+                  <h3>sem prosa mágica</h3>
+                  <p>Evitar frases livres, indentação obrigatória e keywords que tentem adivinhar a intenção do autor.</p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="section" id="gates">
+            <div class="section-heading">
+              <span class="section-number">09</span>
+              <div>
+                <h2>Gates para chamar isso de pronto.</h2>
+                <p class="section-intro">
+                  Legibilidade é uma propriedade da experiência inteira, não só
+                  do parser. Cada etapa abaixo precisa acompanhar a mudança.
+                </p>
+              </div>
+            </div>
+
+            <div class="gates">
+              <div class="gate-row">
+                <strong>Lexer</strong>
+                <p>Keywords novas, palavras compostas e terminadores de bloco preservam spans e comentários.</p>
+                <p class="mono">token tests + diagnostics</p>
+              </div>
+              <div class="gate-row">
+                <strong>Parser / AST</strong>
+                <p>As duas grafias produzem os mesmos nós. Chaves não podem alterar precedência nem retorno de cauda.</p>
+                <p class="mono">parser fixtures + snapshots</p>
+              </div>
+              <div class="gate-row">
+                <strong>Semântica</strong>
+                <p><code>let</code> e atribuições diretas têm regras claras para escopo, closures, imports e usos inválidos.</p>
+                <p class="mono">semantic regressions</p>
+              </div>
+              <div class="gate-row">
+                <strong>Midend / backend</strong>
+                <p>Funções, loops, match, async e records high-level executam pelo caminho normal do CLI.</p>
+                <p class="mono">run + integrated fixtures</p>
+              </div>
+              <div class="gate-row">
+                <strong>Formatter / LSP</strong>
+                <p>O formatter escolhe uma saída única. Hints, completions, hover e diagnósticos mostram a nova nomenclatura.</p>
+                <p class="mono">formatter + language service</p>
+              </div>
+              <div class="gate-row">
+                <strong>Ecossistema</strong>
+                <p>README, referência, examples, syntax highlighting e pacotes públicos usam a superfície recomendada.</p>
+                <p class="mono">docs parity audit</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="section" id="evidence">
+            <div class="section-heading">
+              <span class="section-number">10</span>
+              <div>
+                <h2>De onde veio a análise.</h2>
+                <p class="section-intro">
+                  A proposta foi montada sobre a implementação existente, não
+                  sobre uma linguagem hipotética. Estes pontos são as fontes para
+                  validar cada decisão antes de transformá-la em código.
+                </p>
+              </div>
+            </div>
+
+            <div class="evidence-list">
+              <div class="evidence-item">
+                <a href="../compiler/src/token.rs">compiler/src/token.rs:5–234</a>
+                <p>Keywords, operadores e a diferença entre nomes reservados e construções realmente disponíveis.</p>
+              </div>
+              <div class="evidence-item">
+                <a href="../compiler/src/parser/module.rs">compiler/src/parser/module.rs:10–146</a>
+                <p>Módulo obrigatório, imports por caminho, aliases e importação nomeada com <code>from</code>.</p>
+              </div>
+              <div class="evidence-item">
+                <a href="../compiler/src/parser/item.rs">compiler/src/parser/item.rs:15–402</a>
+                <p>Forma atual de funções, visibilidade, async, parâmetros e blocos.</p>
+              </div>
+              <div class="evidence-item">
+                <a href="../compiler/src/parser/statement.rs">compiler/src/parser/statement.rs:13–425</a>
+                <p>Let, atribuições, loops, for com <code>in/of</code>, switch e terminadores opcionais.</p>
+              </div>
+              <div class="evidence-item">
+                <a href="../compiler/src/parser/expression.rs">compiler/src/parser/expression.rs:779–1084</a>
+                <p>If, unless, match, elif/elseif, lambdas, async e interpolação.</p>
+              </div>
+              <div class="evidence-item">
+                <a href="../compiler/src/ast/mod.rs">compiler/src/ast/mod.rs:287–467</a>
+                <p>O AST já concentra if, unless, match, for e expressões de cauda em um modelo semântico único.</p>
+              </div>
+              <div class="evidence-item">
+                <a href="../docs/reference/04-avancado.md">docs/reference/04-avancado.md:859–922</a>
+                <p>Retorno implícito de blocos e a semântica de expressão que a proposta preserva.</p>
+              </div>
+              <div class="evidence-item">
+                <a href="../SYNTAX_SUMMARY.md">SYNTAX_SUMMARY.md:44–500</a>
+                <p>Resumo público das formas atuais e das variações que precisam de uma saída canônica.</p>
+              </div>
+              <div class="evidence-item">
+                <a href="../tools/vscode-extension/syntaxes/spectra.tmLanguage.json">tools/vscode-extension/syntaxes/spectra.tmLanguage.json:176–184</a>
+                <p>O highlighting replica keywords reservadas e evidencia o risco de divergência entre editor e parser.</p>
+              </div>
+              <div class="evidence-item">
+                <a href="../README.md">README.md:50–72</a>
+                <p>Escopo atual: controle de fluxo estável, async/await, traits, match e o alvo de AI/API.</p>
+              </div>
+            </div>
+
+            <details>
+              <summary>Como interpretar “proposta” neste documento</summary>
+              <p>
+                <code>func</code>, <code>record</code>, <code>impl</code>,
+                chaves, <code>when</code>,
+                <code>otherwise</code>, <code>from ... import ...</code> e os
+                aliases de tipo são decisões de design. A implementação atual
+                continua sendo a autoridade sobre o que compila hoje. Antes de
+                promover qualquer item, a mudança deve ganhar regressões no
+                frontend e uma prova de execução pelo caminho normal.
+              </p>
+            </details>
+          </section>
+
+          <footer class="footer">
+            <p>Relatório de superfície · SpectraLang · revisão 02</p>
+            <p>Proposta: tornar o código explicável na primeira leitura.</p>
+          </footer>
+        </main>
+      </div>
+    </div>
+
+    <script>
+      const sections = [...document.querySelectorAll(".section")];
+      const navLinks = [...document.querySelectorAll(".rail a")];
+
+      if ("IntersectionObserver" in window) {
+        const observer = new IntersectionObserver((entries) => {
+          entries
+            .filter((entry) => entry.isIntersecting)
+            .forEach((entry) => {
+              navLinks.forEach((link) => {
+                link.classList.toggle("active", link.getAttribute("href") === "#" + entry.target.id);
+              });
+            });
+        }, { rootMargin: "-18% 0px -68% 0px", threshold: 0 });
+
+        sections.forEach((section) => observer.observe(section));
+      }
+
+      document.querySelectorAll("[data-filter]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const filter = button.dataset.filter;
+          document.querySelectorAll("[data-filter]").forEach((item) => {
+            item.classList.toggle("active", item === button);
+          });
+          document.querySelectorAll(".comparison").forEach((comparison) => {
+            comparison.hidden = filter !== "all" && comparison.dataset.topic !== filter;
+          });
+        });
+      });
+
+      document.querySelectorAll("[data-copy-target]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const target = document.getElementById(button.dataset.copyTarget);
+          const status = document.getElementById("copy-status");
+          if (!target) return;
+
+          const value = target.textContent;
+          try {
+            await navigator.clipboard.writeText(value);
+            status.textContent = "exemplo copiado";
+          } catch {
+            status.textContent = "selecione o bloco para copiar manualmente";
+          }
+
+          window.setTimeout(() => {
+            status.textContent = "clique em copiar para levar um exemplo";
+          }, 2400);
+        });
+      });
+    </script>
+  </body>
+</html>

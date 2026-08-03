@@ -1,0 +1,24 @@
+// Extended validation: binary, cross-entropy and negative-log likelihood losses.
+module ml_loss_families;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+    let probabilities = tensor.full_f(4, 0.75);
+    let binary_targets = tensor.full_f(4, 1.0);
+    let binary = ml.bce_loss(probabilities, binary_targets);
+    if tensor.len(binary) != 1 { return 1; }
+
+    let scores = tensor.reshape(tensor.full_f(6, 1.0), 2, 3);
+    let labels = tensor.arange(0, 2, 1);
+    let cross_entropy = ml.cross_entropy_loss(scores, labels);
+    let nll = ml.nll_loss(scores, labels);
+    if tensor.len(cross_entropy) != 1 { return 2; }
+    if tensor.len(nll) != 1 { return 3; }
+    if tensor.get_f(binary, 0) < 0.0 { return 4; }
+    tensor.free_all();
+    return 0;
+}

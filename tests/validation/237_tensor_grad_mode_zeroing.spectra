@@ -1,0 +1,22 @@
+// Extended validation: grad mode toggling and zeroing contract.
+module tensor_grad_mode_zeroing;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+    let input = tensor.requires_grad(tensor.full_f(2, 3.0), true);
+    let loss = tensor.sum_t(tensor.mul(input, input));
+    tensor.backward(loss);
+    if tensor.sum_f(tensor.grad(input)) as int != 12 { return 1; }
+    tensor.zero_grad(input);
+    tensor.set_grad_enabled(false);
+    if tensor.grad_enabled() { return 2; }
+    let detached = tensor.mul(input, input);
+    tensor.backward(tensor.sum_t(detached));
+    if tensor.stats_graph_nodes() != 0 { return 3; }
+    tensor.set_grad_enabled(true);
+    tensor.free_all();
+    return 0;
+}

@@ -1,0 +1,28 @@
+// Extended validation: WordPiece tokenization, embedding retrieval and RAG prompt.
+module ml_tokenizer_rag_pipeline;
+
+import std.tensor as tensor;
+import std.ml as ml;
+import std.string as str;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let vocab = "[UNK]:0\nhello:1\nworld:2\nrag:3\nretrieval:4";
+    let tokenizer = ml.tokenizer_wordpiece(vocab);
+    let ids = ml.tokenizer_encode(tokenizer, "hello world");
+    if tensor.len(ids) != 2 { return 1; }
+    if ml.tokenizer_decode(tokenizer, ids) != "hello world" { return 2; }
+
+    let index = ml.vector_index_new(4);
+    let document = ml.text_embed("rag retrieval", 4);
+    if ml.vector_index_insert(index, "rag-doc", document) != 1 { return 3; }
+    let query = ml.vector_index_query(index, ml.text_embed("rag retrieval", 4), 1);
+    if !str.contains(query, "rag-doc") { return 4; }
+
+    let chunks = ml.rag_chunk_text("RAG retrieval uses indexed chunks.", 12, 3);
+    let prompt = ml.rag_build_prompt(chunks, "What does RAG retrieval use?");
+    if !str.contains(prompt, "Question:") { return 5; }
+    if ml.rag_evaluate_answer("RAG retrieval uses indexed chunks", "retrieval uses indexed chunks") < 700 { return 6; }
+    tensor.free_all();
+    return 0;
+}

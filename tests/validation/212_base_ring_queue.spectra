@@ -1,0 +1,25 @@
+// Extended validation: bounded ring queue with wrap-around.
+module base_ring_queue;
+
+fn queue_signature() -> int {
+    let buffer = [0, 0, 0, 0, 0, 0];
+    let head = 0;
+    let tail = 0;
+    let count = 0;
+
+    buffer[tail] = 4; tail = (tail + 1) % 6; count = count + 1;
+    buffer[tail] = 7; tail = (tail + 1) % 6; count = count + 1;
+    buffer[tail] = 1; tail = (tail + 1) % 6; count = count + 1;
+    let first = buffer[head]; head = (head + 1) % 6; count = count - 1;
+    let second = buffer[head]; head = (head + 1) % 6; count = count - 1;
+
+    buffer[tail] = 9; tail = (tail + 1) % 6; count = count + 1;
+    buffer[tail] = 2; tail = (tail + 1) % 6; count = count + 1;
+    let weighted = buffer[head] + buffer[(head + 1) % 6] * 10 + buffer[(head + 2) % 6] * 100;
+    return first * 1000 + second * 100 + count * 10 + weighted;
+}
+
+pub fn main() -> int {
+    if queue_signature() != 5021 { return 1; }
+    return 0;
+}

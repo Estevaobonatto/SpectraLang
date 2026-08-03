@@ -1,0 +1,25 @@
+// Extended validation: 0/1 knapsack with descending-capacity DP.
+module base_knapsack_dynamic_programming;
+
+fn best_value() -> int {
+    let weights = [2, 3, 4, 5];
+    let values = [3, 4, 5, 8];
+    let capacity = 7;
+    let dp = [0, 0, 0, 0, 0, 0, 0, 0];
+    let item = 0;
+    while item < 4 {
+        let remaining = capacity;
+        while remaining >= weights[item] {
+            let candidate = dp[remaining - weights[item]] + values[item];
+            if candidate > dp[remaining] { dp[remaining] = candidate; }
+            remaining = remaining - 1;
+        }
+        item = item + 1;
+    }
+    return dp[capacity];
+}
+
+pub fn main() -> int {
+    if best_value() != 11 { return 1; }
+    return 0;
+}

@@ -1,0 +1,26 @@
+// Extended validation: lower-bound style binary search and absent values.
+module base_binary_search_bounds;
+
+fn search(values: [int], size: int, target: int) -> int {
+    let low = 0;
+    let high = size - 1;
+    while low <= high {
+        let middle = (low + high) / 2;
+        if values[middle] == target {
+            return middle;
+        } elif values[middle] < target {
+            low = middle + 1;
+        } else {
+            high = middle - 1;
+        }
+    }
+    return -1;
+}
+
+pub fn main() -> int {
+    let values = [2, 4, 6, 8, 10, 12, 14, 16];
+    if search(values, 8, 10) != 4 { return 1; }
+    if search(values, 8, 2) != 0 { return 2; }
+    if search(values, 8, 11) != -1 { return 3; }
+    return 0;
+}

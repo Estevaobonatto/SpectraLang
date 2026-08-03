@@ -247,6 +247,14 @@ if ($Phase -contains "phase31_r3133_async_echo") {
     exit 0
 }
 
+if ($Phase -contains "extended_spectra") {
+    Write-Host "--- Extended algorithmic Spectra fixture gate ---" -ForegroundColor Yellow
+    & python scripts\validate_extended_spectra.py `
+        --binary $binary `
+        --report target\extended-spectra\focused-report.json
+    exit $LASTEXITCODE
+}
+
 # Run the focused R-2701 gate before any broad test collection. This makes the
 # global report observable even when an unrelated later phase is slow or fails.
 Write-Host ""
@@ -852,6 +860,32 @@ function Invoke-HostCommand([string]$name, [string]$fileName, [string[]]$argumen
     Write-Host " FALHOU" -ForegroundColor Red
     Write-Host "     $err" -ForegroundColor DarkRed
     return [PSCustomObject]@{ Status = "FALHOU"; Detail = $err }
+}
+
+# ---------------------------------------------------------------------------
+# Grupo 1.5: execução dos 50 fixtures algorítmicos novos
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- Extended algorithmic Spectra fixtures (50 testes: devem executar) ---" -ForegroundColor Yellow
+$extendedSpectra = Invoke-HostCommand `
+    -name "validate_extended_spectra" `
+    -fileName "python" `
+    -arguments @(
+        "scripts\validate_extended_spectra.py",
+        "--binary", $binary,
+        "--report", "target\extended-spectra\report.json"
+    ) `
+    -workingDir (Get-Location).Path
+if ($extendedSpectra.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{
+    Diretorio = "tests\validation"
+    Teste = "extended_algorithmic_spectra_50"
+    Status = $extendedSpectra.Status
+    Detalhe = $extendedSpectra.Detail
 }
 
 Write-Host ""
