@@ -7,6 +7,7 @@
 #   tests/semantic/     - compilados e reportados sem expectativa forcada
 #   tests/cli/          - fixtures para validar comandos do CLI
 #   scripts/validate_r2003_base_regression_audit.py - separa compile-only de runtime-zero
+#   scripts/validate_tensor_device_contract.py - executa regressões de device tensor
 #   tools/spectra-interop/ - interop Rust/Python/C ABI
 #
 # Requer que o binario ja esteja compilado:
@@ -252,6 +253,14 @@ if ($Phase -contains "extended_spectra") {
     & python scripts\validate_extended_spectra.py `
         --binary $binary `
         --report target\extended-spectra\focused-report.json
+    exit $LASTEXITCODE
+}
+
+if ($Phase -contains "tensor_device_contract") {
+    Write-Host "--- Tensor device-placement contract gate ---" -ForegroundColor Yellow
+    & python scripts\validate_tensor_device_contract.py `
+        --binary $binary `
+        --report target\tensor-device\focused-report.json
     exit $LASTEXITCODE
 }
 
@@ -886,6 +895,29 @@ $results += [PSCustomObject]@{
     Teste = "extended_algorithmic_spectra_50"
     Status = $extendedSpectra.Status
     Detalhe = $extendedSpectra.Detail
+}
+
+Write-Host ""
+Write-Host "--- Tensor device-placement contract fixtures ---" -ForegroundColor Yellow
+$tensorDeviceContract = Invoke-HostCommand `
+    -name "validate_tensor_device_contract" `
+    -fileName "python" `
+    -arguments @(
+        "scripts\validate_tensor_device_contract.py",
+        "--binary", $binary,
+        "--report", "target\tensor-device\report.json"
+    ) `
+    -workingDir (Get-Location).Path
+if ($tensorDeviceContract.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{
+    Diretorio = "tests\validation"
+    Teste = "tensor_device_contract_3"
+    Status = $tensorDeviceContract.Status
+    Detalhe = $tensorDeviceContract.Detail
 }
 
 Write-Host ""

@@ -103,7 +103,7 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.tensor.zeros2` / `ones2` / `full2` / `full2_f` | Allocate 2D tensors. | `rows`, `cols`, optional `value` | handle |
 | `spectra.std.tensor.uniform` / `uniform_f` / `normal_f` / `bernoulli` / `categorical` | Seeded random tensor fills. | `size`, distribution parameters | handle |
 | `spectra.std.tensor.len` / `rank` / `dim` / `rows` / `cols` | Query tensor metadata. | `handle`, optional `axis` | integer metadata |
-| `spectra.std.tensor.device` / `device_available` / `device_status` | Query tensor placement, availability, and stable capability status. `device_status` returns `0` available, `1` unavailable backend/build/host, or `2` reserved device. | `handle` or device code | device code, bool, or status code |
+| `spectra.std.tensor.device` / `device_available` / `device_status` | Query tensor placement and capability status. `device_status` returns `0` for available CPU/WGPU and `1` for an implemented but unavailable WGPU backend; reserved or unknown device codes return `HOST_STATUS_INVALID_ARGUMENT`. | `handle` or device code | device code, bool, or status code |
 | `spectra.std.tensor.to_device` / `cpu` / `sync` | Transfer to supported devices and synchronize. CPU (`0`) is supported in the default build; `wgpu` (`6`) is supported with `--features gpu` and a detected adapter. | `handle`, optional device code | handle or `0` |
 | `spectra.std.tensor.precision` / `to_precision` | Query or quantize float tensor precision. Codes: `0` f64, `1` f32, `2` f16, `3` bf16. | `handle`, optional precision code | precision code or handle |
 | `spectra.std.tensor.get` / `get_f` / `get2` / `get2_f` | Read tensor values. | `handle`, index or row/col | scalar |

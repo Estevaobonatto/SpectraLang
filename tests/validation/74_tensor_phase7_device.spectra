@@ -18,10 +18,10 @@ pub fn main() -> int {
     } else {
         return 12;
     }
-    if tensor.device_available(1) {
-        return 13;
-    }
 
+    // Device codes 1..5 are reserved and return INVALID_ARGUMENT by the
+    // accepted runtime contract; source-level happy paths must not probe them
+    // because host-call errors terminate the current function.
     let y = tensor.to_device(x, 0);
     if tensor.device(y) != 0 {
         return 14;

@@ -28,7 +28,7 @@ Device codes are stable:
 |---|---|
 | `0` | Device is available |
 | `1` | Device backend exists but is unavailable in this build or host environment |
-| `2` | Device code is reserved but not implemented |
+| `2` | No longer returned; reserved device codes fail with `HOST_STATUS_INVALID_ARGUMENT` |
 
 Invalid device codes return `HOST_STATUS_INVALID_ARGUMENT`.
 
