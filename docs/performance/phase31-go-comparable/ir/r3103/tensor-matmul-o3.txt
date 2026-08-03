@@ -1,0 +1,76 @@
+   Compiling bench_tensor_matmul (\\?\D:\Lang\SpectraLang\benchmarks\cross-lang\tensor-matmul\spectra\bench.spectra)
+=== Tensor IR (CPU legalization) ===
+tensor_graph module bench_tensor_matmul
+fn main {
+  n0 %3 = create.full_f(-) -> dtype=float shape=[4096] layout=contiguous device=cpu @b0:i3
+  n1 %4 = reshape(n0) -> dtype=float shape=[64,64] layout=contiguous device=cpu @b0:i4
+  n2 %7 = create.full_f(-) -> dtype=float shape=[4096] layout=contiguous device=cpu @b0:i7
+  n3 %8 = reshape(n2) -> dtype=float shape=[64,64] layout=contiguous device=cpu @b0:i8
+  n4 %9 = matmul(n1,n3) -> dtype=float shape=[64,64] layout=contiguous device=cpu @b0:i9
+}
+
+tensor_ir_report TensorGraphLoweringReport { backend: Cpu, ir_nodes: 5, legalized_nodes: 5, external_fallback_nodes: 0, fusion_groups: 0, planned_buffers: 5, peak_live_buffers: 5 }
+=== IR (before optimization) ===
+module bench_tensor_matmul {
+
+  fn main() -> int {
+    entry:
+      %v0 = const.int 64
+      %v1 = mul %v0, %v0
+      %v2 = const.float 0.5
+      %v3 = hostcall spectra.std.tensor.full_f(%v1, %v2)
+      %v4 = hostcall spectra.std.tensor.reshape(%v3, %v0, %v0)
+      %v5 = mul %v0, %v0
+      %v6 = const.float 0.25
+      %v7 = hostcall spectra.std.tensor.full_f(%v5, %v6)
+      %v8 = hostcall spectra.std.tensor.reshape(%v7, %v0, %v0)
+      %v9 = hostcall spectra.std.tensor.matmul(%v4, %v8)
+      %v10 = const.int 0
+      %v11 = hostcall spectra.std.tensor.get_f(%v9, %v10)
+      %v12 = hostcall spectra.std.tensor.free_all()
+      %v13 = const.float 0
+      %v14 = gt %v11, %v13
+      br.if %v14 -> bb1, else bb2
+    if.then:
+      %v15 = const.int 0
+      ret %v15
+    if.merge:
+      %v16 = const.int 0
+      %v17 = const.int 1
+      ret %v17
+  }
+}
+
+
+=== IR (after optimization) ===
+module bench_tensor_matmul {
+
+  fn main() -> int {
+    entry:
+      %v0 = const.int 64
+      %v1 = const.int 4096
+      %v2 = const.float 0.5
+      %v3 = hostcall spectra.std.tensor.full_f(%v1, %v2)
+      %v4 = hostcall spectra.std.tensor.reshape(%v3, %v0, %v0)
+      %v5 = const.int 4096
+      %v6 = const.float 0.25
+      %v7 = hostcall spectra.std.tensor.full_f(%v5, %v6)
+      %v8 = hostcall spectra.std.tensor.reshape(%v7, %v0, %v0)
+      %v9 = hostcall spectra.std.tensor.matmul(%v4, %v8)
+      %v10 = const.int 0
+      %v11 = hostcall spectra.std.tensor.get_f(%v9, %v10)
+      %v12 = hostcall spectra.std.tensor.free_all()
+      %v13 = const.float 0
+      %v14 = gt %v11, %v13
+      br.if %v14 -> bb1, else bb2
+    if.then:
+      %v15 = const.int 0
+      ret %v15
+    if.merge:
+      %v17 = const.int 1
+      ret %v17
+  }
+}
+
+
+    Finished

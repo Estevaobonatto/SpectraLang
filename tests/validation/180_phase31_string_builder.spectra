@@ -1,0 +1,50 @@
+// R-3108 regression: std.string string builder API.
+
+module r3108_string_builder;
+
+import std.string as str;
+
+pub fn main() -> int {
+    let b = str.builder_new(0);
+    str.builder_push(b, "ab");
+    str.builder_push(b, "cd");
+    let joined = str.builder_finish(b);
+    if str.len(joined) != 4 {
+        return 1;
+    }
+    if !str.contains(joined, "ab") {
+        return 2;
+    }
+    if !str.contains(joined, "cd") {
+        return 3;
+    }
+
+    // builder_len reports the accumulated byte length.
+    let b2 = str.builder_new(0);
+    str.builder_push(b2, "hello ");
+    str.builder_push(b2, "world");
+    if str.builder_len(b2) != 11 {
+        return 4;
+    }
+    let greeting = str.builder_finish(b2);
+    if str.len(greeting) != 11 {
+        return 5;
+    }
+    if !str.contains(greeting, "hello") {
+        return 6;
+    }
+
+    // builder_free discards without finalizing
+    let b3 = str.builder_new(0);
+    str.builder_push(b3, "ignored");
+    str.builder_free(b3);
+
+    // builder_finish on an empty builder returns empty string
+    let b4 = str.builder_new(0);
+    let empty = str.builder_finish(b4);
+    if str.len(empty) != 0 {
+        return 7;
+    }
+
+    return 0;
+}

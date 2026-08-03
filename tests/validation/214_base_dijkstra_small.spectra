@@ -1,0 +1,44 @@
+// Extended validation: Dijkstra relaxation over a weighted graph.
+module base_dijkstra_small;
+
+fn signature() -> int {
+    let weights = [
+        0, 4, 1, 0,
+        4, 0, 2, 1,
+        1, 2, 0, 5,
+        0, 1, 5, 0
+    ];
+    let distances = [0, 999, 999, 999];
+    let visited = [0, 0, 0, 0];
+    let step = 0;
+    while step < 4 {
+        let best = -1;
+        let best_distance = 1000;
+        let candidate = 0;
+        while candidate < 4 {
+            if visited[candidate] == 0 && distances[candidate] < best_distance {
+                best = candidate;
+                best_distance = distances[candidate];
+            }
+            candidate = candidate + 1;
+        }
+        if best == -1 { break; }
+        visited[best] = 1;
+        let neighbor = 0;
+        while neighbor < 4 {
+            let weight = weights[best * 4 + neighbor];
+            if weight > 0 && visited[neighbor] == 0 {
+                let proposed = distances[best] + weight;
+                if proposed < distances[neighbor] { distances[neighbor] = proposed; }
+            }
+            neighbor = neighbor + 1;
+        }
+        step = step + 1;
+    }
+    return distances[0] + distances[1] * 10 + distances[2] * 100 + distances[3] * 1000;
+}
+
+pub fn main() -> int {
+    if signature() != 4130 { return 1; }
+    return 0;
+}

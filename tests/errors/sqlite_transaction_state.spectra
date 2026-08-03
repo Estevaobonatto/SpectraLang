@@ -1,0 +1,3 @@
+module sqlite_transaction_state;
+import { commit } from std.api.db.sqlite;
+pub fn main() -> int { commit(); return 0; }

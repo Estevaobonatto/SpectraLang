@@ -1,0 +1,17 @@
+// Extended validation: precision conversion preserves shape and usable values.
+module tensor_precision_conversion;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let source = tensor.full_f(4, 2.0);
+    let reduced = tensor.to_precision(source, 2);
+    if tensor.precision(reduced) != 2 { return 1; }
+    if tensor.len(reduced) != 4 { return 2; }
+    let restored = tensor.to_precision(reduced, 1);
+    if tensor.precision(restored) != 1 { return 3; }
+    if tensor.sum_f(restored) as int != 8 { return 4; }
+    tensor.free_all();
+    return 0;
+}

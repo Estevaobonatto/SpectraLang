@@ -1,0 +1,12 @@
+{
+  "cases": [
+    "array_checksum",
+    "global_checksum",
+    "truncated",
+    "shape_mismatch",
+    "dtype_unsupported",
+    "metadata_invalid",
+    "overlapping_offsets",
+    "unsupported_version"
+  ]
+}

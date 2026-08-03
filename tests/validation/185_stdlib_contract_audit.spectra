@@ -1,0 +1,83 @@
+module stdlib_contract_audit;
+
+import std.math as math;
+import std.string as string;
+import std.fs as fs;
+import std.time as time;
+import std.range;
+import std.tensor as tensor;
+import std.ml as ml;
+import std.serve as serve;
+import std.concurrent as concurrent;
+import {
+    method_get,
+    status_ok,
+} from std.api.http;
+
+pub fn main() -> int {
+    if math.abs(-7) != 7 {
+        return 1;
+    }
+    if string.eq(string.concat("spectra", "lang"), "spectralang") != true {
+        return 2;
+    }
+    let path = "target/r3007-stdlib-contract/probe.txt";
+    if fs.fs_write(path, "stdlib-contract") {
+    } else {
+        return 3;
+    }
+    if fs.fs_exists(path) {
+    } else {
+        return 4;
+    }
+    if fs.fs_remove(path) {
+    } else {
+        return 5;
+    }
+
+    let r = create(2, 5, false);
+    if len(r) != 3 {
+        return 6;
+    }
+    if at(r, 2) != 4 {
+        return 7;
+    }
+
+    let duration = time.duration_ms(1);
+    if time.duration_millis(duration) != 1 {
+        return 7;
+    }
+    tensor.free_all();
+    let left = tensor.arange(1, 5, 1);
+    let right = tensor.arange(1, 5, 1);
+    if tensor.dot(left, right) != 30 {
+        return 9;
+    }
+    let module_handle = ml.module_new();
+    if module_handle == 0 { return 10; }
+
+    serve.reset();
+    let server = serve.server_new(3);
+    let request = serve.server_enqueue(server, 10);
+    serve.server_warmup(server);
+    if serve.server_process_batch(server, 1) != 1 {
+        return 12;
+    }
+    if serve.server_result(server, request) != 30 {
+        return 13;
+    }
+
+    concurrent.reset();
+    let task = concurrent.task_spawn(42);
+    if concurrent.task_join(task) != 42 {
+        return 14;
+    }
+
+    if method_get() != 1 || status_ok() != 200 {
+        return 15;
+    }
+    tensor.free_all();
+    serve.reset();
+    concurrent.reset();
+    return 0;
+}

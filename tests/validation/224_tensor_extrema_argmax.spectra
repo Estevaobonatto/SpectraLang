@@ -1,0 +1,15 @@
+// Extended validation: extrema, argmax and signed integer values.
+module tensor_extrema_argmax;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let values = tensor.arange(-2, 3, 1);
+    if tensor.min(values) != -2 { return 1; }
+    if tensor.max(values) != 2 { return 2; }
+    if tensor.argmax(values) != 4 { return 3; }
+    if tensor.sum(values) != 0 { return 4; }
+    tensor.free_all();
+    return 0;
+}

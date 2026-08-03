@@ -1,0 +1,64 @@
+// Phase 31: quicksort (Spectra)
+// Recursive Lomuto-partition quicksort on a 64-element int array, repeated.
+// Expected per-iter checksum: 131629
+// (computed offline via scripts/_compute_bench10_expected.py)
+
+module bench_quicksort;
+
+fn partition(arr: [int], lo: int, hi: int) -> int {
+    let pivot = arr[hi];
+    let i = lo;
+    let j = lo;
+    while j < hi {
+        if arr[j] < pivot {
+            let tmp_i = arr[i];
+            let tmp_j = arr[j];
+            arr[i] = tmp_j;
+            arr[j] = tmp_i;
+            i = i + 1;
+        }
+        j = j + 1;
+    }
+    let tmp_i = arr[i];
+    let tmp_hi = arr[hi];
+    arr[i] = tmp_hi;
+    arr[hi] = tmp_i;
+    return i;
+}
+
+fn qs(arr: [int], lo: int, hi: int) -> int {
+    if lo >= hi {
+        return 0;
+    }
+    let p = partition(arr, lo, hi);
+    let _l = qs(arr, lo, p - 1);
+    let _r = qs(arr, p + 1, hi);
+    return 0;
+}
+
+pub fn main() -> int {
+    let iters = 50000;
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        let arr = [
+            3, 10, 17, 24, 31, 38, 45, 52, 59, 66, 73, 80, 87, 94, 1, 8,
+            15, 22, 29, 36, 43, 50, 57, 64, 71, 78, 85, 92, 99, 6, 13, 20,
+            27, 34, 41, 48, 55, 62, 69, 76, 83, 90, 97, 4, 11, 18, 25, 32,
+            39, 46, 53, 60, 67, 74, 81, 88, 95, 2, 9, 16, 23, 30, 37, 44
+        ];
+        let _r = qs(arr, 0, 63);
+        let checksum = 0;
+        let k = 0;
+        while k < 64 {
+            checksum = checksum + arr[k] * (k + 1);
+            k = k + 1;
+        }
+        total = total + checksum;
+        it = it + 1;
+    }
+    if total == 131629 * iters {
+        return 0;
+    }
+    return 1;
+}

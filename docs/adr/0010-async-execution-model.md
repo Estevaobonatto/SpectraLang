@@ -314,6 +314,13 @@ observability, and service shutdown unreliable.
 
 ## Acceptance Evidence
 
+The Phase 31 `fanout_fanin_real_concurrency.v2` fixture also validates the
+runtime boundary of this model. Its `std.concurrent` batch compatibility path
+uses a persistent worker pool, registers multiple pending executable units
+before fan-in, and never creates one OS thread per task. This scheduler evidence
+does not replace the language-level stackless state-machine lowering defined by
+this ADR.
+
 - This ADR fixes the Phase 21 syntax surface for `async fn`, `async {}`,
   `await`, `Task<T>`, `Stream<T>`, and the absence of public `Pin<T>`.
 - This ADR defines stackless state-machine SSA lowering and the scheduler

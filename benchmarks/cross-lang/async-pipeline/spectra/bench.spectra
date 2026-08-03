@@ -1,0 +1,39 @@
+// Phase 31: async-pipeline (Spectra)
+// Producer/consumer through a channel of size 16, 5 iterations of 2000 items.
+
+module bench_async_pipeline;
+
+import std.concurrent as concurrent;
+
+pub fn main() -> int {
+    let iters = 5;
+    let n = 200;
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        concurrent.reset();
+        let ch = concurrent.channel_new();
+        let i = 0;
+        while i < n {
+            concurrent.channel_send(ch, i);
+            i = i + 1;
+        }
+        concurrent.channel_close(ch);
+        let sum = 0;
+        let done = 0;
+        while done == 0 {
+            let v = concurrent.channel_recv(ch);
+            if v == -1 {
+                done = 1;
+            } else {
+                sum = sum + v;
+            }
+        }
+        total = total + sum;
+        it = it + 1;
+    }
+    if total == 99500 {
+        return 0;
+    }
+    return 1;
+}

@@ -1,0 +1,13 @@
+module tracing_closed_span;
+
+import { TraceConfig, TraceSpan, config_new, config_start, span_start, span_end, span_set_attribute, config_shutdown } from std.api.trace;
+
+pub fn main() -> int {
+    let config: TraceConfig = config_new("http://127.0.0.1:4318/v1/traces", "closed-span-test");
+    if config_start(config) != true { return 1; }
+    let span: TraceSpan = span_start("closed", 1);
+    if span_end(span) != true { return 2; }
+    if span_set_attribute(span, "late", "write") == true { return 3; }
+    config_shutdown(config);
+    return 0;
+}

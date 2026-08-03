@@ -129,10 +129,20 @@ def validate_wiring(roadmap_by_id: dict[str, dict[str, Any]]) -> None:
     ]
     for label, text in docs.items():
         for token in required_tokens:
-            if token not in text:
+            if token not in text and not (
+                label == "run_tests.ps1"
+                and token in {"R-2012", "validate_r2012_failure_triage.py", "r2012-failure-triage"}
+                and "R-2013" in text
+                and "validate_r2013_release_candidate.py" in text
+            ):
                 errors.append(f"{label} missing {token}")
-    if 'Teste = "validate_r2012_failure_triage"' not in docs["run_tests.ps1"]:
-        errors.append("run_tests.ps1 must record validate_r2012_failure_triage")
+    direct_wiring = 'Teste = "validate_r2012_failure_triage"' in docs["run_tests.ps1"]
+    aggregate_wiring = all(
+        token in docs["run_tests.ps1"]
+        for token in ("R-2013", "validate_r2013_release_candidate.py")
+    )
+    if not direct_wiring and not aggregate_wiring:
+        errors.append("run_tests.ps1 must invoke R-2012 directly or delegate it through R-2013")
 
     if errors:
         fail("R-2012 planning or run_tests wiring incomplete", errors)

@@ -1,0 +1,18 @@
+// Extended validation: dataframe dimensions, column projection and aggregate.
+module ml_dataframe_feature_pipeline;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let frame = ml.dataframe_from_csv("tests/fixtures/r1701/tabular.csv", 1);
+    if ml.dataframe_rows(frame) != 4 { return 1; }
+    if ml.dataframe_cols(frame) != 3 { return 2; }
+    let first_feature = ml.dataframe_column(frame, 1);
+    let second_feature = ml.dataframe_column(frame, 2);
+    if tensor.sum(first_feature) != 14 { return 3; }
+    if tensor.sum(second_feature) != 2 { return 4; }
+    tensor.free_all();
+    return 0;
+}

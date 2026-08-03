@@ -12,8 +12,10 @@ use spectra_runtime::ffi::{
 pub mod client;
 pub mod conformance;
 pub mod cors;
+pub mod db;
 pub mod errors;
 pub mod form;
+pub mod health;
 pub mod handler;
 pub mod http;
 pub mod json;
@@ -23,6 +25,7 @@ pub mod query;
 pub mod routing;
 pub mod server;
 pub mod tls;
+pub mod trace;
 
 pub const HOST_PREFIX: &str = "spectra.api.";
 pub const VERSION_MAJOR: SpectraHostValue = 0;
@@ -48,6 +51,8 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         name: "spectra.api.version.patch",
         function: api_version_patch,
     },
+    HostCallSpec { name: "spectra.api.health.startup_complete", function: health::startup_complete },
+    HostCallSpec { name: "spectra.api.health.startup_failed", function: health::startup_failed },
     HostCallSpec {
         name: "spectra.api.http.method_name",
         function: http::method_name,
@@ -812,6 +817,204 @@ pub const HOST_CALLS: &[HostCallSpec] = &[
         name: "spectra.api.errors.last_message",
         function: errors::last_message,
     },
+    HostCallSpec {
+        name: "spectra.api.trace.config_new",
+        function: trace::config_new,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.config_set_sample_rate",
+        function: trace::config_set_sample_rate,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.config_set_batch_size",
+        function: trace::config_set_batch_size,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.config_start",
+        function: trace::config_start,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.config_shutdown",
+        function: trace::config_shutdown,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_start",
+        function: trace::span_start,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_set_attribute",
+        function: trace::span_set_attribute,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_set_attribute_int",
+        function: trace::span_set_attribute_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_set_attribute_bool",
+        function: trace::span_set_attribute_bool,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_set_status",
+        function: trace::span_set_status,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.span_end",
+        function: trace::span_end,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.current",
+        function: trace::current,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.parent",
+        function: trace::parent,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.inject",
+        function: trace::inject,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.extract",
+        function: trace::extract,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.flush",
+        function: trace::flush,
+    },
+    HostCallSpec {
+        name: "spectra.api.trace.last_error",
+        function: trace::last_error,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.open",
+        function: db::sqlite_open,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.close",
+        function: db::sqlite_close,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.prepare",
+        function: db::sqlite_prepare,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.execute_async",
+        function: db::sqlite_execute_async,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_null",
+        function: db::sqlite_bind_null,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_int",
+        function: db::sqlite_bind_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_float",
+        function: db::sqlite_bind_float,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_text",
+        function: db::sqlite_bind_text,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.bind_blob",
+        function: db::sqlite_bind_blob,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.step",
+        function: db::sqlite_step,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_count",
+        function: db::sqlite_column_count,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_type",
+        function: db::sqlite_column_type,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_int",
+        function: db::sqlite_column_int,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_float",
+        function: db::sqlite_column_float,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.column_text",
+        function: db::sqlite_column_text,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.reset",
+        function: db::sqlite_reset,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.finalize",
+        function: db::sqlite_finalize,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.begin",
+        function: db::sqlite_begin,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.commit",
+        function: db::sqlite_commit,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.rollback",
+        function: db::sqlite_rollback,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.last_error_code",
+        function: db::sqlite_last_error_code,
+    },
+    HostCallSpec {
+        name: "spectra.api.db.sqlite.last_error_message",
+        function: db::sqlite_last_error_message,
+    },
+    HostCallSpec { name: "spectra.api.db.postgres.open", function: db::postgres_open },
+    HostCallSpec { name: "spectra.api.db.postgres.close", function: db::postgres_close },
+    HostCallSpec { name: "spectra.api.db.postgres.prepare", function: db::postgres_prepare },
+    HostCallSpec { name: "spectra.api.db.postgres.bind_null", function: db::postgres_bind_null },
+    HostCallSpec { name: "spectra.api.db.postgres.bind_int", function: db::postgres_bind_int },
+    HostCallSpec { name: "spectra.api.db.postgres.bind_float", function: db::postgres_bind_float },
+    HostCallSpec { name: "spectra.api.db.postgres.bind_text", function: db::postgres_bind_text },
+    HostCallSpec { name: "spectra.api.db.postgres.step", function: db::postgres_step },
+    HostCallSpec { name: "spectra.api.db.postgres.column_count", function: db::postgres_column_count },
+    HostCallSpec { name: "spectra.api.db.postgres.column_type", function: db::postgres_column_type },
+    HostCallSpec { name: "spectra.api.db.postgres.column_int", function: db::postgres_column_int },
+    HostCallSpec { name: "spectra.api.db.postgres.column_text", function: db::postgres_column_text },
+    HostCallSpec { name: "spectra.api.db.postgres.reset", function: db::postgres_reset },
+    HostCallSpec { name: "spectra.api.db.postgres.finalize", function: db::postgres_finalize },
+    HostCallSpec { name: "spectra.api.db.postgres.begin", function: db::postgres_begin },
+    HostCallSpec { name: "spectra.api.db.postgres.commit", function: db::postgres_commit },
+    HostCallSpec { name: "spectra.api.db.postgres.rollback", function: db::postgres_rollback },
+    HostCallSpec { name: "spectra.api.db.postgres.execute_async", function: db::postgres_execute_async },
+    HostCallSpec { name: "spectra.api.db.postgres.step_async", function: db::postgres_step_async },
+    HostCallSpec { name: "spectra.api.db.postgres.savepoint", function: db::postgres_savepoint },
+    HostCallSpec { name: "spectra.api.db.postgres.rollback_to", function: db::postgres_rollback_to },
+    HostCallSpec { name: "spectra.api.db.postgres.release_savepoint", function: db::postgres_release_savepoint },
+    HostCallSpec { name: "spectra.api.db.postgres.copy_in_text_async", function: db::postgres_copy_in_text_async },
+    HostCallSpec { name: "spectra.api.db.postgres.copy_out_text_async", function: db::postgres_copy_out_text_async },
+    HostCallSpec { name: "spectra.api.db.postgres.listen", function: db::postgres_listen },
+    HostCallSpec { name: "spectra.api.db.postgres.notify_async", function: db::postgres_notify_async },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_next_async", function: db::postgres_notification_next_async },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_channel", function: db::postgres_notification_channel },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_payload", function: db::postgres_notification_payload },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_process_id", function: db::postgres_notification_process_id },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_free", function: db::postgres_notification_free },
+    HostCallSpec { name: "spectra.api.db.postgres.notification_close", function: db::postgres_notification_close },
+    HostCallSpec { name: "spectra.api.db.postgres.last_error_code", function: db::sqlite_last_error_code },
+    HostCallSpec { name: "spectra.api.db.postgres.last_error_message", function: db::sqlite_last_error_message },
+    HostCallSpec { name: "spectra.api.db.redis.open", function: db::redis_open },
+    HostCallSpec { name: "spectra.api.db.redis.close", function: db::redis_close },
+    HostCallSpec { name: "spectra.api.db.redis.get", function: db::redis_get },
+    HostCallSpec { name: "spectra.api.db.redis.set", function: db::redis_set },
+    HostCallSpec { name: "spectra.api.db.redis.delete", function: db::redis_delete },
+    HostCallSpec { name: "spectra.api.db.redis.expire", function: db::redis_expire },
+    HostCallSpec { name: "spectra.api.db.redis.incr", function: db::redis_incr },
+    HostCallSpec { name: "spectra.api.db.redis.exists", function: db::redis_exists },
 ];
 
 pub fn register() -> usize {
@@ -967,7 +1170,14 @@ mod tests {
             assert!(spec.name.starts_with(HOST_PREFIX), "{}", spec.name);
             assert!(names.insert(spec.name), "duplicate {}", spec.name);
         }
-        assert_eq!(HOST_CALLS.len(), 194);
+        assert_eq!(HOST_CALLS.len(), 277);
+        let registered_names: HashSet<_> = HOST_CALLS.iter().map(|spec| spec.name).collect();
+        for (name, _) in db::POSTGRES_HOST_CALLS {
+            assert!(
+                registered_names.contains(name),
+                "PostgreSQL host call missing from the canonical API registry: {name}"
+            );
+        }
     }
 
     #[test]

@@ -1,0 +1,60 @@
+module opentelemetry_tracing;
+
+import {
+    TraceConfig,
+    TraceSpan,
+    config_new,
+    config_start,
+    config_shutdown,
+    span_start,
+    span_set_attribute,
+    span_set_attribute_int,
+    span_set_attribute_bool,
+    span_set_status,
+    span_end,
+    flush,
+} from std.api.trace;
+import std.fs as fs;
+import {
+    SqliteConnection,
+    SqliteStatement,
+    open,
+    close,
+    prepare,
+    step,
+    finalize,
+} from std.api.db.sqlite;
+
+pub fn main() -> int {
+    let config: TraceConfig = config_new("http://127.0.0.1:4318/v1/traces", "spectralang-r2701");
+    if config_start(config) != true { return 10; }
+
+    let root: TraceSpan = span_start("http.server", 2);
+    if span_set_attribute(root, "http.request.method", "GET") != true { return 12; }
+    if span_set_attribute(root, "component", "fixture") != true { return 13; }
+    if span_set_attribute_int(root, "http.response.status_code", 200) != true { return 19; }
+    if span_set_attribute_bool(root, "fixture.sampled", true) != true { return 20; }
+
+    let trace_file = "target/r2701-tracing-fixture.txt";
+    if fs.fs_write(trace_file, "traced filesystem operation") {
+    } else {
+        return 21;
+    }
+    fs.fs_read(trace_file);
+    if fs.fs_remove(trace_file) {
+    } else {
+        return 23;
+    }
+
+    let database: SqliteConnection = open("target/r2701-tracing-fixture.sqlite");
+    let schema: SqliteStatement = prepare(database, "CREATE TABLE IF NOT EXISTS trace_items(id INTEGER PRIMARY KEY, value TEXT)");
+    if step(schema) != 2 { return 24; }
+    if finalize(schema) != true { return 25; }
+    if close(database) != true { return 26; }
+
+    if span_set_status(root, 1) != true { return 17; }
+    if span_end(root) != true { return 18; }
+    flush();
+    config_shutdown(config);
+    return 0;
+}

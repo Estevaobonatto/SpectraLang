@@ -1,5 +1,6 @@
 use crate::discovery;
-use crate::release_channel::ReleaseMetadata;
+use crate::project::ProjectSourceEntry;
+use crate::release_channel::{cli_compatibility_level, ReleaseMetadata};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -10,6 +11,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 use toml_edit::{value, DocumentMut, Item, Table};
 
 const MANIFEST_NAMES: &[&str] = &["spectra.toml", "Spectra.toml"];
@@ -76,7 +78,7 @@ pub enum PackageCommand {
 pub enum CatalogCommand {
     Add { name: String, source: String },
     List,
-    Sync,
+    Sync { offline: bool, locked: bool },
     Remove { name: String },
 }
 
@@ -91,6 +93,13 @@ pub struct PackageTestOptions {
 pub struct PackageInvocation {
     pub root: PathBuf,
     pub command: PackageCommand,
+    pub offline: bool,
+    pub locked: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ResolveOptions {
+    pub offline: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -101,6 +110,7 @@ pub struct ResolvedWorkspace {
 }
 
 impl ResolvedWorkspace {
+    #[allow(dead_code)]
     pub fn source_entries(&self) -> Vec<PathBuf> {
         let mut entries = Vec::new();
         let mut seen = BTreeSet::new();
@@ -109,6 +119,25 @@ impl ResolvedWorkspace {
             for src in &package.src_dirs {
                 if seen.insert(src.clone()) {
                     entries.push(src.clone());
+                }
+            }
+        }
+
+        entries
+    }
+
+    pub fn source_entries_with_origins(&self) -> Vec<ProjectSourceEntry> {
+        let mut entries = Vec::new();
+        let mut seen = BTreeSet::new();
+
+        for package in &self.packages {
+            for src in &package.src_dirs {
+                if seen.insert(src.clone()) {
+                    entries.push(ProjectSourceEntry {
+                        path: src.clone(),
+                        package_name: Some(package.name.clone()),
+                        package_root: Some(package.root.clone()),
+                    });
                 }
             }
         }
@@ -176,7 +205,53 @@ pub enum PackageError {
     Serialize(toml::ser::Error),
     MissingManifest(PathBuf),
     MissingPackage(String),
-    DuplicatePackage(String),
+    DuplicatePackage {
+        name: String,
+        first: PathBuf,
+        second: PathBuf,
+    },
+    IncompatiblePackage {
+        name: String,
+        required: String,
+        found: String,
+        source: String,
+    },
+    ConflictingCatalogPackage {
+        name: String,
+        version: String,
+        first: String,
+        second: String,
+    },
+    DependencyCycle(Vec<String>),
+    HostNotAllowed {
+        host: String,
+        locator: String,
+    },
+    UnsafePath {
+        path: PathBuf,
+        reason: String,
+    },
+    AtomicWrite {
+        path: PathBuf,
+        message: String,
+    },
+    CacheCorrupt {
+        package: String,
+        path: PathBuf,
+        reason: String,
+    },
+    CatalogSync {
+        name: String,
+        source: String,
+        path: PathBuf,
+        reason: String,
+    },
+    LockfileMissing(PathBuf),
+    LockfileTampered {
+        path: PathBuf,
+        package: String,
+        field: String,
+    },
     InvalidManifest {
         path: PathBuf,
         message: String,
@@ -201,13 +276,98 @@ impl fmt::Display for PackageError {
                 write!(f, "no spectra.toml manifest found at '{}'", path.display())
             }
             PackageError::MissingPackage(name) => write!(f, "package '{}' was not found", name),
-            PackageError::DuplicatePackage(name) => {
+            PackageError::DuplicatePackage {
+                name,
+                first,
+                second,
+            } => write!(
+                f,
+                "package '{}' appears more than once in the workspace: '{}' and '{}'",
+                name,
+                first.display(),
+                second.display()
+            ),
+            PackageError::IncompatiblePackage {
+                name,
+                required,
+                found,
+                source,
+            } => write!(
+                f,
+                "package '{}' is incompatible with CLI compatibility '{}': found '{}' at {}",
+                name, required, found, source
+            ),
+            PackageError::ConflictingCatalogPackage {
+                name,
+                version,
+                first,
+                second,
+            } => write!(
+                f,
+                "catalog entries for '{}' version '{}' conflict: '{}' and '{}'",
+                name, version, first, second
+            ),
+            PackageError::DependencyCycle(chain) => {
                 write!(
                     f,
-                    "package '{}' appears more than once in the workspace",
-                    name
+                    "cyclic package dependency detected: {}",
+                    chain.join(" -> ")
                 )
             }
+            PackageError::HostNotAllowed { host, locator } => write!(
+                f,
+                "package host '{}' is not allowed for locator '{}'",
+                host, locator
+            ),
+            PackageError::UnsafePath { path, reason } => {
+                write!(f, "unsafe package path '{}': {}", path.display(), reason)
+            }
+            PackageError::AtomicWrite { path, message } => write!(
+                f,
+                "atomic package write for '{}' failed: {}",
+                path.display(),
+                message
+            ),
+            PackageError::CacheCorrupt {
+                package,
+                path,
+                reason,
+            } => write!(
+                f,
+                "package cache for '{}' at '{}' is corrupt: {}",
+                package,
+                path.display(),
+                reason
+            ),
+            PackageError::CatalogSync {
+                name,
+                source,
+                path,
+                reason,
+            } => write!(
+                f,
+                "catalog '{}' from '{}' at '{}' could not be synchronized: {}",
+                name,
+                source,
+                path.display(),
+                reason
+            ),
+            PackageError::LockfileMissing(path) => write!(
+                f,
+                "locked package operation requires lockfile '{}', but it does not exist",
+                path.display()
+            ),
+            PackageError::LockfileTampered {
+                path,
+                package,
+                field,
+            } => write!(
+                f,
+                "lockfile '{}' differs for package '{}' in field '{}'",
+                path.display(),
+                package,
+                field
+            ),
             PackageError::InvalidManifest { path, message } => {
                 write!(f, "invalid manifest '{}': {}", path.display(), message)
             }
@@ -269,14 +429,14 @@ enum DependencySpec {
     },
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct Lockfile {
     version: u32,
     root: String,
     packages: Vec<LockPackage>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct LockPackage {
     name: String,
     version: String,
@@ -287,14 +447,17 @@ struct LockPackage {
     source: String,
     source_kind: String,
     checksum: String,
+    #[serde(default)]
     git_url: Option<String>,
+    #[serde(default)]
     git_ref: Option<String>,
+    #[serde(default)]
     resolved_rev: Option<String>,
     manifest_hash: String,
     dependencies: Vec<LockDependency>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct LockDependency {
     name: String,
     version: String,
@@ -354,6 +517,8 @@ struct CatalogPackage {
     modules: Vec<String>,
     #[serde(default)]
     owner: String,
+    #[serde(skip)]
+    origin: String,
 }
 
 struct InstalledGitPackage {
@@ -378,7 +543,427 @@ fn catalog_schema() -> String {
     "spectra-package-catalog-v1".to_string()
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct CatalogStateFile {
+    version: u32,
+    catalogs: Vec<CatalogState>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CatalogState {
+    pub name: String,
+    pub source: String,
+    pub cache: String,
+    pub resolved_rev: Option<String>,
+    pub index_hash: String,
+    #[serde(default)]
+    pub synced_at: String,
+}
+
+fn catalog_config_path(root: &Path) -> PathBuf {
+    root.join(".spectra").join("catalogs").join("catalogs.toml")
+}
+
+fn catalog_state_path(root: &Path) -> PathBuf {
+    root.join(".spectra").join("catalogs").join("catalogs.lock")
+}
+
+fn catalog_cache_root(root: &Path) -> PathBuf {
+    root.join(".spectra").join("catalogs")
+}
+
+fn load_catalog_config(root: &Path) -> Result<BTreeMap<String, String>, PackageError> {
+    let path = catalog_config_path(root);
+    if !path.is_file() {
+        return Ok(BTreeMap::new());
+    }
+    let text = fs::read_to_string(&path).map_err(|error| PackageError::Io {
+        path: path.clone(),
+        error,
+    })?;
+    let config: BTreeMap<String, String> = toml::from_str(&text).map_err(|error| {
+        PackageError::EditParse {
+            path: path.clone(),
+            message: error.to_string(),
+        }
+    })?;
+    for (name, source) in &config {
+        validate_package_name(name)?;
+        if source.trim().is_empty() {
+            return Err(PackageError::CatalogSync {
+                name: name.clone(),
+                source: source.clone(),
+                path: path.clone(),
+                reason: "catalog source is empty".to_string(),
+            });
+        }
+    }
+    Ok(config)
+}
+
+fn load_catalog_state(root: &Path) -> Result<CatalogStateFile, PackageError> {
+    let path = catalog_state_path(root);
+    if !path.is_file() {
+        return Ok(CatalogStateFile {
+            version: 1,
+            catalogs: Vec::new(),
+        });
+    }
+    let text = fs::read_to_string(&path).map_err(|error| PackageError::Io {
+        path: path.clone(),
+        error,
+    })?;
+    toml::from_str(&text).map_err(|error| PackageError::EditParse {
+        path,
+        message: error.to_string(),
+    })
+}
+
+fn write_catalog_state(root: &Path, mut state: CatalogStateFile) -> Result<(), PackageError> {
+    state.version = 1;
+    state.catalogs.sort_by(|left, right| left.name.cmp(&right.name));
+    let text = toml::to_string_pretty(&state).map_err(PackageError::Serialize)?;
+    let path = catalog_state_path(root);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+            path: parent.to_path_buf(),
+            error,
+        })?;
+    }
+    atomic_write_file(&path, text.as_bytes())
+}
+
+fn normalized_catalog_index(path: &Path) -> Result<(CatalogIndex, String), PackageError> {
+    let text = fs::read_to_string(path).map_err(|error| PackageError::Io {
+        path: path.to_path_buf(),
+        error,
+    })?;
+    let mut index: CatalogIndex = toml::from_str(&text).map_err(|error| PackageError::Parse {
+        path: path.to_path_buf(),
+        error,
+    })?;
+    if index.schema != catalog_schema() {
+        return Err(PackageError::CatalogSync {
+            name: path.display().to_string(),
+            source: path.display().to_string(),
+            path: path.to_path_buf(),
+            reason: format!("unsupported schema '{}'", index.schema),
+        });
+    }
+    for package in &index.packages {
+        validate_catalog_package(package, false).map_err(|reason| PackageError::CatalogSync {
+            name: package.name.clone(),
+            source: package.git.clone(),
+            path: path.to_path_buf(),
+            reason,
+        })?;
+    }
+    index.packages.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| compare_versions(&left.version, &right.version))
+            .then_with(|| left.git.cmp(&right.git))
+    });
+    let normalized = toml::to_string_pretty(&index).map_err(PackageError::Serialize)?;
+    Ok((index, normalized))
+}
+
+fn catalog_source_index(source: &str, root: &Path) -> PathBuf {
+    let path = PathBuf::from(source);
+    let path = if path.is_absolute() { path } else { root.join(path) };
+    catalog_index_path(&path)
+}
+
+fn catalog_cache_dir(root: &Path, name: &str) -> PathBuf {
+    catalog_cache_root(root).join(sanitize_package_component(name))
+}
+
+fn catalog_state_for<'a>(state: &'a CatalogStateFile, name: &str) -> Option<&'a CatalogState> {
+    state.catalogs.iter().find(|entry| entry.name == name)
+}
+
+fn sync_catalog(
+    root: &Path,
+    name: &str,
+    source: &str,
+    offline: bool,
+) -> Result<CatalogState, PackageError> {
+    let cache_dir = catalog_cache_dir(root, name);
+    let cache_root = catalog_cache_root(root);
+    fs::create_dir_all(&cache_root).map_err(|error| PackageError::Io {
+        path: cache_root.clone(),
+        error,
+    })?;
+    check_git_locator_allowed(source)?;
+
+    let staging = staging_path(&cache_dir, "catalog");
+    let result = (|| {
+        if offline {
+            if !cache_dir.is_dir() {
+                return Err(PackageError::CatalogSync {
+                    name: name.to_string(),
+                    source: source.to_string(),
+                    path: cache_dir.clone(),
+                    reason: "catalog cache is missing while offline".to_string(),
+                });
+            }
+            ensure_within_root(&cache_root, &cache_dir)?;
+            let index_path = cache_dir.join("package.index.toml");
+            let (_, normalized) = normalized_catalog_index(&index_path)?;
+            let resolved_rev = if cache_dir.join(".git").is_dir() {
+                Some(git_output(&["rev-parse", "HEAD"], &cache_dir).map_err(|_| {
+                    PackageError::CatalogSync {
+                        name: name.to_string(),
+                        source: source.to_string(),
+                        path: cache_dir.clone(),
+                        reason: "cached Git repository cannot resolve HEAD".to_string(),
+                    }
+                })?)
+            } else {
+                None
+            };
+            return Ok(CatalogState {
+                name: name.to_string(),
+                source: source.to_string(),
+                cache: relative_catalog_cache(root, &cache_dir),
+                resolved_rev,
+                index_hash: stable_hash_hex(normalized.as_bytes()),
+                synced_at: String::new(),
+            });
+        }
+
+        fs::create_dir_all(&staging).map_err(|error| PackageError::Io {
+            path: staging.clone(),
+            error,
+        })?;
+        let local_source = catalog_source_index(source, root)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(source));
+        let is_local_git = local_source.join(".git").is_dir();
+        if remote_git_host(source).is_some() || is_local_git {
+            let target = git_path_arg(&staging);
+            if is_local_git {
+                let source_path = git_path_arg(&local_source);
+                run_catalog_git(
+                    &["clone", "--quiet", "--local", source_path.as_str(), target.as_str()],
+                    root,
+                    name,
+                    source,
+                    &staging,
+                )?;
+            } else {
+                run_catalog_git(
+                    &["clone", "--quiet", source, target.as_str()],
+                    root,
+                    name,
+                    source,
+                    &staging,
+                )?;
+            }
+        } else {
+            let index_path = catalog_source_index(source, root);
+            let (index, normalized) = normalized_catalog_index(&index_path)?;
+            let _ = index;
+            atomic_write_file(&staging.join("package.index.toml"), normalized.as_bytes())?;
+        }
+
+        let index_path = staging.join("package.index.toml");
+        let (_, normalized) = normalized_catalog_index(&index_path)?;
+        atomic_write_file(&index_path, normalized.as_bytes())?;
+        let resolved_rev = if staging.join(".git").is_dir() {
+            Some(run_catalog_git_output(
+                &["rev-parse", "HEAD"],
+                &staging,
+                name,
+                source,
+                &staging,
+            )?)
+        } else {
+            None
+        };
+        atomic_replace(&staging, &cache_dir)?;
+        Ok(CatalogState {
+            name: name.to_string(),
+            source: source.to_string(),
+            cache: relative_catalog_cache(root, &cache_dir),
+            resolved_rev,
+            index_hash: stable_hash_hex(normalized.as_bytes()),
+            synced_at: unix_timestamp_string(),
+        })
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+fn relative_catalog_cache(root: &Path, cache: &Path) -> String {
+    cache.strip_prefix(root).unwrap_or(cache).to_string_lossy().replace('\\', "/")
+}
+
+fn unix_timestamp_string() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string())
+}
+
+fn run_catalog_git(args: &[&str], cwd: &Path, name: &str, source: &str, path: &Path) -> Result<(), PackageError> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|error| PackageError::CatalogSync {
+            name: name.to_string(),
+            source: source.to_string(),
+            path: path.to_path_buf(),
+            reason: format!("failed to launch Git: {}", error),
+        })?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(PackageError::CatalogSync {
+            name: name.to_string(),
+            source: source.to_string(),
+            path: path.to_path_buf(),
+            reason: "Git synchronization failed".to_string(),
+        })
+    }
+}
+
+fn run_catalog_git_output(args: &[&str], cwd: &Path, name: &str, source: &str, path: &Path) -> Result<String, PackageError> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|error| PackageError::CatalogSync {
+            name: name.to_string(),
+            source: source.to_string(),
+            path: path.to_path_buf(),
+            reason: format!("failed to launch Git: {}", error),
+        })?;
+    if !output.status.success() {
+        return Err(PackageError::CatalogSync {
+            name: name.to_string(),
+            source: source.to_string(),
+            path: path.to_path_buf(),
+            reason: "Git synchronization failed".to_string(),
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+pub fn catalog_add(root: &Path, name: &str, source: &str) -> Result<(), PackageError> {
+    let root = canonicalize_existing(root)?;
+    validate_package_name(name)?;
+    check_git_locator_allowed(source)?;
+    let mut config = load_catalog_config(&root)?;
+    config.insert(name.to_string(), source.to_string());
+    let text = toml::to_string_pretty(&config).map_err(PackageError::Serialize)?;
+    let path = catalog_config_path(&root);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+            path: parent.to_path_buf(),
+            error,
+        })?;
+    }
+    atomic_write_file(&path, text.as_bytes())
+}
+
+pub fn catalog_sync(root: &Path, offline: bool, locked: bool) -> Result<Vec<CatalogState>, PackageError> {
+    let root = canonicalize_existing(root)?;
+    let config = load_catalog_config(&root)?;
+    let existing = load_catalog_state(&root)?;
+    let cache_only = offline || locked;
+    let mut synced = Vec::new();
+    for (name, source) in &config {
+        let entry = sync_catalog(&root, name, source, cache_only)?;
+        if cache_only {
+            let previous = catalog_state_for(&existing, name).ok_or_else(|| PackageError::CatalogSync {
+                name: name.clone(),
+                source: source.clone(),
+                path: catalog_state_path(&root),
+                reason: "catalog state is missing while offline or locked".to_string(),
+            })?;
+            if previous.source != entry.source
+                || previous.cache != entry.cache
+                || previous.resolved_rev != entry.resolved_rev
+                || previous.index_hash != entry.index_hash
+            {
+                return Err(PackageError::CatalogSync {
+                    name: name.clone(),
+                    source: source.clone(),
+                    path: catalog_state_path(&root),
+                    reason: "cached catalog differs from catalogs.lock".to_string(),
+                });
+            }
+            synced.push(entry);
+        } else {
+            synced.push(entry);
+        }
+    }
+    if !cache_only {
+        write_catalog_state(
+            &root,
+            CatalogStateFile {
+                version: 1,
+                catalogs: synced.clone(),
+            },
+        )?;
+    }
+    Ok(synced)
+}
+
+pub fn catalog_list(root: &Path) -> Result<Vec<String>, PackageError> {
+    let root = canonicalize_existing(root)?;
+    let config = load_catalog_config(&root)?;
+    let state = load_catalog_state(&root)?;
+    Ok(config
+        .iter()
+        .map(|(name, source)| {
+            if let Some(entry) = catalog_state_for(&state, name) {
+                format!("{}\t{}\tready\t{}", name, source, entry.resolved_rev.as_deref().unwrap_or("local"))
+            } else {
+                format!("{}\t{}\tmissing\t-", name, source)
+            }
+        })
+        .collect())
+}
+
+pub fn catalog_remove(root: &Path, name: &str) -> Result<(), PackageError> {
+    let root = canonicalize_existing(root)?;
+    validate_package_name(name)?;
+    let mut config = load_catalog_config(&root)?;
+    config.remove(name);
+    let config_path = catalog_config_path(&root);
+    if config_path.is_file() {
+        let text = toml::to_string_pretty(&config).map_err(PackageError::Serialize)?;
+        atomic_write_file(&config_path, text.as_bytes())?;
+    }
+    let mut state = load_catalog_state(&root)?;
+    state.catalogs.retain(|entry| entry.name != name);
+    write_catalog_state(&root, state)?;
+    let cache_root = catalog_cache_root(&root);
+    let cache = catalog_cache_dir(&root, name);
+    if cache.is_dir() {
+        ensure_within_root(&cache_root, &cache)?;
+        fs::remove_dir_all(&cache).map_err(|error| PackageError::Io {
+            path: cache,
+            error,
+        })?;
+    }
+    Ok(())
+}
+
 pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
+    resolve_with_options(root, ResolveOptions::default())
+}
+
+pub fn resolve_with_options(
+    root: &Path,
+    options: ResolveOptions,
+) -> Result<ResolvedWorkspace, PackageError> {
     let root = canonicalize_existing(root)?;
     let manifest_path = find_manifest(&root)?;
     let root_package = load_package(&manifest_path)?;
@@ -393,6 +978,7 @@ pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
     let mut visited = HashSet::new();
     let mut by_name = BTreeMap::new();
     let mut ordered = Vec::new();
+    let mut active = Vec::new();
 
     for package_root in package_roots {
         collect_package(
@@ -404,6 +990,8 @@ pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
             &mut visited,
             &mut by_name,
             &mut ordered,
+            &mut active,
+            options,
         )?;
     }
 
@@ -416,7 +1004,15 @@ pub fn resolve(root: &Path) -> Result<ResolvedWorkspace, PackageError> {
 }
 
 pub fn write_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageError> {
-    let lockfile = Lockfile {
+    let path = workspace.root.join(LOCKFILE_NAME);
+    let lockfile = lockfile_for_workspace(workspace);
+    let text = toml::to_string_pretty(&lockfile).map_err(PackageError::Serialize)?;
+    atomic_write_file(&path, text.as_bytes())?;
+    Ok(path)
+}
+
+fn lockfile_for_workspace(workspace: &ResolvedWorkspace) -> Lockfile {
+    Lockfile {
         version: 2,
         root: workspace
             .root_package_name()
@@ -450,14 +1046,53 @@ pub fn write_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageE
                     .collect(),
             })
             .collect(),
-    };
+    }
+}
 
-    let text = toml::to_string_pretty(&lockfile).map_err(PackageError::Serialize)?;
+pub fn verify_lockfile(workspace: &ResolvedWorkspace) -> Result<PathBuf, PackageError> {
     let path = workspace.root.join(LOCKFILE_NAME);
-    fs::write(&path, text).map_err(|error| PackageError::Io {
+    if !path.is_file() {
+        return Err(PackageError::LockfileMissing(path));
+    }
+    let text = fs::read_to_string(&path).map_err(|error| PackageError::Io {
         path: path.clone(),
         error,
     })?;
+    let actual: Lockfile = toml::from_str(&text).map_err(|error| PackageError::AtomicWrite {
+        path: path.clone(),
+        message: format!("invalid lockfile: {}", error),
+    })?;
+    let expected = lockfile_for_workspace(workspace);
+    if actual.version != expected.version {
+        return Err(PackageError::LockfileTampered {
+            path,
+            package: expected.root.clone(),
+            field: "version".to_string(),
+        });
+    }
+    if actual.root != expected.root {
+        return Err(PackageError::LockfileTampered {
+            path,
+            package: expected.root.clone(),
+            field: "root".to_string(),
+        });
+    }
+    if actual.packages.len() != expected.packages.len() {
+        return Err(PackageError::LockfileTampered {
+            path,
+            package: expected.root.clone(),
+            field: "packages".to_string(),
+        });
+    }
+    for (actual_package, expected_package) in actual.packages.iter().zip(&expected.packages) {
+        if actual_package != expected_package {
+            return Err(PackageError::LockfileTampered {
+                path,
+                package: expected_package.name.clone(),
+                field: "package graph, source, checksum, or dependencies".to_string(),
+            });
+        }
+    }
     Ok(path)
 }
 
@@ -793,17 +1428,31 @@ fn collect_package(
     visited: &mut HashSet<PathBuf>,
     by_name: &mut BTreeMap<String, PathBuf>,
     ordered: &mut Vec<ResolvedPackage>,
+    active: &mut Vec<String>,
+    options: ResolveOptions,
 ) -> Result<(), PackageError> {
     let root = canonicalize_existing(root)?;
+    let manifest_path = find_manifest(&root)?;
+    let loaded = load_package(&manifest_path)?;
+    validate_package_compatibility(&loaded.name, &loaded.release, &loaded.root)?;
+
+    if let Some(index) = active.iter().position(|name| name == &loaded.name) {
+        let mut chain = active[index..].to_vec();
+        chain.push(loaded.name);
+        return Err(PackageError::DependencyCycle(chain));
+    }
     if !visited.insert(root.clone()) {
         return Ok(());
     }
 
-    let manifest_path = find_manifest(&root)?;
-    let loaded = load_package(&manifest_path)?;
-    if by_name.insert(loaded.name.clone(), root.clone()).is_some() {
-        return Err(PackageError::DuplicatePackage(loaded.name));
+    if let Some(first) = by_name.insert(loaded.name.clone(), root.clone()) {
+        return Err(PackageError::DuplicatePackage {
+            name: loaded.name,
+            first,
+            second: root,
+        });
     }
+    active.push(loaded.name.clone());
 
     let mut dependencies = BTreeMap::new();
     for (dep_name, spec) in &loaded.dependency_specs {
@@ -852,7 +1501,7 @@ fn collect_package(
                     tag.as_deref(),
                     rev.as_deref(),
                     branch.as_deref(),
-                    false,
+                    options.offline,
                 )?;
                 (
                     installed.path.clone(),
@@ -891,6 +1540,8 @@ fn collect_package(
             visited,
             by_name,
             ordered,
+            active,
+            options,
         )?;
         let dep_manifest = load_package(&find_manifest(&dep_root)?)?;
         let version = match spec {
@@ -945,6 +1596,8 @@ fn collect_package(
         checksum,
     });
 
+    active.pop();
+
     Ok(())
 }
 
@@ -968,9 +1621,11 @@ fn topo_sort(packages: Vec<ResolvedPackage>) -> Result<Vec<ResolvedPackage>, Pac
             .map(|(name, _)| name.clone());
 
         let Some(name) = ready_name else {
-            return Err(PackageError::Registry(
-                "cyclic package dependency detected".to_string(),
-            ));
+            let mut chain = remaining.keys().cloned().collect::<Vec<_>>();
+            if let Some(first) = chain.first().cloned() {
+                chain.push(first);
+            }
+            return Err(PackageError::DependencyCycle(chain));
         };
         let package = remaining.remove(&name).expect("ready package exists");
         emitted.insert(name);
@@ -1036,12 +1691,30 @@ fn load_package(manifest_path: &Path) -> Result<LoadedPackage, PackageError> {
     })
 }
 
+fn validate_package_compatibility(
+    name: &str,
+    release: &ReleaseMetadata,
+    root: &Path,
+) -> Result<(), PackageError> {
+    let required = cli_compatibility_level();
+    if release.compatibility != required {
+        return Err(PackageError::IncompatiblePackage {
+            name: name.to_string(),
+            required: required.to_string(),
+            found: release.compatibility.clone(),
+            source: root.display().to_string(),
+        });
+    }
+    Ok(())
+}
+
 fn install_from_registry(
     root: &Path,
     registry: &Path,
     name: &str,
     version: &str,
 ) -> Result<InstalledRegistryPackage, PackageError> {
+    validate_package_identity(name, version)?;
     let registry_package = registry_package_dir(registry, name, version);
     let metadata_path = registry_package.join("package.toml");
     let metadata_text = fs::read_to_string(&metadata_path).map_err(|error| PackageError::Io {
@@ -1060,6 +1733,9 @@ fn install_from_registry(
         )));
     }
     let payload = registry_package.join("package");
+    let registry_root = canonicalize_existing(registry)?;
+    let payload = canonicalize_existing(&payload)?;
+    ensure_within_root(&registry_root, &payload)?;
     let checksum = directory_checksum(&payload)?;
     if checksum != metadata.checksum {
         return Err(PackageError::Registry(format!(
@@ -1073,17 +1749,26 @@ fn install_from_registry(
         name.replace('/', "_"),
         version
     ));
-    if vendor_dir.exists() {
-        fs::remove_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
-            path: vendor_dir.clone(),
+    if let Some(parent) = vendor_dir.parent() {
+        fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+            path: parent.to_path_buf(),
             error,
         })?;
     }
-    fs::create_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
-        path: vendor_dir.clone(),
-        error,
-    })?;
-    copy_package_payload(&payload, &vendor_dir)?;
+    let _lock = acquire_cache_lock(&vendor_dir)?;
+    let staging = staging_path(&vendor_dir, "dir");
+    let result = (|| {
+        fs::create_dir_all(&staging).map_err(|error| PackageError::Io {
+            path: staging.clone(),
+            error,
+        })?;
+        copy_package_payload(&payload, &staging)?;
+        atomic_replace(&staging, &vendor_dir)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result?;
     Ok(InstalledRegistryPackage {
         canonical_name: metadata.name,
         version: metadata.version,
@@ -1101,71 +1786,115 @@ fn install_from_git(
     branch: Option<&str>,
     offline: bool,
 ) -> Result<InstalledGitPackage, PackageError> {
+    validate_package_name(name)?;
+    check_git_locator_allowed(git)?;
+    if let Some(value) = tag {
+        validate_git_ref_text("tag", value).map_err(PackageError::Registry)?;
+    }
+    if let Some(value) = rev {
+        validate_git_ref_text("rev", value).map_err(PackageError::Registry)?;
+    }
+    if let Some(value) = branch {
+        validate_git_ref_text("branch", value).map_err(PackageError::Registry)?;
+    }
     let cache_root = workspace_root.join(".spectra").join("git");
     let clone_dir = cache_root.join(sanitize_package_component(name));
-    if !clone_dir.join(".git").is_dir() {
-        if offline {
-            return Err(PackageError::Registry(format!(
-                "package '{}' is not in git cache and --offline was used",
-                name
-            )));
-        }
-        fs::create_dir_all(&cache_root).map_err(|error| PackageError::Io {
-            path: cache_root.clone(),
-            error,
-        })?;
-        let clone_target = git_path_arg(&clone_dir);
+    if offline && !clone_dir.join(".git").is_dir() {
+        return Err(PackageError::CacheCorrupt {
+            package: name.to_string(),
+            path: clone_dir,
+            reason: "Git cache is missing or is not a repository while offline".to_string(),
+        });
+    }
+
+    fs::create_dir_all(&cache_root).map_err(|error| PackageError::Io {
+        path: cache_root.clone(),
+        error,
+    })?;
+    let _cache_lock = acquire_cache_lock(&clone_dir)?;
+    let staging = staging_path(&clone_dir, "git");
+    let clone_target = git_path_arg(&staging);
+    let clone_result = if offline {
+        let source = git_path_arg(&clone_dir);
+        run_git(
+            &[
+                "clone",
+                "--quiet",
+                "--local",
+                source.as_str(),
+                clone_target.as_str(),
+            ],
+            workspace_root,
+        )
+    } else {
         run_git(
             &["clone", "--quiet", git, clone_target.as_str()],
             workspace_root,
-        )?;
-    } else if !offline {
-        run_git(&["fetch", "--quiet", "--tags", "--force"], &clone_dir)?;
+        )
+    };
+    let result = (|| {
+        clone_result?;
+        if let Some(rev) = rev {
+            run_git(&["checkout", "--quiet", rev], &staging)?;
+        } else if let Some(tag) = tag {
+            run_git(&["checkout", "--quiet", tag], &staging)?;
+        } else if let Some(branch) = branch {
+            run_git(&["checkout", "--quiet", branch], &staging)?;
+        }
+        reject_git_symlinks(&staging, name)?;
+        let resolved = git_output(&["rev-parse", "HEAD"], &staging)?;
+        let manifest_path = find_manifest(&staging)?;
+        let loaded = load_package(&manifest_path)?;
+        validate_package_compatibility(&loaded.name, &loaded.release, &staging)?;
+        let version = requested_version
+            .map(str::to_string)
+            .unwrap_or_else(|| loaded.version.clone());
+        if loaded.name != name {
+            return Err(PackageError::Registry(format!(
+                "git package manifest name '{}' does not match requested '{}'",
+                loaded.name, name
+            )));
+        }
+        if loaded.version != version {
+            return Err(PackageError::Registry(format!(
+                "git package '{}' version '{}' does not match requested '{}'",
+                name, loaded.version, version
+            )));
+        }
+        atomic_replace(&staging, &clone_dir)?;
+        Ok((resolved, loaded, version))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging);
     }
-
-    if let Some(rev) = rev {
-        run_git(&["checkout", "--quiet", rev], &clone_dir)?;
-    } else if let Some(tag) = tag {
-        run_git(&["checkout", "--quiet", tag], &clone_dir)?;
-    } else if let Some(branch) = branch {
-        run_git(&["checkout", "--quiet", branch], &clone_dir)?;
-    }
-
-    let resolved = git_output(&["rev-parse", "HEAD"], &clone_dir)?;
-    let manifest_path = find_manifest(&clone_dir)?;
-    let loaded = load_package(&manifest_path)?;
-    let version = requested_version
-        .map(str::to_string)
-        .unwrap_or_else(|| loaded.version.clone());
-    if loaded.name != name {
-        return Err(PackageError::Registry(format!(
-            "git package manifest name '{}' does not match requested '{}'",
-            loaded.name, name
-        )));
-    }
-    if loaded.version != version {
-        return Err(PackageError::Registry(format!(
-            "git package '{}' version '{}' does not match requested '{}'",
-            name, loaded.version, version
-        )));
-    }
+    let (resolved, loaded, version) = result?;
 
     let vendor_dir = workspace_root
         .join(".spectra")
         .join("packages")
         .join(format!("{}-{}", sanitize_package_component(name), version));
-    if vendor_dir.exists() {
-        fs::remove_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
-            path: vendor_dir.clone(),
+    if let Some(parent) = vendor_dir.parent() {
+        fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+            path: parent.to_path_buf(),
             error,
         })?;
     }
-    fs::create_dir_all(&vendor_dir).map_err(|error| PackageError::Io {
-        path: vendor_dir.clone(),
-        error,
-    })?;
-    copy_package_payload(&clone_dir, &vendor_dir)?;
-    let checksum = directory_checksum(&vendor_dir)?;
+    let _vendor_lock = acquire_cache_lock(&vendor_dir)?;
+    let vendor_staging = staging_path(&vendor_dir, "dir");
+    let vendor_result = (|| {
+        fs::create_dir_all(&vendor_staging).map_err(|error| PackageError::Io {
+            path: vendor_staging.clone(),
+            error,
+        })?;
+        copy_package_payload(&clone_dir, &vendor_staging)?;
+        let checksum = directory_checksum(&vendor_staging)?;
+        atomic_replace(&vendor_staging, &vendor_dir)?;
+        Ok(checksum)
+    })();
+    if vendor_result.is_err() {
+        let _ = fs::remove_dir_all(&vendor_staging);
+    }
+    let checksum = vendor_result?;
     Ok(InstalledGitPackage {
         name: loaded.name,
         version,
@@ -1212,6 +1941,21 @@ fn git_output(args: &[&str], cwd: &Path) -> Result<String, PackageError> {
             String::from_utf8_lossy(&output.stderr).trim()
         )))
     }
+}
+
+fn reject_git_symlinks(root: &Path, package: &str) -> Result<(), PackageError> {
+    let entries = git_output(&["ls-files", "-s"], root)?;
+    for line in entries.lines() {
+        let mut fields = line.split_whitespace();
+        if fields.next() == Some("120000") {
+            let path = fields.nth(2).unwrap_or(".");
+            return Err(PackageError::UnsafePath {
+                path: root.join(path),
+                reason: format!("package '{}' contains a Git symbolic link", package),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn git_requested_ref(tag: Option<&str>, rev: Option<&str>, branch: Option<&str>) -> String {
@@ -1438,6 +2182,81 @@ fn is_allowed_git_locator(value: &str) -> bool {
         || value.contains('\\')
 }
 
+fn validate_package_name(name: &str) -> Result<(), PackageError> {
+    if !is_valid_package_name(name) || name.contains('/') || name.contains('\\') {
+        return Err(PackageError::UnsafePath {
+            path: PathBuf::from(name),
+            reason: "package name contains an invalid or escaping component".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_package_identity(name: &str, version: &str) -> Result<(), PackageError> {
+    validate_package_name(name)?;
+    if !is_valid_semver(version) {
+        return Err(PackageError::UnsafePath {
+            path: PathBuf::from(version),
+            reason: "package version is not an exact semver value".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn ensure_within_root(root: &Path, path: &Path) -> Result<(), PackageError> {
+    let root = canonicalize_existing(root)?;
+    let path = canonicalize_existing(path)?;
+    if !path.starts_with(&root) {
+        return Err(PackageError::UnsafePath {
+            path,
+            reason: format!("path escapes package root '{}'", root.display()),
+        });
+    }
+    Ok(())
+}
+
+fn remote_git_host(locator: &str) -> Option<String> {
+    if let Some(rest) = locator.strip_prefix("git@") {
+        return rest.split(':').next().map(str::to_ascii_lowercase);
+    }
+    if locator.starts_with("https://") || locator.starts_with("ssh://") {
+        let rest = locator.split_once("://")?.1;
+        return rest
+            .split(['/', '?', '#'])
+            .next()
+            .filter(|host| !host.is_empty())
+            .map(str::to_ascii_lowercase);
+    }
+    None
+}
+
+fn check_git_locator_allowed(locator: &str) -> Result<(), PackageError> {
+    let Some(host) = remote_git_host(locator) else {
+        return Ok(());
+    };
+    let Ok(raw) = env::var("SPECTRA_PACKAGE_ALLOWED_HOSTS") else {
+        return Ok(());
+    };
+    if host_is_allowed(&host, &raw) {
+        Ok(())
+    } else {
+        Err(PackageError::HostNotAllowed {
+            host,
+            locator: locator.to_string(),
+        })
+    }
+}
+
+fn host_is_allowed(host: &str, raw: &str) -> bool {
+    let allowed = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<BTreeSet<_>>();
+    allowed.contains(host)
+}
+
 fn is_hex_sha(value: &str, min_len: usize) -> bool {
     value.len() >= min_len && value.len() <= 64 && value.chars().all(|ch| ch.is_ascii_hexdigit())
 }
@@ -1481,6 +2300,9 @@ fn catalog_paths(root: &Path, explicit: Option<&Path>) -> Result<Vec<PathBuf>, P
         return Ok(vec![catalog_index_path(explicit)]);
     }
     let mut paths = Vec::new();
+    for name in load_catalog_config(root)?.keys() {
+        paths.push(catalog_cache_dir(root, name).join("package.index.toml"));
+    }
     let manifest = find_manifest(root).ok();
     if let Some(manifest_path) = manifest {
         let loaded = load_package(&manifest_path)?;
@@ -1539,7 +2361,10 @@ fn load_catalogs(
                 ))
             })?;
         }
-        packages.extend(catalog.packages);
+        packages.extend(catalog.packages.into_iter().map(|mut package| {
+            package.origin = path.display().to_string();
+            package
+        }));
     }
     Ok(packages)
 }
@@ -1551,18 +2376,72 @@ fn resolve_catalog_entry(
     explicit: Option<&Path>,
 ) -> Result<CatalogPackage, PackageError> {
     let packages = load_catalogs(root, explicit)?;
-    let mut matches = packages
+    let matches = packages
         .into_iter()
         .filter(|package| package.name == name)
         .collect::<Vec<_>>();
-    if let Some(version) = version {
-        matches.retain(|package| package.version == version);
-    }
     if matches.is_empty() {
         return Err(PackageError::MissingPackage(name.to_string()));
     }
-    matches.sort_by(|left, right| compare_versions(&left.version, &right.version));
-    Ok(matches.pop().expect("non-empty catalog matches"))
+
+    let mut unique = BTreeMap::<String, CatalogPackage>::new();
+    for package in matches {
+        if let Some(existing) = unique.get(&package.version) {
+            if !catalog_entries_match(existing, &package) {
+                return Err(PackageError::ConflictingCatalogPackage {
+                    name: name.to_string(),
+                    version: package.version,
+                    first: existing.origin.clone(),
+                    second: package.origin,
+                });
+            }
+            continue;
+        }
+        unique.insert(package.version.clone(), package);
+    }
+
+    let requested = version.map(str::to_string);
+    if let Some(requested_version) = requested.as_deref() {
+        if !unique.contains_key(requested_version) {
+            return Err(PackageError::MissingPackage(format!(
+                "{}@{}",
+                name, requested_version
+            )));
+        }
+    }
+    let mut compatible = unique
+        .into_values()
+        .filter(|package| {
+            requested
+                .as_deref()
+                .map_or(true, |requested| package.version == requested)
+        })
+        .filter(|package| package.compatibility == cli_compatibility_level())
+        .collect::<Vec<_>>();
+
+    if compatible.is_empty() {
+        let requested_version = requested.as_deref().unwrap_or("any");
+        let found = if requested_version == "any" {
+            "no compatible catalog entry".to_string()
+        } else {
+            load_catalogs(root, explicit)?
+                .into_iter()
+                .find(|package| package.name == name && package.version == requested_version)
+                .map(|package| package.compatibility)
+                .unwrap_or_else(|| "no compatible catalog entry".to_string())
+        };
+        return Err(PackageError::IncompatiblePackage {
+            name: name.to_string(),
+            required: cli_compatibility_level().to_string(),
+            found,
+            source: requested_version.to_string(),
+        });
+    }
+
+    compatible.sort_by(|left, right| compare_versions(&left.version, &right.version));
+    Ok(compatible
+        .pop()
+        .expect("non-empty compatible catalog matches"))
 }
 
 fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
@@ -1680,6 +2559,7 @@ pub fn write_metadata(
         license: String::new(),
         modules: exported_modules(&manifest.src_dirs)?,
         owner: String::new(),
+        origin: String::new(),
     };
     validate_catalog_package(&entry, true).map_err(|message| {
         PackageError::Registry(format!("refusing to publish package metadata: {}", message))
@@ -1755,6 +2635,7 @@ pub fn register(
         license: String::new(),
         modules: exported_modules(&manifest.src_dirs)?,
         owner: String::new(),
+        origin: String::new(),
     };
     validate_catalog_package(&entry, true).map_err(|message| {
         PackageError::Registry(format!("refusing to register package: {}", message))
@@ -1821,19 +2702,13 @@ fn exported_modules(src_dirs: &[PathBuf]) -> Result<Vec<String>, PackageError> {
     Ok(modules)
 }
 
-pub fn fetch(root: &Path, offline: bool) -> Result<PathBuf, PackageError> {
-    let workspace = resolve(root)?;
-    if offline {
-        for package in &workspace.packages {
-            if matches!(package.source, PackageSource::Git { .. }) && !package.root.is_dir() {
-                return Err(PackageError::Registry(format!(
-                    "package '{}' missing from offline cache",
-                    package.name
-                )));
-            }
-        }
+pub fn fetch(root: &Path, offline: bool, locked: bool) -> Result<PathBuf, PackageError> {
+    let workspace = resolve_with_options(root, ResolveOptions { offline })?;
+    if locked {
+        verify_lockfile(&workspace)
+    } else {
+        write_lockfile(&workspace)
     }
-    write_lockfile(&workspace)
 }
 
 pub fn dependency_tree(root: &Path) -> Result<Vec<String>, PackageError> {
@@ -1945,6 +2820,7 @@ fn pathdiff(path: &Path, base: &Path) -> Option<PathBuf> {
 }
 
 fn copy_package_payload(from: &Path, to: &Path) -> Result<(), PackageError> {
+    ensure_destination_is_safe(to)?;
     for entry in fs::read_dir(from).map_err(|error| PackageError::Io {
         path: from.to_path_buf(),
         error,
@@ -1956,6 +2832,16 @@ fn copy_package_payload(from: &Path, to: &Path) -> Result<(), PackageError> {
         let path = entry.path();
         let name = entry.file_name();
         let name_text = name.to_string_lossy();
+        let metadata = fs::symlink_metadata(&path).map_err(|error| PackageError::Io {
+            path: path.clone(),
+            error,
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(PackageError::UnsafePath {
+                path,
+                reason: "symbolic links are not allowed in package payloads".to_string(),
+            });
+        }
         if matches!(
             name_text.as_ref(),
             "target" | ".git" | ".spectra" | LOCKFILE_NAME
@@ -1963,6 +2849,16 @@ fn copy_package_payload(from: &Path, to: &Path) -> Result<(), PackageError> {
             continue;
         }
         let dest = to.join(&name);
+        if dest.file_name().is_none()
+            || dest
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+        {
+            return Err(PackageError::UnsafePath {
+                path: dest,
+                reason: "payload destination escapes staging root".to_string(),
+            });
+        }
         if path.is_dir() {
             fs::create_dir_all(&dest).map_err(|error| PackageError::Io {
                 path: dest.clone(),
@@ -2010,6 +2906,16 @@ fn collect_files(
         let path = entry.path();
         let name = entry.file_name();
         let name_text = name.to_string_lossy();
+        let metadata = fs::symlink_metadata(&path).map_err(|error| PackageError::Io {
+            path: path.clone(),
+            error,
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(PackageError::UnsafePath {
+                path,
+                reason: "symbolic links are not allowed in package checksums".to_string(),
+            });
+        }
         if matches!(name_text.as_ref(), "target" | ".git" | ".spectra") {
             continue;
         }
@@ -2023,10 +2929,177 @@ fn collect_files(
     Ok(())
 }
 
+fn ensure_destination_is_safe(path: &Path) -> Result<(), PackageError> {
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if candidate.exists() {
+            let metadata = fs::symlink_metadata(candidate).map_err(|error| PackageError::Io {
+                path: candidate.to_path_buf(),
+                error,
+            })?;
+            if metadata.file_type().is_symlink() {
+                return Err(PackageError::UnsafePath {
+                    path: candidate.to_path_buf(),
+                    reason: "destination contains a symbolic link".to_string(),
+                });
+            }
+        }
+        current = candidate.parent();
+    }
+    Ok(())
+}
+
 fn stable_hash_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
+}
+
+fn staging_path(destination: &Path, label: &str) -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("package");
+    destination.with_file_name(format!(
+        ".{}.{}.{}.{}",
+        file_name,
+        label,
+        std::process::id(),
+        nonce
+    ))
+}
+
+struct CacheLock {
+    path: PathBuf,
+}
+
+impl Drop for CacheLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn acquire_cache_lock(destination: &Path) -> Result<CacheLock, PackageError> {
+    let path = PathBuf::from(format!("{}.lock", destination.display()));
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| PackageError::AtomicWrite {
+            path: destination.to_path_buf(),
+            message: if error.kind() == io::ErrorKind::AlreadyExists {
+                "another package operation is already using this cache destination".to_string()
+            } else {
+                error.to_string()
+            },
+        })?;
+    Ok(CacheLock { path })
+}
+
+fn atomic_write_file(path: &Path, bytes: &[u8]) -> Result<(), PackageError> {
+    let parent = path.parent().ok_or_else(|| PackageError::AtomicWrite {
+        path: path.to_path_buf(),
+        message: "destination has no parent directory".to_string(),
+    })?;
+    fs::create_dir_all(parent).map_err(|error| PackageError::Io {
+        path: parent.to_path_buf(),
+        error,
+    })?;
+    let _lock = acquire_cache_lock(path)?;
+    let staging = staging_path(path, "file");
+    let result = (|| {
+        fs::write(&staging, bytes).map_err(|error| PackageError::Io {
+            path: staging.clone(),
+            error,
+        })?;
+        atomic_replace(&staging, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&staging);
+    }
+    result
+}
+
+fn atomic_replace(source: &Path, destination: &Path) -> Result<(), PackageError> {
+    if destination.is_dir() && source.is_dir() {
+        let backup = staging_path(destination, "backup");
+        fs::rename(destination, &backup).map_err(|error| PackageError::AtomicWrite {
+            path: destination.to_path_buf(),
+            message: error.to_string(),
+        })?;
+        match fs::rename(source, destination) {
+            Ok(()) => {
+                let _ = fs::remove_dir_all(&backup);
+                return Ok(());
+            }
+            Err(error) => {
+                let _ = fs::rename(&backup, destination);
+                return Err(PackageError::AtomicWrite {
+                    path: destination.to_path_buf(),
+                    message: error.to_string(),
+                });
+            }
+        }
+    }
+    if !destination.exists() {
+        return fs::rename(source, destination).map_err(|error| PackageError::AtomicWrite {
+            path: destination.to_path_buf(),
+            message: error.to_string(),
+        });
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let source_text = source.to_string_lossy();
+        let source_text = source_text.strip_prefix(r"\\?\").unwrap_or(&source_text);
+        let destination_text = destination.to_string_lossy();
+        let destination_text = destination_text
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&destination_text);
+        let source_wide: Vec<u16> = std::ffi::OsStr::new(source_text)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let destination_wide: Vec<u16> = std::ffi::OsStr::new(destination_text)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let success = unsafe {
+            MoveFileExW(
+                source_wide.as_ptr(),
+                destination_wide.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if success == 0 {
+            return Err(PackageError::AtomicWrite {
+                path: destination.to_path_buf(),
+                message: io::Error::last_os_error().to_string(),
+            });
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        fs::rename(source, destination).map_err(|error| PackageError::AtomicWrite {
+            path: destination.to_path_buf(),
+            message: error.to_string(),
+        })
+    }
+}
+
+#[cfg(windows)]
+const MOVEFILE_REPLACE_EXISTING: u32 = 0x00000001;
+#[cfg(windows)]
+const MOVEFILE_WRITE_THROUGH: u32 = 0x00000008;
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32;
 }
 
 fn is_valid_semver(version: &str) -> bool {
@@ -2074,6 +3147,7 @@ pub fn deprecation_warnings(workspace: &ResolvedWorkspace) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn stable_hash_is_deterministic() {
@@ -2093,5 +3167,207 @@ mod tests {
     fn toml_key_quotes_dotted_package_names() {
         assert_eq!(toml_key("spectra-api"), "spectra-api");
         assert_eq!(toml_key("spectra.api"), "\"spectra.api\"");
+    }
+
+    #[test]
+    fn security_rejects_escaping_names_and_matches_hosts_exactly() {
+        assert!(validate_package_name("../escape").is_err());
+        assert!(validate_package_name("safe-package").is_ok());
+        assert_eq!(
+            remote_git_host("https://GitHub.com/org/pkg.git"),
+            Some("github.com".to_string())
+        );
+        assert!(host_is_allowed("github.com", "github.com,gitlab.com"));
+        assert!(!host_is_allowed("evil.github.com", "github.com"));
+    }
+
+    #[test]
+    fn lockfile_v2_round_trips_for_semantic_comparison() {
+        let lockfile = Lockfile {
+            version: 2,
+            root: "root".to_string(),
+            packages: Vec::new(),
+        };
+        let text = toml::to_string_pretty(&lockfile).expect("serialize lockfile");
+        let decoded: Lockfile = toml::from_str(&text).expect("deserialize lockfile");
+        assert_eq!(decoded, lockfile);
+    }
+
+    fn temp_catalog(contents: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("spectralang-r905-{}.toml", nonce));
+        fs::write(&path, contents).expect("catalog write");
+        path
+    }
+
+    #[test]
+    fn catalog_resolution_deduplicates_and_selects_highest_compatible_version() {
+        let catalog = temp_catalog(
+            r#"
+schema = "spectra-package-catalog-v1"
+
+[[packages]]
+name = "demo"
+version = "1.0.0"
+git = "C:\\packages\\demo-1"
+compatibility = "spectralang-0.1"
+
+[[packages]]
+name = "demo"
+version = "1.1.0"
+git = "C:\\packages\\demo-11"
+compatibility = "spectralang-0.1"
+
+[[packages]]
+name = "demo"
+version = "1.1.0"
+git = "C:\\packages\\demo-11"
+compatibility = "spectralang-0.1"
+
+[[packages]]
+name = "demo"
+version = "2.0.0"
+git = "C:\\packages\\demo-2"
+compatibility = "spectralang-0.2"
+"#,
+        );
+        let resolved = resolve_catalog_entry(Path::new("."), "demo", None, Some(&catalog))
+            .expect("compatible catalog entry");
+        assert_eq!(resolved.version, "1.1.0");
+        assert_eq!(resolved.git, "C:\\packages\\demo-11");
+        let _ = fs::remove_file(catalog);
+    }
+
+    #[test]
+    fn catalog_resolution_reports_conflicting_same_version_entries() {
+        let catalog = temp_catalog(
+            r#"
+[[packages]]
+name = "demo"
+version = "1.0.0"
+git = "C:\\packages\\one"
+compatibility = "spectralang-0.1"
+
+[[packages]]
+name = "demo"
+version = "1.0.0"
+git = "C:\\packages\\two"
+compatibility = "spectralang-0.1"
+"#,
+        );
+        let error = resolve_catalog_entry(Path::new("."), "demo", None, Some(&catalog))
+            .expect_err("conflicting entries must fail");
+        assert!(error.to_string().contains("version '1.0.0' conflict"));
+        let _ = fs::remove_file(catalog);
+    }
+
+    #[test]
+    fn package_diagnostics_include_origins_and_cycle_chain() {
+        let duplicate = PackageError::DuplicatePackage {
+            name: "demo".to_string(),
+            first: PathBuf::from("one"),
+            second: PathBuf::from("two"),
+        };
+        assert!(duplicate.to_string().contains("'one' and 'two'"));
+        let cycle =
+            PackageError::DependencyCycle(vec!["a".to_string(), "b".to_string(), "a".to_string()]);
+        assert!(cycle.to_string().contains("a -> b -> a"));
+    }
+
+    #[test]
+    fn offline_git_resolution_rejects_missing_cache_before_git() {
+        let root = std::env::temp_dir().join(format!(
+            "spectralang-r913-cache-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("cache root");
+        let result = install_from_git(
+            &root,
+            "missing-package",
+            Some("1.0.0"),
+            "https://example.invalid/missing.git",
+            Some("v1.0.0"),
+            None,
+            None,
+            true,
+        );
+        let error = match result {
+            Ok(_) => panic!("offline resolution must not use a missing cache"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("cache") || error.to_string().contains("offline"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn locked_fetch_requires_an_existing_lockfile() {
+        let root = std::env::temp_dir().join(format!(
+            "spectralang-r913-lock-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("src")).expect("workspace root");
+        fs::write(
+            root.join("spectra.toml"),
+            "[project]\nname = \"r913_root\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("manifest");
+        let error = fetch(&root, true, true).expect_err("locked fetch must require a lockfile");
+        assert!(error.to_string().contains("lockfile"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn catalog_config_is_loaded_in_deterministic_order() {
+        let root = std::env::temp_dir().join(format!(
+            "spectralang-r911-config-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let config = root.join(".spectra/catalogs/catalogs.toml");
+        fs::create_dir_all(config.parent().expect("config parent")).expect("config directory");
+        fs::write(&config, "zeta = \"z\"\nalpha = \"a\"\n").expect("config");
+        let loaded = load_catalog_config(&root).expect("catalog config");
+        let names = loaded.keys().cloned().collect::<Vec<_>>();
+        assert_eq!(names, vec!["alpha", "zeta"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn catalog_state_round_trip_preserves_semantic_fields() {
+        let root = std::env::temp_dir().join(format!(
+            "spectralang-r911-state-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let state = CatalogStateFile {
+            version: 1,
+            catalogs: vec![CatalogState {
+                name: "alpha".to_string(),
+                source: "local".to_string(),
+                cache: ".spectra/catalogs/alpha".to_string(),
+                resolved_rev: Some("a".repeat(40)),
+                index_hash: "b".repeat(64),
+                synced_at: "123".to_string(),
+            }],
+        };
+        write_catalog_state(&root, state.clone()).expect("state write");
+        let loaded = load_catalog_state(&root).expect("state read");
+        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.catalogs[0].name, "alpha");
+        assert_eq!(loaded.catalogs[0].index_hash, "b".repeat(64));
+        let _ = fs::remove_dir_all(root);
     }
 }

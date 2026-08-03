@@ -11,6 +11,19 @@ A Biblioteca Padrão (stdlib) do SpectraLang é implementada como funções hosp
 **EN-US:**  
 SpectraLang's Standard Library (stdlib) is implemented as host functions registered by the runtime and called from JIT code via FFI. There are **12 modules** with over **100 functions**.
 
+## Exact-width numeric contract (R-2901)
+
+The scalar types `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`,
+`isize`, `usize`, `f32`, and `f64` are represented explicitly in semantic and
+midend IR. `int` remains the compatibility spelling for `i64`, and `float`
+for `f64`. `as` casts are checked by default; `as wrapping` is reserved for
+integer modular conversion. The exact-width contract is still `in_progress`
+until dynamic overflow diagnostics, AOT/interop evidence, and the complete
+ABI gate pass.
+
+`std.numeric.wrapping_add_*`, `wrapping_sub_*`, and `wrapping_mul_*` provide
+explicit modular operations for the supported integer widths.
+
 ---
 
 ## Sumário / Table of Contents
@@ -976,9 +989,9 @@ pub fn main() -> int {
 }
 ```
 
-Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7/16: device placement é explícito para handles CPU e `wgpu`, com `device`, `device_available`, `device_status`, `to_device`, `cpu`, `sync`, `stats_device_transfers`, `stats_gpu_kernel_ops` e `stats_cpu_fallbacks`; device `0` é CPU, device `6` é `wgpu` com `--features gpu`, e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados. `device_status` retorna `0` disponível, `1` backend existente mas indisponível no build/host, e `2` device reservado não implementado. Mixed precision usa `precision`/`to_precision` com códigos `0` f64, `1` f32, `2` f16 e `3` bf16. Estado Phase 14: `Tensor<dtype, rankN, dimN|dynamic_dim, layout, device>`, literais rank1/rank2, validação estática de shape em operações principais e `diff { ... }` com diagnóstico `E1406` estão completos para o baseline atual. Estado Phase 15/R-1501: `scripts/validate_r1501_bench.py` executa benchmarks release de criação de tensor, unary ops, reductions, matmul, convolução, autodiff, otimizadores e data loading contra thresholds versionados. Estado Phase 15/R-1502: `std.tensor.memory_report()` e métricas `stats_lifetime_records`/`stats_reuse_rate_per_mille` expõem lifetimes, allocation sites, reuse e pressão de memória. Estado Phase 15/R-1503: `scripts/validate_r1503_correctness.py` gera artefatos portáteis de correção numérica para RNG, reductions, matmul, convolução e otimizadores com tolerância `1e-9` absoluta/relativa. Estado Phase 16/R-1603: `scripts/validate_r1603_gpu_backend.py` valida CPU fallback, WGPU opcional, diagnósticos de capability e kernels de elementwise/reductions/matmul/conv2d/autodiff.
+Estado Phase 3/4: `std.tensor` inclui views seguras, copy-on-write em mutação compartilhada, operações MVP de tensor, kernels CPU portáveis, RNG reproduzível por seed, distribuições básicas, categorical sampling, métricas de alocação/kernel e benchmark release reproduzível. Estado Phase 7/16: device placement é explícito para handles CPU e `wgpu`, com `device`, `device_available`, `device_status`, `to_device`, `cpu`, `sync`, `stats_device_transfers`, `stats_gpu_kernel_ops` e `stats_cpu_fallbacks`; device `0` é CPU, device `6` é `wgpu` com `--features gpu`, e os códigos `1` CUDA, `2` ROCm, `3` Metal, `4` DirectML e `5` Vulkan são reservados sem implementação no build atual. `device_status` retorna `0` para um backend implementado e disponível, `1` para `wgpu` implementado mas indisponível no build/host, e `HOST_STATUS_INVALID_ARGUMENT` para devices reservados ou desconhecidos. Mixed precision usa `precision`/`to_precision` com códigos `0` f64, `1` f32, `2` f16 e `3` bf16. Estado Phase 14: `Tensor<dtype, rankN, dimN|dynamic_dim, layout, device>`, literais rank1/rank2, validação estática de shape em operações principais e `diff { ... }` com diagnóstico `E1406` estão completos para o baseline atual. Estado Phase 15/R-1501: `scripts/validate_r1501_bench.py` executa benchmarks release de criação de tensor, unary ops, reductions, matmul, convolução, autodiff, otimizadores e data loading contra thresholds versionados. Estado Phase 15/R-1502: `std.tensor.memory_report()` e métricas `stats_lifetime_records`/`stats_reuse_rate_per_mille` expõem lifetimes, allocation sites, reuse e pressão de memória. Estado Phase 15/R-1503: `scripts/validate_r1503_correctness.py` gera artefatos portáteis de correção numérica para RNG, reductions, matmul, convolução e otimizadores com tolerância `1e-9` absoluta/relativa. Estado Phase 16/R-1603: `scripts/validate_r1603_gpu_backend.py` valida CPU fallback, WGPU opcional, diagnósticos de capability e kernels de elementwise/reductions/matmul/conv2d/autodiff.
 
-Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`, com `requires_grad`, `backward`, `grad`, `zero_grad`, modo inference/no-grad e liberação automática do graph após backward. Use reduções tensor-returning (`sum_t`, `mean_t`, `dot_t`) para criar losses diferenciáveis. Broadcasting de gradiente fica para a fase em que operações broadcasted forem adicionadas à API de tensor.
+Estado Phase 5: `std.tensor` inclui autodiff reverse-mode para tensores `float`, com `requires_grad`, `backward`, `grad`, `zero_grad`, modo inference/no-grad e liberação automática do graph após backward. Use reduções tensor-returning (`sum_t`, `mean_t`, `dot_t`) para criar losses diferenciáveis. R-3004 adiciona um grafo reverso compiler-visible (`spectralang.r3004_autodiff_ir.v1`) com seeds, valores salvos, regras versionadas, acumulação explícita e `AutodiffStep` executado por kernels reversos individuais. Blocos `diff` não usam mais o adapter interno; `tensor.backward` permanece disponível somente como API pública de compatibilidade.
 
 ---
 
@@ -1023,7 +1036,7 @@ import std.ml as ml;
 | `embedding_lookup`, `positional_encoding`, `layer_norm`, `gelu`, `swiglu`, `attention` | Transformer tensor primitives |
 | `kv_cache_new`, `kv_cache_append`, `kv_cache_keys`, `kv_cache_values`, `kv_cache_len`, `logits_sample` | LLM KV-cache and logits sampling helpers |
 | `tokenizer_wordpiece`, `tokenizer_encode`, `tokenizer_decode`, `text_embed` | Deterministic tokenization and text embedding utilities |
-| `vector_index_new`, `vector_index_insert`, `vector_index_query`, `vector_index_persist`, `vector_index_load` | Persistent vector index APIs |
+| `vector_index_new`, `vector_index_insert`, `vector_index_query`, `vector_index_persist`, `vector_index_load`, `vector_index_set_metadata`, `vector_index_metrics` | Deterministic HNSW vector index APIs backed by the R-3003 Artifact Container v1; legacy JSON is rejected |
 | `rag_chunk_text`, `rag_build_prompt`, `rag_evaluate_answer` | RAG chunking, prompt assembly, and evaluation |
 
 Exemplos completos estão em:

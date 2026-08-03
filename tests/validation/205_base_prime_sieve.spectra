@@ -1,0 +1,34 @@
+// Extended validation: sieve of Eratosthenes with a fixed-size mutable array.
+module base_prime_sieve;
+
+fn sieve_signature(limit: int) -> int {
+    let marked = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let prime = 2;
+    while prime * prime < limit {
+        if marked[prime] == 0 {
+            let multiple = prime * prime;
+            while multiple < limit {
+                marked[multiple] = 1;
+                multiple = multiple + prime;
+            }
+        }
+        prime = prime + 1;
+    }
+
+    let count = 0;
+    let sum = 0;
+    let value = 2;
+    while value < limit {
+        if marked[value] == 0 {
+            count = count + 1;
+            sum = sum + value;
+        }
+        value = value + 1;
+    }
+    return count * 1000 + sum;
+}
+
+pub fn main() -> int {
+    if sieve_signature(30) != 10129 { return 1; }
+    return 0;
+}

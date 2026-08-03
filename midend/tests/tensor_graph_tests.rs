@@ -282,6 +282,59 @@ fn tensor_graph_validation_catches_matmul_shape_mismatch() {
 }
 
 #[test]
+fn tensor_graph_lowering_reports_backend_evidence_and_codes() {
+    let graph = TensorGraph {
+        module: "manual".to_string(),
+        functions: vec![TensorGraphFunction {
+            name: "main".to_string(),
+            nodes: vec![
+                node(
+                    0,
+                    TensorGraphOp::Parameter,
+                    vec![],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![Some(8)]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+                node(
+                    1,
+                    TensorGraphOp::Elementwise { name: "relu".into() },
+                    vec![0],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![Some(8)]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+                node(
+                    2,
+                    TensorGraphOp::Elementwise { name: "tanh_f".into() },
+                    vec![1],
+                    TensorMetadata::new(
+                        TensorDType::Float,
+                        TensorShape::Ranked(vec![Some(8)]),
+                        TensorDevice::Cpu,
+                    ),
+                ),
+            ],
+        }],
+    };
+    let lowered = graph
+        .lower_for_backend(TensorDevice::Cpu)
+        .expect("CPU legalization should pass");
+    assert_eq!(lowered.report.backend, TensorDevice::Cpu);
+    assert_eq!(lowered.report.external_fallback_nodes, 0);
+    assert_eq!(lowered.report.fusion_groups, 1);
+    assert!(lowered.report.planned_buffers > 0);
+    assert!(lowered.report.peak_live_buffers > 0);
+    assert_eq!(TensorGraphErrorKind::DtypeMismatch.diagnostic_code(), "E2909");
+    assert_eq!(TensorGraphErrorKind::InvalidLayout.diagnostic_code(), "E2911");
+    assert_eq!(TensorGraphErrorKind::FallbackNotAllowed.diagnostic_code(), "E2912");
+}
+
+#[test]
 fn tensor_graph_validation_catches_device_mismatch() {
     let graph = TensorGraph {
         module: "manual".to_string(),

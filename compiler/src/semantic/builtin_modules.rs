@@ -7,7 +7,7 @@ use super::module_registry::{
     ExportVisibility, ExportedFunction, ExportedSelfParamKind, ExportedTrait, ExportedTraitMethod,
     ExportedType, ModuleExports, ModuleRegistry,
 };
-use crate::ast::Type;
+use crate::ast::{FloatWidth, IntWidth, Type};
 
 pub const STD_API_MODULE_PATHS: &[&str] = &[
     "std.api",
@@ -501,6 +501,7 @@ pub const STD_RANGE_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
 pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.io".to_string(), make_std_io());
     registry.register_module("std.math".to_string(), make_std_math());
+    registry.register_module("std.numeric".to_string(), make_std_numeric());
     registry.register_module("std.collections".to_string(), make_std_collections());
     registry.register_module("std.string".to_string(), make_std_string());
     registry.register_module("std.convert".to_string(), make_std_convert());
@@ -520,6 +521,7 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     // Convenience aliases used in existing examples
     registry.register_module("spectra.std.io".to_string(), make_std_io());
     registry.register_module("spectra.std.math".to_string(), make_std_math());
+    registry.register_module("spectra.std.numeric".to_string(), make_std_numeric());
     registry.register_module(
         "spectra.std.collections".to_string(),
         make_std_collections(),
@@ -609,6 +611,11 @@ fn register_std_api_modules(registry: &mut ModuleRegistry, prefix: &str) {
         make_std_api_middleware(prefix),
     );
     registry.register_module(format!("{prefix}.errors"), make_std_api_errors(prefix));
+    registry.register_module(format!("{prefix}.trace"), make_std_api_trace(prefix));
+    registry.register_module(format!("{prefix}.health"), make_std_api_health(prefix));
+    registry.register_module(format!("{prefix}.db.sqlite"), make_std_api_db_sqlite(prefix));
+    registry.register_module(format!("{prefix}.db.postgres"), make_std_api_db_postgres(prefix));
+    registry.register_module(format!("{prefix}.db.redis"), make_std_api_db_redis(prefix));
 }
 
 fn stdlib_segments(prefix: &str) -> Vec<String> {
@@ -636,6 +643,8 @@ fn make_std_api_root(prefix: &str) -> ModuleExports {
         "Server",
         "Client",
         "TlsConfig",
+        "SqliteConnection",
+        "SqliteStatement",
     ] {
         exports.types.insert(name.to_string(), public_type(&[]));
     }
@@ -1481,6 +1490,140 @@ fn make_std_api_errors(prefix: &str) -> ModuleExports {
     exports
 }
 
+fn make_std_api_trace(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("trace"));
+    let config = api_type("TraceConfig");
+    let span = api_type("TraceSpan");
+    exports.types.insert("TraceConfig".to_string(), public_type(&[]));
+    exports.types.insert("TraceSpan".to_string(), public_type(&[]));
+    for (name, params, return_type) in [
+        ("config_new", vec![Type::String, Type::String], config.clone()),
+        ("config_set_sample_rate", vec![config.clone(), Type::Float], Type::Bool),
+        ("config_set_batch_size", vec![config.clone(), Type::Int], Type::Bool),
+        ("config_start", vec![config.clone()], Type::Bool),
+        ("config_shutdown", vec![config.clone()], Type::Bool),
+        ("span_start", vec![Type::String, Type::Int], span.clone()),
+        ("span_set_attribute", vec![span.clone(), Type::String, Type::String], Type::Bool),
+        ("span_set_attribute_int", vec![span.clone(), Type::String, Type::Int], Type::Bool),
+        ("span_set_attribute_bool", vec![span.clone(), Type::String, Type::Bool], Type::Bool),
+        ("span_set_status", vec![span.clone(), Type::Int], Type::Bool),
+        ("span_end", vec![span.clone()], Type::Bool),
+        ("current", vec![], span.clone()),
+        ("parent", vec![span.clone()], span.clone()),
+        ("inject", vec![span.clone()], Type::Bool),
+        ("extract", vec![Type::String], Type::Bool),
+        ("flush", vec![], Type::Int),
+        ("last_error", vec![], Type::String),
+    ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
+    exports
+}
+
+fn make_std_api_health(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(prefix, Some("health"));
+    exports.functions.insert("startup_complete".into(), pub_fn(vec![], Type::Bool));
+    exports.functions.insert("startup_failed".into(), pub_fn(vec![Type::String], Type::Bool));
+    exports
+}
+
+fn make_std_api_db_sqlite(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(&format!("{prefix}.db.sqlite"), None);
+    let connection = api_type("SqliteConnection");
+    let statement = api_type("SqliteStatement");
+    exports.types.insert("SqliteConnection".to_string(), public_type(&[]));
+    exports.types.insert("SqliteStatement".to_string(), public_type(&[]));
+    for (name, params, return_type) in [
+        ("open", vec![Type::String], connection.clone()),
+        ("close", vec![connection.clone()], Type::Bool),
+        ("prepare", vec![connection.clone(), Type::String], statement.clone()),
+        ("execute_async", vec![connection.clone(), Type::String], Type::Int),
+        ("bind_null", vec![statement.clone(), Type::Int], Type::Bool),
+        ("bind_int", vec![statement.clone(), Type::Int, Type::Int], Type::Bool),
+        ("bind_float", vec![statement.clone(), Type::Int, Type::Float], Type::Bool),
+        ("bind_text", vec![statement.clone(), Type::Int, Type::String], Type::Bool),
+        ("bind_blob", vec![statement.clone(), Type::Int, Type::String], Type::Bool),
+        ("step", vec![statement.clone()], Type::Int),
+        ("column_count", vec![statement.clone()], Type::Int),
+        ("column_type", vec![statement.clone(), Type::Int], Type::Int),
+        ("column_int", vec![statement.clone(), Type::Int], Type::Int),
+        ("column_float", vec![statement.clone(), Type::Int], Type::Float),
+        ("column_text", vec![statement.clone(), Type::Int], Type::String),
+        ("reset", vec![statement.clone()], Type::Bool),
+        ("finalize", vec![statement.clone()], Type::Bool),
+        ("begin", vec![connection.clone()], Type::Bool),
+        ("commit", vec![connection.clone()], Type::Bool),
+        ("rollback", vec![connection.clone()], Type::Bool),
+        ("last_error_code", vec![], Type::String),
+        ("last_error_message", vec![], Type::String),
+    ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
+    exports
+}
+
+fn make_std_api_db_postgres(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(&format!("{prefix}.db.postgres"), None);
+    let connection = api_type("PostgresConnection");
+    let statement = api_type("PostgresStatement");
+    let notification_channel = api_type("PostgresNotificationChannel");
+    let notification = api_type("PostgresNotification");
+    exports.types.insert("PostgresConnection".to_string(), public_type(&[]));
+    exports.types.insert("PostgresStatement".to_string(), public_type(&[]));
+    exports.types.insert("PostgresNotificationChannel".to_string(), public_type(&[]));
+    exports.types.insert("PostgresNotification".to_string(), public_type(&[]));
+    for (name, params, return_type) in [
+        ("open", vec![Type::String], connection.clone()),
+        ("close", vec![connection.clone()], Type::Bool),
+        ("prepare", vec![connection.clone(), Type::String], statement.clone()),
+        ("bind_null", vec![statement.clone(), Type::Int], Type::Bool),
+        ("bind_int", vec![statement.clone(), Type::Int, Type::Int], Type::Bool),
+        ("bind_float", vec![statement.clone(), Type::Int, Type::Float], Type::Bool),
+        ("bind_text", vec![statement.clone(), Type::Int, Type::String], Type::Bool),
+        ("step", vec![statement.clone()], Type::Int),
+        ("column_count", vec![statement.clone()], Type::Int),
+        ("column_type", vec![statement.clone(), Type::Int], Type::Int),
+        ("column_int", vec![statement.clone(), Type::Int], Type::Int),
+        ("column_text", vec![statement.clone(), Type::Int], Type::String),
+        ("reset", vec![statement.clone()], Type::Bool),
+        ("finalize", vec![statement.clone()], Type::Bool),
+        ("begin", vec![connection.clone()], Type::Bool),
+        ("commit", vec![connection.clone()], Type::Bool),
+        ("rollback", vec![connection.clone()], Type::Bool),
+        ("execute_async", vec![connection.clone(), Type::String], api_task(Type::Int)),
+        ("step_async", vec![statement.clone()], api_task(Type::Int)),
+        ("savepoint", vec![connection.clone(), Type::String], Type::Bool),
+        ("rollback_to", vec![connection.clone(), Type::String], Type::Bool),
+        ("release_savepoint", vec![connection.clone(), Type::String], Type::Bool),
+        ("copy_in_text_async", vec![connection.clone(), Type::String, Type::String], api_task(Type::Int)),
+        ("copy_out_text_async", vec![connection.clone(), Type::String], api_task(Type::String)),
+        ("listen", vec![connection.clone(), Type::String], notification_channel.clone()),
+        ("notify_async", vec![connection.clone(), Type::String, Type::String], api_task(Type::Bool)),
+        ("notification_next_async", vec![notification_channel.clone(), Type::Int], api_task(notification.clone())),
+        ("notification_channel", vec![notification.clone()], Type::String),
+        ("notification_payload", vec![notification.clone()], Type::String),
+        ("notification_process_id", vec![notification.clone()], Type::Int),
+        ("notification_free", vec![notification], Type::Bool),
+        ("notification_close", vec![notification_channel], Type::Bool),
+        ("last_error_code", vec![], Type::String),
+        ("last_error_message", vec![], Type::String),
+    ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
+    exports
+}
+
+fn make_std_api_db_redis(prefix: &str) -> ModuleExports {
+    let mut exports = api_module(&format!("{prefix}.db.redis"), None);
+    let connection = api_type("RedisConnection");
+    exports.types.insert("RedisConnection".to_string(), public_type(&[]));
+    for (name, params, return_type) in [
+        ("open", vec![Type::String], connection.clone()),
+        ("close", vec![connection.clone()], Type::Bool),
+        ("get", vec![connection.clone(), Type::String], Type::String),
+        ("set", vec![connection.clone(), Type::String, Type::String], Type::Bool),
+        ("delete", vec![connection.clone(), Type::String], Type::Bool),
+        ("expire", vec![connection.clone(), Type::String, Type::Int], Type::Bool),
+        ("incr", vec![connection.clone(), Type::String, Type::Int], Type::Int),
+        ("exists", vec![connection.clone(), Type::String], Type::Bool),
+    ] { exports.functions.insert(name.to_string(), pub_fn(params, return_type)); }
+    exports
+}
+
 fn make_std_io() -> ModuleExports {
     let mut exports = ModuleExports {
         stdlib_path: Some(vec!["std".to_string(), "io".to_string()]),
@@ -1626,6 +1769,39 @@ fn make_std_math() -> ModuleExports {
     exports
 }
 
+fn make_std_numeric() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "numeric".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+    for (name, ty) in [
+        ("i8", Type::ExactInt { signed: true, width: IntWidth::I8 }),
+        ("i16", Type::ExactInt { signed: true, width: IntWidth::I16 }),
+        ("i32", Type::ExactInt { signed: true, width: IntWidth::I32 }),
+        ("i64", Type::ExactInt { signed: true, width: IntWidth::I64 }),
+        ("u8", Type::ExactInt { signed: false, width: IntWidth::I8 }),
+        ("u16", Type::ExactInt { signed: false, width: IntWidth::I16 }),
+        ("u32", Type::ExactInt { signed: false, width: IntWidth::I32 }),
+        ("u64", Type::ExactInt { signed: false, width: IntWidth::I64 }),
+    ] {
+        for op in ["add", "sub", "mul"] {
+            exports.functions.insert(
+                format!("wrapping_{op}_{name}"),
+                pub_fn(vec![ty.clone(), ty.clone()], ty.clone()),
+            );
+        }
+    }
+    exports.functions.insert(
+        "checked_f32".to_string(),
+        pub_fn(
+            vec![Type::ExactFloat { width: FloatWidth::F64 }],
+            Type::ExactFloat { width: FloatWidth::F32 },
+        ),
+    );
+    exports
+}
+
 fn make_std_collections() -> ModuleExports {
     let mut exports = ModuleExports {
         stdlib_path: Some(vec!["std".to_string(), "collections".to_string()]),
@@ -1733,6 +1909,44 @@ fn make_std_collections() -> ModuleExports {
         "list_sort_by".to_string(),
         pub_fn(vec![Type::Int, fn_int_int_to_int], Type::Unit),
     );
+
+    // ── map API (R-3123: expose existing runtime HashMap<i64, i64>) ──────────
+    // map_new() -> int  (returns handle; 0 on internal error)
+    exports
+        .functions
+        .insert("map_new".to_string(), pub_fn(vec![], Type::Int));
+    // map_set(handle: int, key: int, value: int) -> unit
+    exports.functions.insert(
+        "map_set".to_string(),
+        pub_fn(vec![Type::Int, Type::Int, Type::Int], Type::Unit),
+    );
+    // map_get(handle: int, key: int) -> int  (0 if key absent or handle invalid)
+    exports.functions.insert(
+        "map_get".to_string(),
+        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+    );
+    // map_contains(handle: int, key: int) -> int  (1 if present, 0 otherwise)
+    exports.functions.insert(
+        "map_contains".to_string(),
+        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+    );
+    // map_remove(handle: int, key: int) -> int  (removed value, 0 if absent)
+    exports.functions.insert(
+        "map_remove".to_string(),
+        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+    );
+    // map_len(handle: int) -> int
+    exports
+        .functions
+        .insert("map_len".to_string(), pub_fn(vec![Type::Int], Type::Int));
+    // map_clear(handle: int) -> unit
+    exports
+        .functions
+        .insert("map_clear".to_string(), pub_fn(vec![Type::Int], Type::Unit));
+    // map_free(handle: int) -> unit
+    exports
+        .functions
+        .insert("map_free".to_string(), pub_fn(vec![Type::Int], Type::Unit));
 
     // type aliases
     exports.types.insert(
@@ -1982,6 +2196,13 @@ fn make_std_tensor() -> ModuleExports {
         ("stats_device_transfers", vec![], int.clone()),
         ("stats_gpu_kernel_ops", vec![], int.clone()),
         ("stats_cpu_fallbacks", vec![], int.clone()),
+        ("stats_gpu_errors", vec![int.clone()], int.clone()),
+        ("stats_device_pool_hits", vec![], int.clone()),
+        ("stats_device_pool_misses", vec![], int.clone()),
+        ("stats_device_pool_bytes_resident", vec![], int.clone()),
+        ("storage_device", vec![int.clone()], int.clone()),
+        ("stats_device_resident_tensors", vec![], int.clone()),
+        ("stats_gpu_backward_ops", vec![], int.clone()),
         ("stats_graph_nodes", vec![], int.clone()),
         ("stats_lifetime_records", vec![], int.clone()),
         ("stats_released_lifetimes", vec![], int.clone()),
@@ -2002,6 +2223,7 @@ fn make_std_tensor() -> ModuleExports {
         ("grad_enabled", vec![], bool_ty.clone()),
         ("free", vec![int.clone()], unit.clone()),
         ("free_all", vec![], int.clone()),
+        ("refill", vec![int.clone(), float.clone()], unit.clone()),
     ];
 
     for (name, params, return_type) in functions {
@@ -2356,6 +2578,7 @@ fn make_std_ml() -> ModuleExports {
             int.clone(),
         ),
         ("tokenizer_wordpiece", vec![Type::String], int.clone()),
+        ("tokenizer_load", vec![Type::String], int.clone()),
         (
             "tokenizer_encode",
             vec![int.clone(), Type::String],
@@ -2367,6 +2590,7 @@ fn make_std_ml() -> ModuleExports {
             Type::String,
         ),
         ("text_embed", vec![Type::String, int.clone()], int.clone()),
+        ("embedding_load", vec![Type::String, Type::String], int.clone()),
         ("vector_index_new", vec![int.clone()], int.clone()),
         (
             "vector_index_insert",
@@ -2384,6 +2608,12 @@ fn make_std_ml() -> ModuleExports {
             Type::String,
         ),
         ("vector_index_load", vec![Type::String], int.clone()),
+        (
+            "vector_index_set_metadata",
+            vec![int.clone(), Type::String, Type::String],
+            Type::Bool,
+        ),
+        ("vector_index_metrics", vec![int.clone()], Type::String),
         (
             "rag_chunk_text",
             vec![Type::String, int.clone(), int.clone()],
@@ -2437,6 +2667,27 @@ fn make_std_ml() -> ModuleExports {
             ],
             Type::String,
         ),
+        (
+            "artifact_new",
+            vec![Type::String, Type::String, Type::String],
+            int.clone(),
+        ),
+        (
+            "artifact_set_metadata",
+            vec![int.clone(), Type::String, Type::String],
+            bool_ty.clone(),
+        ),
+        (
+            "artifact_add_tensor",
+            vec![int.clone(), Type::String, int.clone()],
+            bool_ty.clone(),
+        ),
+        ("artifact_save", vec![int.clone(), Type::String], bool_ty.clone()),
+        ("artifact_load", vec![Type::String], int.clone()),
+        ("artifact_tensor", vec![int.clone(), Type::String], int.clone()),
+        ("artifact_metadata", vec![int.clone(), Type::String], Type::String),
+        ("artifact_validate", vec![Type::String], bool_ty.clone()),
+        ("artifact_free", vec![int.clone()], unit.clone()),
     ];
 
     for (name, params, return_type) in functions {
@@ -2474,6 +2725,12 @@ fn make_std_concurrent() -> ModuleExports {
     let functions = [
         ("task_spawn", vec![int.clone()], int.clone()),
         ("task_join", vec![int.clone()], int.clone()),
+        (
+            "task_spawn_batch",
+            vec![int.clone(), int.clone()],
+            int.clone(),
+        ),
+        ("task_join_batch_sum", vec![int.clone()], int.clone()),
         ("task_is_done", vec![int.clone()], bool_ty.clone()),
         ("channel_new", vec![], int.clone()),
         (
@@ -2668,6 +2925,43 @@ fn make_std_string() -> ModuleExports {
         "repeat_str".to_string(),
         pub_fn(vec![Type::String, Type::Int], Type::String),
     );
+    // String builder API (R-3108). Avoids the per-call allocation cost of
+    // `concat` by accumulating parts in a handle and joining them in a
+    // single allocation on `builder_finish`. The constructor takes a
+    // capacity hint (in bytes) so it is not parsed as a no-arg method
+    // call by the parser.
+    exports.functions.insert(
+        "builder_new".to_string(),
+        pub_fn(vec![Type::Int], Type::Int),
+    );
+    exports.functions.insert(
+        "builder_push".to_string(),
+        pub_fn(vec![Type::Int, Type::String], Type::Unit),
+    );
+    exports.functions.insert(
+        "builder_len".to_string(),
+        pub_fn(vec![Type::Int], Type::Int),
+    );
+    exports.functions.insert(
+        "builder_finish".to_string(),
+        pub_fn(vec![Type::Int], Type::String),
+    );
+    exports.functions.insert(
+        "builder_free".to_string(),
+        pub_fn(vec![Type::Int], Type::Unit),
+    );
+    // concat_n(list: int, count: int) -> string
+    // Concatenates the first `count` string elements of a std.collections
+    // list (each stored as a string handle) into a single fresh allocation.
+    // Low-level building block for R-3108; the user-facing string builder
+    // API is added by a follow-up.
+    // Currently not exposed at the language level because list_push takes
+    // int and the encoding of a string handle is not user-facing. This entry
+    // is left commented until the builder API lands.
+    // exports.functions.insert(
+    //     "concat_n".to_string(),
+    //     pub_fn(vec![Type::Int, Type::Int], Type::String),
+    // );
     // char_at(s: string, index: int) -> int  (returns char code; -1 if out of bounds)
     exports.functions.insert(
         "char_at".to_string(),

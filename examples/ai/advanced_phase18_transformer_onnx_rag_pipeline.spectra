@@ -75,6 +75,7 @@ pub fn main() -> int {
     }
 
     let index = ml.vector_index_new(16);
+    ml.vector_index_set_metadata(index, "model_version", "advanced-phase18-v1");
     let doc_a = "Spectra RAG retrieval combines indexed context with transformer prompts.";
     let doc_b = "ONNX export keeps transformer graphs portable for serving.";
     ml.vector_index_insert(index, "rag-transformer", ml.text_embed(doc_a, 16));

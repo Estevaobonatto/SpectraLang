@@ -1,0 +1,12 @@
+module autodiff_shape_mismatch;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    let x = tensor.full2_f(2, 3, 1.0);
+    let y = tensor.full2_f(2, 2, 1.0);
+    let z = diff {
+        tensor.sum_t(tensor.matmul(x, y))
+    };
+    return tensor.len(z);
+}

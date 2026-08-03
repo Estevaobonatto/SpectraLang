@@ -4,6 +4,16 @@ use crate::span::Span;
 pub enum Type {
     Int,
     Float,
+    /// Explicit signed/unsigned integer width. `Type::Int` remains the
+    /// compatibility i64 spelling used by the legacy stdlib ABI.
+    ExactInt {
+        signed: bool,
+        width: IntWidth,
+    },
+    /// Explicit scalar floating-point width. `Type::Float` remains f64.
+    ExactFloat {
+        width: FloatWidth,
+    },
     Bool,
     String,
     Char,
@@ -52,6 +62,22 @@ pub enum Type {
         trait_name: String,
         auto_traits: Vec<String>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IntWidth {
+    I8,
+    I16,
+    I32,
+    I64,
+    Isize,
+    Usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FloatWidth {
+    F32,
+    F64,
 }
 
 #[derive(Debug, Clone)]
@@ -459,7 +485,14 @@ pub enum ExpressionKind {
     Cast {
         expr: Box<Expression>,
         target_type: TypeAnnotation,
+        mode: CastMode,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CastMode {
+    Checked,
+    Wrapping,
 }
 
 #[derive(Debug, Clone)]

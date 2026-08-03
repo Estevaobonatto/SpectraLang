@@ -1,0 +1,21 @@
+// Extended validation: batched matrix multiplication and batch dimensions.
+module tensor_batched_matmul;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let left_flat = tensor.arange(1, 9, 1);
+    let right_flat = tensor.ones(8);
+    let left = tensor.reshape(left_flat, 2, 4);
+    let right = tensor.reshape(right_flat, 4, 2);
+    let left_batch = tensor.stack(left, left);
+    let right_batch = tensor.stack(right, right);
+    let result = tensor.matmul_batched(left_batch, right_batch);
+    if tensor.rank(result) != 3 { return 1; }
+    if tensor.dim(result, 0) != 2 { return 2; }
+    if tensor.get(result, 0) != 10 { return 3; }
+    if tensor.get(result, 6) != 26 { return 4; }
+    tensor.free_all();
+    return 0;
+}

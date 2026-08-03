@@ -3,6 +3,7 @@
 // with the Spectra runtime static library to produce standalone executables.
 
 use cranelift::prelude::*;
+use cranelift_codegen::ir::ValueLabel;
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule, ObjectProduct};
 use spectra_midend::ir::{
@@ -10,8 +11,15 @@ use spectra_midend::ir::{
 };
 use std::collections::HashMap;
 
-use crate::codegen::{CodeGenerator, HostNameRecord, PhiDescriptor};
+use crate::codegen::{
+    validate_tensor_ir, CodeGenerator, DenseValueMap, HostCallBatchStats, PhiDescriptor,
+    StringLiteralRecord,
+};
 use crate::error::{BackendCodegenError, BackendResult};
+use crate::hostcall_abi::{
+    declare_runtime_bindings, HostCallLoweringContext, HostCallSiteRecord, RuntimeBindings,
+};
+use spectra_runtime::abi::{RuntimeImport, SpectraHostCallCache};
 
 /// Options that control AOT code generation.
 #[derive(Debug, Clone, Default)]
@@ -24,6 +32,10 @@ pub struct AotOptions {
     /// When `false` (the default), `main` is exported as-is and no shim is
     /// generated. Use this when producing an object file for manual linking.
     pub emit_executable: bool,
+    /// Request native debug records in the emitted object. The backend keeps
+    /// this explicit so callers cannot mistake the JSON sidecar for native
+    /// debug information.
+    pub native_debug: bool,
 }
 
 pub struct AotCodeGenerator {
@@ -31,22 +43,41 @@ pub struct AotCodeGenerator {
     ctx: codegen::Context,
     builder_context: FunctionBuilderContext,
     function_map: HashMap<String, FuncId>,
-    manual_alloc_func: FuncId,
-    manual_free_func: FuncId,
-    manual_frame_enter_func: FuncId,
-    manual_frame_exit_func: FuncId,
-    manual_escape_func: FuncId,
-    host_invoke_func: FuncId,
-    host_name_data: HashMap<String, HostNameRecord>,
-    host_name_storage: Vec<Box<[u8]>>,
+    runtime_bindings: RuntimeBindings,
+    /// Dedup table for string literals (R-3126). Each unique
+    /// `ConstString` value resolves to one entry pre-populated in
+    /// [`pre_intern_string_literals`].
+    string_literal_data: HashMap<String, StringLiteralRecord>,
+    /// Heap storage for string literal buffers (R-3126). In AOT mode
+    /// this stays empty because every entry is pre-populated with a
+    /// `data_id`; the field exists to satisfy the `generate_block`
+    /// signature shared with the JIT path. Layout matches the JIT
+    /// side: one byte per `i64` slot.
+    string_literal_storage: Vec<Box<[i64]>>,
+    host_call_sites: HashMap<String, HostCallSiteRecord>,
+    hostcall_batch_stats: HostCallBatchStats,
+    /// Locations produced by Cranelift's register allocator for labelled IR
+    /// values: (function, IR value id, CFA-relative offset).  These are
+    /// intentionally collected from compiled machine code, never guessed
+    /// from source or sidecar text.
+    debug_locations: Vec<(String, usize, i64)>,
 }
 
 impl AotCodeGenerator {
     /// Create a new AOT code generator targeting the host machine.
     pub fn new() -> Self {
+        // R-3129: opt into Cranelift's speed optimizer. The default
+        // builder leaves `opt_level = "none"`, which skips almost all of
+        // Cranelift's mid-end passes (GSN, DCE, LICM, value-tracking,
+        // branch coalescing, etc.) and produces measurably slower code.
+        // See `cranelift_codegen::settings` for the full list of options.
+        let mut settings_builder = settings::builder();
+        settings_builder
+            .set("opt_level", "speed")
+            .expect("failed to set cranelift opt_level to speed");
         let isa = cranelift_native::builder()
             .expect("Failed to create native ISA builder")
-            .finish(settings::Flags::new(settings::builder()))
+            .finish(settings::Flags::new(settings_builder))
             .expect("Failed to build ISA");
 
         let builder = ObjectBuilder::new(
@@ -61,85 +92,64 @@ impl AotCodeGenerator {
 
         // Declare imports for the runtime functions that will be provided by the static library.
 
-        let mut alloc_sig = module.make_signature();
-        alloc_sig.params.push(AbiParam::new(types::I64));
-        alloc_sig.returns.push(AbiParam::new(types::I64));
-        let manual_alloc_func = module
-            .declare_function("spectra_rt_manual_alloc", Linkage::Import, &alloc_sig)
-            .expect("Failed to declare alloc import");
-
-        let mut free_sig = module.make_signature();
-        free_sig.params.push(AbiParam::new(types::I64));
-        let manual_free_func = module
-            .declare_function("spectra_rt_manual_free", Linkage::Import, &free_sig)
-            .expect("Failed to declare free import");
-
-        let mut frame_enter_sig = module.make_signature();
-        frame_enter_sig.returns.push(AbiParam::new(types::I64));
-        let manual_frame_enter_func = module
-            .declare_function(
-                "spectra_rt_manual_frame_enter",
-                Linkage::Import,
-                &frame_enter_sig,
-            )
-            .expect("Failed to declare frame-enter import");
-
-        let mut frame_exit_sig = module.make_signature();
-        frame_exit_sig.params.push(AbiParam::new(types::I64));
-        let manual_frame_exit_func = module
-            .declare_function(
-                "spectra_rt_manual_frame_exit",
-                Linkage::Import,
-                &frame_exit_sig,
-            )
-            .expect("Failed to declare frame-exit import");
-
-        let mut escape_sig = module.make_signature();
-        escape_sig.params.push(AbiParam::new(types::I64));
-        escape_sig.params.push(AbiParam::new(types::I64));
-        let manual_escape_func = module
-            .declare_function("spectra_rt_manual_escape", Linkage::Import, &escape_sig)
-            .expect("Failed to declare escape import");
-
-        let mut host_invoke_sig = module.make_signature();
-        for _ in 0..6 {
-            host_invoke_sig.params.push(AbiParam::new(types::I64));
-        }
-        host_invoke_sig.returns.push(AbiParam::new(types::I32));
-        let host_invoke_func = module
-            .declare_function("spectra_rt_host_invoke", Linkage::Import, &host_invoke_sig)
-            .expect("Failed to declare host-invoke import");
+        let runtime_bindings =
+            declare_runtime_bindings(&mut module).expect("Failed to declare runtime ABI imports");
 
         Self {
             module,
             ctx,
             builder_context: FunctionBuilderContext::new(),
             function_map: HashMap::new(),
-            manual_alloc_func,
-            manual_free_func,
-            manual_frame_enter_func,
-            manual_frame_exit_func,
-            manual_escape_func,
-            host_invoke_func,
-            host_name_data: HashMap::new(),
-            host_name_storage: Vec::new(),
+            runtime_bindings,
+            host_call_sites: HashMap::new(),
+            hostcall_batch_stats: HostCallBatchStats::default(),
+            debug_locations: Vec::new(),
+            string_literal_data: HashMap::new(),
+            string_literal_storage: Vec::new(),
         }
     }
 
     /// Compile an IR module to a native object file.
     /// Returns the raw bytes of the `.o` / `.obj` file.
     pub fn compile_to_object(
-        mut self,
+        self,
         ir_module: &IRModule,
         opts: &AotOptions,
     ) -> BackendResult<Vec<u8>> {
+        let (bytes, _, _) = self.compile_to_object_with_locations_and_stats(ir_module, opts)?;
+        Ok(bytes)
+    }
+
+    pub fn compile_to_object_with_locations(
+        self,
+        ir_module: &IRModule,
+        opts: &AotOptions,
+    ) -> BackendResult<(Vec<u8>, Vec<(String, usize, i64)>)> {
+        let (bytes, locations, _) =
+            self.compile_to_object_with_locations_and_stats(ir_module, opts)?;
+        Ok((bytes, locations))
+    }
+
+    pub fn compile_to_object_with_locations_and_stats(
+        mut self,
+        ir_module: &IRModule,
+        opts: &AotOptions,
+    ) -> BackendResult<(Vec<u8>, Vec<(String, usize, i64)>, HostCallBatchStats)> {
+        self.hostcall_batch_stats = HostCallBatchStats::default();
         let rename_main = opts.emit_executable;
+        let _tensor_ir = validate_tensor_ir(ir_module)?;
 
         // Pre-intern all host-function names as .rodata data sections so that
         // the generated code can reference them via GlobalValues (relocatable
         // addresses) instead of compile-time heap pointers (which would be
         // invalid in the final executable's address space).
         self.pre_intern_host_names(ir_module);
+
+        // Pre-intern all string literals as `.rodata` data sections (R-3126).
+        // Each unique `ConstString` value becomes one data section; the
+        // `generate_block` path then emits `global_value` instructions
+        // pointing at these sections instead of going through `manual_alloc`.
+        self.pre_intern_string_literals(ir_module);
 
         // First pass: declare all functions.
         for func in &ir_module.functions {
@@ -162,11 +172,17 @@ impl AotCodeGenerator {
         }
 
         // Emit the finished object.
+        let debug_locations = self.take_debug_locations();
         let product: ObjectProduct = self.module.finish();
 
-        Ok(product
+        let bytes = product
             .emit()
-            .map_err(|e| BackendCodegenError::cranelift(format!("Object emit error: {}", e)))?)
+            .map_err(|e| BackendCodegenError::cranelift(format!("Object emit error: {}", e)))?;
+        Ok((bytes, debug_locations, self.hostcall_batch_stats))
+    }
+
+    pub fn take_debug_locations(&mut self) -> Vec<(String, usize, i64)> {
+        std::mem::take(&mut self.debug_locations)
     }
 
     fn declare_function(
@@ -223,23 +239,36 @@ impl AotCodeGenerator {
             .clone();
 
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        builder.func.collect_debug_info();
 
         let entry_block = builder.create_block();
         builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
-        let mut value_map: HashMap<usize, Value> = HashMap::new();
+        let mut value_map = DenseValueMap::with_capacity(ir_func.next_value_id);
         let mut block_map: HashMap<usize, Block> = HashMap::new();
         let mut allocation_vars: Vec<Variable> = Vec::new();
         let mut stack_array_lengths: HashMap<usize, i64> = HashMap::new();
+        let mut string_literal_lengths: HashMap<usize, i64> = HashMap::new();
         let stack_allocas = CodeGenerator::collect_stack_allocas(ir_func);
+        let scalar_alloca_types =
+            CodeGenerator::collect_promotable_scalar_allocas_with_stack_allocas(
+                ir_func,
+                &stack_allocas,
+            );
+        let mut scalar_alloca_vars = HashMap::with_capacity(scalar_alloca_types.len());
+        for (alloca_id, ty) in &scalar_alloca_types {
+            let variable = builder.declare_var(CodeGenerator::ir_type_to_cranelift(ty)?);
+            scalar_alloca_vars.insert(*alloca_id, variable);
+        }
         let manual_frame_active =
             CodeGenerator::function_needs_manual_frame(ir_func, &stack_allocas);
         let frame_token = if manual_frame_active {
-            let frame_enter_ref = self
-                .module
-                .declare_func_in_func(self.manual_frame_enter_func, builder.func);
+            let frame_enter_ref = self.module.declare_func_in_func(
+                self.runtime_bindings.get(RuntimeImport::ManualFrameEnter),
+                builder.func,
+            );
             let frame_call = builder.ins().call(frame_enter_ref, &[]);
             builder.inst_results(frame_call)[0]
         } else {
@@ -249,8 +278,8 @@ impl AotCodeGenerator {
         builder.def_var(frame_var, frame_token);
 
         let params = builder.block_params(entry_block).to_vec();
-        for (idx, &cl_value) in params.iter().enumerate() {
-            value_map.insert(idx, cl_value);
+        for (param, &cl_value) in ir_func.params.iter().zip(params.iter()) {
+            value_map.insert(param.id, cl_value);
         }
 
         for ir_block in &ir_func.blocks {
@@ -296,24 +325,27 @@ impl AotCodeGenerator {
         }
 
         let blocks = ir_func.blocks.clone();
+        let mut hostcall = HostCallLoweringContext {
+            bindings: &self.runtime_bindings,
+            host_call_sites: &self.host_call_sites,
+            string_literal_data: &mut self.string_literal_data,
+            string_literal_storage: &mut self.string_literal_storage,
+            batch_stats: &mut self.hostcall_batch_stats,
+        };
         for ir_block in &blocks {
             CodeGenerator::generate_block(
                 &mut self.module,
                 &self.function_map,
-                &mut self.host_name_data,
-                &mut self.host_name_storage,
-                self.manual_alloc_func,
-                self.manual_free_func,
-                self.manual_frame_exit_func,
-                self.manual_escape_func,
-                self.host_invoke_func,
+                &mut hostcall,
                 &mut builder,
                 ir_block,
                 &mut value_map,
                 &block_map,
                 &mut allocation_vars,
                 &mut stack_array_lengths,
+                &mut string_literal_lengths,
                 &stack_allocas,
+                &scalar_alloca_vars,
                 frame_var,
                 manual_frame_active,
                 ir_block.id,
@@ -329,6 +361,16 @@ impl AotCodeGenerator {
             }
         }
 
+        // Attach Cranelift value labels only after all IR values have been
+        // mapped. The allocator will resolve these labels to a real register
+        // or CFA-relative location in the compiled machine code.
+        for local in &ir_func.locals {
+            if let Some(value_id) = local.value_id {
+                if let Some(value) = value_map.get(value_id) {
+                    builder.set_val_label(value, ValueLabel::from_u32(value_id as u32));
+                }
+            }
+        }
         builder.finalize();
 
         self.module
@@ -339,6 +381,28 @@ impl AotCodeGenerator {
                     ir_func.name, e
                 ))
             })?;
+        if let Some(compiled) = self.ctx.compiled_code() {
+            for local in &ir_func.locals {
+                let Some(value_id) = local.value_id else {
+                    continue;
+                };
+                let label = ValueLabel::from_u32(value_id as u32);
+                if let Some(ranges) = compiled.value_labels_ranges.get(&label) {
+                    for range in ranges {
+                        let rendered = format!("{:?}", range.loc);
+                        if let Some(offset) = rendered
+                            .strip_prefix("CFAOffset(")
+                            .and_then(|s| s.strip_suffix(')'))
+                            .and_then(|s| s.parse::<i64>().ok())
+                        {
+                            self.debug_locations
+                                .push((ir_func.name.clone(), value_id, offset));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         self.module.clear_context(&mut self.ctx);
 
         Ok(())
@@ -459,16 +523,95 @@ impl AotCodeGenerator {
     }
 
     /// Scans all IR functions for `HostCall` instructions and pre-interns each
-    /// unique host name as a `.rodata` data section in the object module.
-    /// This must be done before any function bodies are compiled so that every
-    /// `HostCall` in `generate_block` finds a ready `DataId` in `host_name_data`.
+    /// unique host name plus one writable cache slot as local data objects.
+    /// This must be done before any function bodies are compiled so every
+    /// `HostCall` in `generate_block` finds both `DataId`s ready.
     fn pre_intern_host_names(&mut self, ir_module: &IRModule) {
+        let mut names = ir_module
+            .functions
+            .iter()
+            .flat_map(|func| func.blocks.iter())
+            .flat_map(|block| block.instructions.iter())
+            .filter_map(|instr| match &instr.kind {
+                InstructionKind::HostCall { host, .. } => Some(host.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names.dedup();
+        for name in names {
+            if !self.host_call_sites.contains_key(name) {
+                self.create_host_call_site_data(name);
+            }
+        }
+    }
+
+    /// Creates the `.rodata` name and aligned writable cache data for one host
+    /// call. The symbols are local and deterministic so equivalent AOT
+    /// modules produce the same ABI-facing names.
+    fn create_host_call_site_data(&mut self, name: &str) {
+        // Build a safe symbol name from the (possibly dotted) host function key.
+        let safe = name.replace('.', "__").replace('-', "_");
+        let name_symbol = format!(".__spectra_host_{safe}");
+
+        let name_data_id: DataId =
+            match self
+                .module
+                .declare_data(&name_symbol, Linkage::Local, false, false)
+            {
+                Ok(id) => id,
+                Err(_) => return, // Already declared — shouldn't happen but be defensive.
+            };
+
+        let mut data_ctx = DataDescription::new();
+        data_ctx.define(name.as_bytes().to_vec().into_boxed_slice());
+        if self.module.define_data(name_data_id, &data_ctx).is_err() {
+            return;
+        }
+
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &byte in name.as_bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        let cache_symbol = format!(".__spectra_host_cache_{hash:016x}");
+        let cache_data_id: DataId =
+            match self
+                .module
+                .declare_data(&cache_symbol, Linkage::Local, true, false)
+            {
+                Ok(id) => id,
+                Err(_) => return,
+            };
+        let mut cache_ctx = DataDescription::new();
+        cache_ctx.define_zeroinit(std::mem::size_of::<SpectraHostCallCache>());
+        cache_ctx.set_align(std::mem::align_of::<SpectraHostCallCache>() as u64);
+        if self.module.define_data(cache_data_id, &cache_ctx).is_err() {
+            return;
+        }
+
+        let record = HostCallSiteRecord {
+            name: crate::codegen::HostNameRecord {
+                ptr: 0,
+                len: name.len(),
+                data_id: Some(name_data_id),
+            },
+            cache_ptr: 0,
+            cache_data_id: Some(cache_data_id),
+        };
+        self.host_call_sites.insert(name.to_string(), record);
+    }
+
+    /// R-3126: scan every function for `ConstString` instructions and
+    /// pre-declare each unique literal as a `.rodata` data section.
+    /// Mirrors [`pre_intern_host_names`].
+    fn pre_intern_string_literals(&mut self, ir_module: &IRModule) {
         for func in &ir_module.functions {
             for block in &func.blocks {
                 for instr in &block.instructions {
-                    if let InstructionKind::HostCall { host, .. } = &instr.kind {
-                        if !self.host_name_data.contains_key(host.as_str()) {
-                            self.create_host_name_data(host);
+                    if let InstructionKind::ConstString { value, .. } = &instr.kind {
+                        if !self.string_literal_data.contains_key(value.as_str()) {
+                            self.create_string_literal_data(value);
                         }
                     }
                 }
@@ -476,32 +619,52 @@ impl AotCodeGenerator {
         }
     }
 
-    /// Creates a `.rodata` data section for a host function name string and
-    /// stores the resulting `HostNameRecord` (with `data_id = Some(...)`) in
-    /// `self.host_name_data`.
-    fn create_host_name_data(&mut self, name: &str) {
-        // Build a safe symbol name from the (possibly dotted) host function key.
-        let safe = name.replace('.', "__").replace('-', "_");
-        let symbol = format!(".__spectra_host_{safe}");
+    /// R-3126: declare a `.rodata` data section for one string literal
+    /// value. Stores the resulting `StringLiteralRecord` (with
+    /// `data_id = Some(...)`) in `self.string_literal_data`.
+    fn create_string_literal_data(&mut self, value: &str) {
+        // Layout: one byte per `i64` slot (8 bytes each), null-terminated.
+        // This matches the JIT `Box<[i64]>` buffer and the `*8` indexing
+        // in `emit_stack_string_char_at_inline`.
+        let mut slots: Vec<i64> = value.as_bytes().iter().map(|&b| b as i64).collect();
+        slots.push(0);
+        let len_with_null = slots.len() as i64;
+        // Convert the i64 slots to a raw byte buffer for the data section.
+        // Safety: `i64` is `repr(i64)` and we want the same byte layout.
+        let bytes: Vec<u8> = unsafe {
+            std::slice::from_raw_parts(
+                slots.as_ptr() as *const u8,
+                slots.len() * std::mem::size_of::<i64>(),
+            )
+            .to_vec()
+        };
+        // Use a simple FNV-1a 64-bit hash for compact, deterministic naming
+        // without depending on an external hash crate.
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &b in &bytes {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        let symbol = format!(".__spectra_strlit_{:016x}", hash);
 
         let data_id: DataId = match self
             .module
             .declare_data(&symbol, Linkage::Local, false, false)
         {
             Ok(id) => id,
-            Err(_) => return, // Already declared — shouldn't happen but be defensive.
+            Err(_) => return, // Already declared.
         };
 
         let mut data_ctx = DataDescription::new();
-        data_ctx.define(name.as_bytes().to_vec().into_boxed_slice());
+        data_ctx.define(bytes.into_boxed_slice());
         let _ = self.module.define_data(data_id, &data_ctx);
 
-        let record = HostNameRecord {
+        let record = StringLiteralRecord {
             ptr: 0,
-            len: name.len(),
+            len_with_null,
             data_id: Some(data_id),
         };
-        self.host_name_data.insert(name.to_string(), record);
+        self.string_literal_data.insert(value.to_string(), record);
     }
 }
 
@@ -509,7 +672,54 @@ impl AotCodeGenerator {
 mod tests {
     use super::*;
     use crate::BackendErrorKind;
-    use spectra_midend::ir::{Function as IRFunction, Terminator, Type as IRType};
+    use spectra_midend::ir::{Function as IRFunction, InstructionKind, Terminator, Type as IRType};
+
+    #[test]
+    fn r3104_aot_preinterns_duplicate_host_names_once() {
+        let mut module = IRModule::new("r3104_aot_host_names");
+        let mut function = IRFunction::new("main", vec![], IRType::Void);
+        let entry = function.add_block("entry");
+        let block = function.get_block_mut(entry).unwrap();
+        for _ in 0..2 {
+            block.add_instruction(InstructionKind::HostCall {
+                result: None,
+                host: "spectra.test.duplicate".to_string(),
+                args: vec![],
+                result_type: None,
+            });
+        }
+        block.set_terminator(Terminator::Return { value: None });
+        module.add_function(function);
+
+        let mut codegen = AotCodeGenerator::new();
+        codegen.pre_intern_host_names(&module);
+        assert_eq!(codegen.host_call_sites.len(), 1);
+        assert!(codegen
+            .host_call_sites
+            .contains_key("spectra.test.duplicate"));
+        assert!(codegen
+            .host_call_sites
+            .get("spectra.test.duplicate")
+            .and_then(|record| record.name.data_id)
+            .is_some());
+        assert!(codegen
+            .host_call_sites
+            .get("spectra.test.duplicate")
+            .and_then(|record| record.cache_data_id)
+            .is_some());
+        let cache_data_id = codegen
+            .host_call_sites
+            .get("spectra.test.duplicate")
+            .and_then(|record| record.cache_data_id)
+            .expect("AOT cache data record");
+        assert!(
+            codegen
+                .module
+                .declarations()
+                .get_data_decl(cache_data_id)
+                .writable
+        );
+    }
 
     #[test]
     fn r2007_aot_missing_branch_target_returns_typed_error() {

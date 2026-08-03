@@ -1,0 +1,20 @@
+// Extended validation: vector square loss and gradient accumulation.
+module tensor_autodiff_vector;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+    let source = tensor.full_f(3, 2.0);
+    let input = tensor.requires_grad(source, true);
+    let squared = tensor.mul(input, input);
+    let loss = tensor.sum_t(squared);
+    tensor.backward(loss);
+    let gradient = tensor.grad(input);
+    if tensor.len(gradient) != 3 { return 1; }
+    if tensor.sum_f(gradient) as int != 12 { return 2; }
+    tensor.zero_grad(input);
+    tensor.free_all();
+    return 0;
+}

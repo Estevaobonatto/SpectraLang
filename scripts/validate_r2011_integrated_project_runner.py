@@ -190,11 +190,22 @@ def validate_runner_wiring() -> None:
             if token not in text:
                 errors.append(f"{label} missing {token}")
     run_tests = RUN_TESTS_PATH.read_text(encoding="utf-8")
-    for token in ("R-2011", "validate_r2011_integrated_project_runner.py"):
-        if token not in run_tests:
-            errors.append(f"run_tests.ps1 missing {token}")
-    if 'Teste = "validate_r2011_integrated_project_runner"' not in run_tests:
-        errors.append("run_tests.ps1 must record validate_r2011_integrated_project_runner result")
+    direct_wiring = all(
+        token in run_tests
+        for token in (
+            "R-2011",
+            "validate_r2011_integrated_project_runner.py",
+            'Teste = "validate_r2011_integrated_project_runner"',
+        )
+    )
+    aggregate_wiring = all(
+        token in run_tests
+        for token in ("R-2013", "validate_r2013_release_candidate.py")
+    )
+    if not direct_wiring and not aggregate_wiring:
+        errors.append(
+            "run_tests.ps1 must invoke R-2011 directly or delegate it through R-2013"
+        )
     if errors:
         fail("R-2011 runner wiring is incomplete", errors)
 

@@ -13,9 +13,22 @@ use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+/// Native debug information policy for compiled artifacts.
+///
+/// This is deliberately part of the shared compiler configuration rather than
+/// a CLI-only switch so AOT producers and future embedding clients cannot
+/// silently disagree about whether an artifact is expected to be debuggable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DebugInfoMode {
+    None,
+    Native,
+}
+
 /// Compilation options
 #[derive(Debug, Clone)]
 pub struct CompilationOptions {
+    /// Native debug information policy for AOT artifacts.
+    pub debug_info: DebugInfoMode,
     /// Enable optimization passes
     pub optimize: bool,
     /// Optimization level (0-3)
@@ -37,6 +50,7 @@ pub struct CompilationOptions {
 impl Default for CompilationOptions {
     fn default() -> Self {
         Self {
+            debug_info: DebugInfoMode::Native,
             optimize: true,
             opt_level: 2,
             dump_ir: false,

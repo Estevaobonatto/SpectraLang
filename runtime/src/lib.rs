@@ -2,17 +2,25 @@ use std::sync::OnceLock;
 use std::thread::ThreadId;
 use std::time::{Duration, Instant, SystemTime};
 
+pub mod abi;
 pub mod api;
+pub(crate) mod artifact;
 pub mod ffi;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod health;
 pub mod memory;
+pub mod metrics;
+pub mod numeric;
 pub mod reactor;
 pub mod stdlib;
+pub mod tracing;
+pub(crate) mod vector_index;
 
 pub use memory::{
     CollectionOutcome, HybridMemory, ManualStats, MemoryConfig, MemoryStats, TracedStats,
 };
+pub use stdlib::concurrent_diagnostics_report_json;
 pub use stdlib::register as register_standard_library;
 
 /// Sets the program arguments visible to Spectra code via `std.env.env_args_count`

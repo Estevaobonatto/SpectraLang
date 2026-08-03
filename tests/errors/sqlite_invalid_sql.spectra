@@ -1,0 +1,3 @@
+module sqlite_invalid_sql;
+import { prepare } from std.api.db.sqlite;
+pub fn main() -> int { prepare(); return 0; }

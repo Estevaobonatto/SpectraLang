@@ -1,0 +1,25 @@
+// Extended validation: byte-oriented string scan and lexical invariants.
+module base_string_frequency;
+
+import std.string as str;
+
+fn count_code(text: string, code: int) -> int {
+    let count = 0;
+    let index = 0;
+    while index < str.len(text) {
+        if str.char_at(text, index) == code {
+            count = count + 1;
+        }
+        index = index + 1;
+    }
+    return count;
+}
+
+pub fn main() -> int {
+    let text = "parallel";
+    if str.len(text) != 8 { return 1; }
+    if count_code(text, 108) != 3 { return 2; }
+    if count_code(text, 97) != 2 { return 3; }
+    if !str.contains(text, "ral") { return 4; }
+    return 0;
+}

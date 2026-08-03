@@ -1,0 +1,7 @@
+module health_checks_197;
+import std.api.health as health;
+
+fn main() -> int {
+    if (health.startup_complete()) { return 0; }
+    return 1;
+}

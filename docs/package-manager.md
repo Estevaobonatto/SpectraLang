@@ -36,7 +36,13 @@ Version handling:
 - versions must use exact semver `MAJOR.MINOR.PATCH`
 - prerelease suffixes such as `1.2.3-alpha.1` are accepted
 - semver ranges are future work; catalog lookup currently chooses the newest
-  matching exact semver version when the user does not pin one
+  compatible exact semver version when the user does not pin one
+- compatibility is checked against the CLI's `spectralang-0.1` release
+  compatibility (or the compiled `SPECTRA_COMPATIBILITY_LEVEL` value); a
+  package with another compatibility level is rejected before installation or
+  compilation
+- `package@version` always requests that exact version; an unavailable exact
+  version is an error and is never silently replaced by another version
 
 Git packages use this manifest shape after install:
 
@@ -72,6 +78,37 @@ The lockfile records:
 
 The lockfile is generated with deterministic package ordering so repeated resolution produces stable output for the same manifests.
 
+Use `--locked` with package build/check/run/test/bench/doc/fetch commands to
+require an existing lockfile whose package graph, sources, revisions, checksums,
+manifest hashes, and dependencies exactly match the current resolution. Missing
+or changed lockfiles fail before compilation. Without `--locked`, the normal
+workflow refreshes `spectra.lock`.
+
+Use `--offline` with package build/check/run/test/bench/doc/fetch when the
+workspace must use only restored caches. In locked workflows, `--locked` also
+forces cache-only resolution, so Git clone/fetch is never attempted before the
+lockfile comparison. Restore `spectra.lock`, `.spectra/git`, and
+`.spectra/packages` as one cache unit, then run:
+
+```powershell
+spectralang package fetch --offline --locked --root .
+spectralang package check --offline --locked --root .
+```
+
+Offline resolution fails with a package-aware cache diagnostic when a Git
+repository is missing, is not a repository, or cannot produce the revision and
+payload described by the lockfile. It does not rewrite `spectra.lock`.
+
+Package downloads and vendor copies are staged beside their final destinations
+and published only after validation. Existing valid caches are preserved when a
+download, checksum, path, or copy operation fails. Payload symlinks and paths
+that escape the package root are rejected.
+
+Remote Git hosts can be restricted with the opt-in environment variable
+`SPECTRA_PACKAGE_ALLOWED_HOSTS=github.com,gitlab.com`. Local Git paths and local
+registries remain available for development and offline fixtures; remote hosts
+must match the allowlist exactly when the variable is set.
+
 ## Commands
 
 ```powershell
@@ -104,6 +141,26 @@ spectralang package info gitmath --root .
 spectralang package versions gitmath --root .
 spectralang package tree --root .
 ```
+
+Catalog references and synchronization:
+
+```powershell
+spectralang package catalog add official https://github.com/org/catalog.git --root .
+spectralang package catalog list --root .
+spectralang package catalog sync --root .
+spectralang package catalog sync --offline --locked --root .
+spectralang package catalog remove official --root .
+```
+
+References are stored in `.spectra/catalogs/catalogs.toml`. Synchronization
+processes catalog names in lexical order, validates the complete
+`package.index.toml`, and publishes each catalog through a staging directory.
+The cache is stored under `.spectra/catalogs/<name>` and its validated source,
+Git revision, index hash, and informational synchronization timestamp are
+recorded in `.spectra/catalogs/catalogs.lock`. A failed sync leaves the prior
+valid cache untouched. `--offline` validates only existing caches; `--locked`
+also requires the cached state to match `catalogs.lock`. Search and package
+addition never synchronize remote catalogs implicitly.
 
 Developer registration:
 
@@ -163,10 +220,26 @@ owner = "org"
 ```
 
 `spectralang package add <name>` searches configured catalogs, chooses the newest
-matching semver version unless the user pins `name@version`, clones/fetches the
-Git repo, checks out the selected ref, copies the package payload into
+compatible semver version unless the user pins `name@version`, clones/fetches
+the Git repo, checks out the selected ref, copies the package payload into
 `.spectra/packages`, writes the dependency into `spectra.toml`, and refreshes
 `spectra.lock`.
+
+Resolver determinism rules:
+
+- catalog entries are validated before version ordering;
+- identical entries for the same package/version are coalesced;
+- conflicting entries for the same package/version fail and report both
+  catalog origins;
+- catalog order and filesystem order do not affect the selected version;
+- duplicate workspace package names fail with both package roots;
+- dependency cycles fail with the complete package chain, such as
+  `a -> b -> c -> a`.
+
+The R-905 resolver policy is covered by
+`scripts/validate_r905_package_resolver.py`, which uses local Git repositories
+and validates exact pins, prereleases, compatibility rejection, conflicts,
+duplicates, cycle chains, and deterministic lockfiles.
 
 Default tests use local Git fixtures so package validation never depends on a
 public network by default.
@@ -195,6 +268,20 @@ Catalog publication is intentionally stricter than direct `--git` installs:
 4. compiles all dependency source roots before dependent roots
 
 Normal `spectralang compile <project-dir>` also understands multi-package manifests and includes dependency sources when a project manifest contains workspace/path dependencies.
+
+## Package-aware imports and diagnostics
+
+Package commands preserve the package name and canonical package root for every
+source module. Imports keep their fully qualified module name, for example
+`gitmath.core`, and are checked before lowering. A missing module reports the
+importing package, the requested package when it is known, and the relevant
+source root. If two packages declare the same module name, resolution fails
+before compilation and reports both package names and roots.
+
+The semantic compiler also switches package context for each module. `internal`
+symbols are therefore available between modules of the same package and are
+rejected when imported from a different package. The reproducible integration
+coverage is provided by `scripts/validate_r906_package_imports.py`.
 
 Installed Git package modules are included in normal package command source
 resolution, so code can use normal imports after install:

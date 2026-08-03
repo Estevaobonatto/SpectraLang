@@ -1,0 +1,144 @@
+// Phase 31: json-parse (Spectra)
+// Walk a fixed JSON document, count tokens, sum integers, repeated.
+// Document: {"a":1,"b":[2,3,4],"c":true,"d":"hi","e":-7,"f":[],"g":{}}
+// Token rule: every structural char + every string + every number + every bool.
+// Expected per-iter: token_count = 37, int_sum = 3, checksum = 37 * 1000 + 3 = 37003
+
+module bench_json_parse;
+
+import std.string as str;
+
+fn is_digit(c: int) -> int {
+    if c >= 48 {
+        if c <= 57 {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+fn parse_int_at(doc: string, start: int, n: int) -> int {
+    // Returns the int value, leaves start unchanged.
+    let mut_i = start;
+    let sign = 1;
+    if mut_i < n {
+        if str.char_at(doc, mut_i) == 45 {
+            // '-' char
+            return 0 - parse_int_at(doc, mut_i + 1, n);
+        }
+    }
+    let mut_v = 0;
+    while mut_i < n {
+        let cc = str.char_at(doc, mut_i);
+        if is_digit(cc) == 1 {
+            mut_v = mut_v * 10 + (cc - 48);
+            mut_i = mut_i + 1;
+        } else {
+            return mut_v;
+        }
+    }
+    return mut_v;
+}
+
+pub fn main() -> int {
+    let iters = 100000;
+    let doc = "{\"a\":1,\"b\":[2,3,4],\"c\":true,\"d\":\"hi\",\"e\":-7,\"f\":[],\"g\":{}}";
+    let n = str.len(doc);
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        let mut_i = 0;
+        let mut_tokens = 0;
+        let mut_intsum = 0;
+        while mut_i < n {
+            let c = str.char_at(doc, mut_i);
+            if c == 123 {
+                // '{'
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 1;
+            } elif c == 125 {
+                // '}'
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 1;
+            } elif c == 91 {
+                // '['
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 1;
+            } elif c == 93 {
+                // ']'
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 1;
+            } elif c == 44 {
+                // ','
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 1;
+            } elif c == 58 {
+                // ':'
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 1;
+            } elif c == 34 {
+                // '"' string
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 1;
+                while mut_i < n {
+                    let cc = str.char_at(doc, mut_i);
+                    mut_i = mut_i + 1;
+                    if cc == 34 {
+                        // closing "
+                        break;
+                    }
+                }
+            } elif c == 45 {
+                // '-' leading to int
+                mut_tokens = mut_tokens + 1;
+                let v = parse_int_at(doc, mut_i, n);
+                mut_intsum = mut_intsum + v;
+                // skip past digits
+                mut_i = mut_i + 1;
+                while mut_i < n {
+                    let cc = str.char_at(doc, mut_i);
+                    if is_digit(cc) == 1 {
+                        mut_i = mut_i + 1;
+                    } else {
+                        break;
+                    }
+                }
+            } elif is_digit(c) == 1 {
+                // int
+                mut_tokens = mut_tokens + 1;
+                let v = parse_int_at(doc, mut_i, n);
+                mut_intsum = mut_intsum + v;
+                while mut_i < n {
+                    let cc = str.char_at(doc, mut_i);
+                    if is_digit(cc) == 1 {
+                        mut_i = mut_i + 1;
+                    } else {
+                        break;
+                    }
+                }
+            } elif c == 116 {
+                // 't' (true)
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 4;
+            } elif c == 102 {
+                // 'f' (false)
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 5;
+            } elif c == 110 {
+                // 'n' (null)
+                mut_tokens = mut_tokens + 1;
+                mut_i = mut_i + 4;
+            } else {
+                // skip whitespace
+                mut_i = mut_i + 1;
+            }
+        }
+        let combined = mut_tokens * 1000 + mut_intsum;
+        total = total + combined;
+        it = it + 1;
+    }
+    if total == 37003 * iters {
+        return 0;
+    }
+    return 1;
+}

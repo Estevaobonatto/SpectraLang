@@ -1,0 +1,18 @@
+// Extended validation: in-place refill, indexed mutation and active stats.
+module tensor_refill_validity;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.reset_stats();
+    let values = tensor.full_f(4, 1.0);
+    tensor.refill(values, 3.0);
+    if tensor.sum_f(values) as int != 12 { return 1; }
+    tensor.refill(values, 9.0);
+    if tensor.get_f(values, 1) as int != 9 { return 2; }
+    if tensor.stats_active() <= 0 { return 3; }
+    tensor.free(values);
+    tensor.free_all();
+    return 0;
+}

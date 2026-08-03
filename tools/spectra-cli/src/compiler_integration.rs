@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
-use spectra_backend::{AotCodeGenerator, AotOptions, CodeGenerator};
+use spectra_backend::{AotCodeGenerator, AotOptions, CodeGenerator, HostCallBatchStats};
 use spectra_compiler::{
     error::MidendError, lint::LintDiagnostic, pipeline::CompilationMetrics, span::Span,
     BackendDriver, BackendError, CompilationOptions, CompilationPipeline, CompilationResult,
@@ -15,10 +15,11 @@ use spectra_midend::{
     ir::{pretty::format_module, Module as IRModule},
     lowering::ASTLowering,
     passes::{
-        constant_folding::ConstantFolding, dead_code_elimination::DeadCodeElimination,
-        function_inlining::FunctionInlining, validation::LoopStructureValidation,
-        verification::verify_module, Pass,
+        concurrent_spawn_join_fusion::ConcurrentSpawnJoinFusion, constant_folding::ConstantFolding,
+        dead_code_elimination::DeadCodeElimination, function_inlining::FunctionInlining,
+        validation::LoopStructureValidation, verification::verify_module, Pass,
     },
+    TensorDevice, TensorGraph,
 };
 
 // Thread-local that propagates the Spectra program's return value (used as exit
@@ -36,6 +37,20 @@ pub fn take_last_exec_exit() -> Option<i32> {
 /// Sets the program arguments forwarded to `std.env` host functions.
 pub fn forward_program_args(args: Vec<String>) {
     spectra_runtime::set_program_args(args);
+}
+
+fn emit_r3105_hostcall_stats(label: &str, stats: HostCallBatchStats) {
+    if std::env::var_os("SPECTRA_R3105_STATS").is_none() {
+        return;
+    }
+    println!(
+        "r3105_hostcall_stats_{label} batched_sites={} batched_hostcalls={} fallback_hostcalls={} argument_arena_bytes={} result_arena_bytes={}",
+        stats.batched_sites,
+        stats.batched_hostcalls,
+        stats.fallback_hostcalls,
+        stats.argument_arena_bytes,
+        stats.result_arena_bytes,
+    );
 }
 
 #[derive(Debug)]
@@ -189,10 +204,48 @@ impl AggregateMetrics {
 
 #[derive(Debug)]
 struct FullPipelineArtifacts {
-    ir_module: IRModule,
+    pub(crate) ir_module: IRModule,
     passes: Vec<PassReport>,
     lowering_duration: Duration,
     codegen_duration: Duration,
+}
+
+/// Compiler-owned metadata consumed by native debug emitters.  Keeping this
+/// beside the IR prevents the CLI from reconstructing functions or locals by
+/// scanning source text (which was both lossy and capable of inventing PDB
+/// records for symbols that did not exist in the object).
+#[derive(Debug, Clone)]
+pub struct NativeDebugFunction {
+    pub name: String,
+    pub locals: Vec<String>,
+    pub local_offsets: Vec<Option<i64>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct NativeDebugMetadata {
+    pub functions: Vec<NativeDebugFunction>,
+}
+
+fn native_debug_metadata(module: &IRModule, executable: bool) -> NativeDebugMetadata {
+    let mut functions = module
+        .functions
+        .iter()
+        .map(|function| NativeDebugFunction {
+            name: if executable && function.name == "main" {
+                "spectra_user_main".to_string()
+            } else {
+                function.name.clone()
+            },
+            locals: function
+                .locals
+                .iter()
+                .map(|local| local.name.clone())
+                .collect(),
+            local_offsets: vec![None; function.locals.len()],
+        })
+        .collect::<Vec<_>>();
+    functions.retain(|function| !function.name.is_empty());
+    NativeDebugMetadata { functions }
 }
 
 struct FullPipelineBackend {
@@ -220,6 +273,7 @@ impl BackendDriver for FullPipelineBackend {
         options: &CompilationOptions,
     ) -> Result<Self::Artifacts, Vec<CompilerError>> {
         let mut lowering = ASTLowering::new();
+        lowering.set_source_file(format!("{}.spectra", ast.name));
         let lowering_start = Instant::now();
         let mut ir_module = match lowering.lower_module(ast) {
             Ok(module) => module,
@@ -233,6 +287,19 @@ impl BackendDriver for FullPipelineBackend {
         let lowering_duration = lowering_start.elapsed();
 
         let mut pass_reports = Vec::new();
+
+        let autodiff_start = Instant::now();
+        let autodiff_steps = match spectra_midend::materialize_autodiff_steps(&mut ir_module) {
+            Ok(count) => count,
+            Err(message) => {
+                return Err(vec![CompilerError::Midend(MidendError::new(message))]);
+            }
+        };
+        pass_reports.push(PassReport {
+            name: "Compiler-native Autodiff Steps",
+            duration: autodiff_start.elapsed(),
+            modified: autodiff_steps > 0,
+        });
 
         let verification_start = Instant::now();
         if let Err(errors) = verify_module(&ir_module) {
@@ -248,6 +315,65 @@ impl BackendDriver for FullPipelineBackend {
             modified: false,
         });
 
+        let tensor_graph = TensorGraph::from_ir_module(&ir_module);
+        let autodiff_graph = spectra_midend::AutodiffGraph::from_tensor_graph(&tensor_graph);
+        if options.dump_ir && autodiff_graph.has_gradient_nodes() {
+            println!("=== Compiler-native Autodiff IR ===");
+            println!("{}", autodiff_graph.stable_dump());
+        }
+        if tensor_graph
+            .functions
+            .iter()
+            .any(|function| !function.nodes.is_empty())
+        {
+            let tensor_start = Instant::now();
+            let tensor_backend = if tensor_graph.functions.iter().any(|function| {
+                function
+                    .nodes
+                    .iter()
+                    .any(|node| node.output.device == TensorDevice::Wgpu)
+            }) {
+                TensorDevice::Wgpu
+            } else {
+                TensorDevice::Cpu
+            };
+            let tensor_backend_name = match &tensor_backend {
+                TensorDevice::Cpu => "CPU",
+                TensorDevice::Wgpu => "WGPU",
+                TensorDevice::Reserved(_) => "RESERVED",
+                TensorDevice::Unknown => "UNKNOWN",
+            };
+            match tensor_graph.lower_for_backend(tensor_backend) {
+                Ok(legalized) => {
+                    if options.dump_ir {
+                        println!("=== Tensor IR ({} legalization) ===", tensor_backend_name);
+                        println!("{}", legalized.graph.stable_dump());
+                        println!("tensor_ir_report {:?}", legalized.report);
+                    }
+                }
+                Err(errors) => {
+                    let ir_errors = errors
+                        .into_iter()
+                        .map(|error| {
+                            CompilerError::Midend(MidendError::new(format!(
+                                "{}: tensor IR validation failed in function '{}' node {:?}: {}",
+                                error.kind.diagnostic_code(),
+                                error.function,
+                                error.node,
+                                error.message
+                            )))
+                        })
+                        .collect();
+                    return Err(ir_errors);
+                }
+            }
+            pass_reports.push(PassReport {
+                name: "Tensor IR Legalization (CPU)",
+                duration: tensor_start.elapsed(),
+                modified: true,
+            });
+        }
+
         if options.dump_ir {
             println!("=== IR (before optimization) ===");
             println!("{}", format_module(&ir_module));
@@ -255,6 +381,15 @@ impl BackendDriver for FullPipelineBackend {
         }
 
         if options.optimize {
+            let mut fusion = ConcurrentSpawnJoinFusion::new();
+            let pass_start = Instant::now();
+            let modified = fusion.run(&mut ir_module);
+            pass_reports.push(PassReport {
+                name: "Concurrent Spawn/Join Fusion",
+                duration: pass_start.elapsed(),
+                modified,
+            });
+
             if options.opt_level >= 1 {
                 let mut cf = ConstantFolding::new();
                 let pass_start = Instant::now();
@@ -347,6 +482,7 @@ impl BackendDriver for FullPipelineBackend {
                 error.to_string(),
             ))]);
         }
+        emit_r3105_hostcall_stats("jit", codegen.hostcall_batch_stats());
 
         Ok(FullPipelineArtifacts {
             ir_module,
@@ -450,6 +586,10 @@ impl SpectraCompiler {
         self.pipeline.package_name = Some(name.into());
     }
 
+    pub fn set_current_package_name(&mut self, name: Option<String>) {
+        self.pipeline.package_name = name;
+    }
+
     /// Compile source code to native code
     pub fn compile(&mut self, source: &str, filename: &str) -> Result<(), String> {
         let report = self
@@ -515,41 +655,135 @@ impl SpectraCompiler {
     }
 
     /// Compile a source file to a native object file. Returns the raw object bytes.
+    #[allow(dead_code)]
     pub fn compile_to_object_bytes(
         &mut self,
         source: &str,
         filename: &str,
     ) -> Result<Vec<u8>, String> {
+        let (bytes, _) = self.compile_to_object_with_debug_metadata(source, filename)?;
+        Ok(bytes)
+    }
+
+    pub fn compile_to_object_with_debug_metadata(
+        &mut self,
+        source: &str,
+        filename: &str,
+    ) -> Result<(Vec<u8>, NativeDebugMetadata), String> {
         let report = self
             .compile_to_report(source, filename)
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
+        let metadata = native_debug_metadata(&report.artifacts.ir_module, false);
 
         let aot = AotCodeGenerator::new();
-        aot.compile_to_object(&report.artifacts.ir_module, &AotOptions::default())
-            .map_err(|err| err.to_string())
+        let (bytes, debug_locations, batch_stats) = aot
+            .compile_to_object_with_locations_and_stats(
+                &report.artifacts.ir_module,
+                &AotOptions {
+                    native_debug: matches!(
+                        self.options.debug_info,
+                        spectra_compiler::DebugInfoMode::Native
+                    ),
+                    ..AotOptions::default()
+                },
+            )
+            .map_err(|err| err.to_string())?;
+        emit_r3105_hostcall_stats("aot", batch_stats);
+        let mut metadata = metadata;
+        for (function_name, value_id, offset) in debug_locations {
+            if let Some(function) = metadata
+                .functions
+                .iter_mut()
+                .find(|f| f.name == function_name)
+            {
+                if let Some(ir_function) = report
+                    .artifacts
+                    .ir_module
+                    .functions
+                    .iter()
+                    .find(|f| f.name == function_name)
+                {
+                    if let Some(index) = ir_function
+                        .locals
+                        .iter()
+                        .position(|local| local.value_id == Some(value_id))
+                    {
+                        function.local_offsets[index] = Some(offset);
+                    }
+                }
+            }
+        }
+        Ok((bytes, metadata))
     }
 
     /// Compile a source file to a native object file that contains a full
     /// executable entry point (`main` shim + `spectra_rt_startup_with_args`).
     /// The resulting bytes must be linked with `libspectra_runtime.a` to produce
     /// a standalone executable.
+    #[allow(dead_code)]
     pub fn compile_to_executable_object_bytes(
         &mut self,
         source: &str,
         filename: &str,
     ) -> Result<Vec<u8>, String> {
+        let (bytes, _) = self.compile_to_executable_object_with_debug_metadata(source, filename)?;
+        Ok(bytes)
+    }
+
+    pub fn compile_to_executable_object_with_debug_metadata(
+        &mut self,
+        source: &str,
+        filename: &str,
+    ) -> Result<(Vec<u8>, NativeDebugMetadata), String> {
         let report = self
             .compile_to_report(source, filename)
             .map_err(|errors| render_errors(&errors, source, filename, "compilation"))?;
+        let metadata = native_debug_metadata(&report.artifacts.ir_module, true);
 
         let aot = AotCodeGenerator::new();
-        aot.compile_to_object(
-            &report.artifacts.ir_module,
-            &AotOptions {
-                emit_executable: true,
-            },
-        )
-        .map_err(|err| err.to_string())
+        let (bytes, debug_locations, batch_stats) = aot
+            .compile_to_object_with_locations_and_stats(
+                &report.artifacts.ir_module,
+                &AotOptions {
+                    emit_executable: true,
+                    native_debug: matches!(
+                        self.options.debug_info,
+                        spectra_compiler::DebugInfoMode::Native
+                    ),
+                },
+            )
+            .map_err(|err| err.to_string())?;
+        emit_r3105_hostcall_stats("aot", batch_stats);
+        let mut metadata = metadata;
+        for (function_name, value_id, offset) in debug_locations {
+            if let Some(function) = metadata
+                .functions
+                .iter_mut()
+                .find(|f| f.name == function_name)
+            {
+                let ir_name = if function_name == "spectra_user_main" {
+                    "main"
+                } else {
+                    &function_name
+                };
+                if let Some(ir_function) = report
+                    .artifacts
+                    .ir_module
+                    .functions
+                    .iter()
+                    .find(|f| f.name == ir_name)
+                {
+                    if let Some(index) = ir_function
+                        .locals
+                        .iter()
+                        .position(|local| local.value_id == Some(value_id))
+                    {
+                        function.local_offsets[index] = Some(offset);
+                    }
+                }
+            }
+        }
+        Ok((bytes, metadata))
     }
 
     fn compile_to_report(
@@ -1111,6 +1345,7 @@ mod tests {
         "#;
 
         let options = CompilationOptions {
+            debug_info: spectra_compiler::DebugInfoMode::Native,
             optimize: true,
             opt_level: 2,
             dump_ir: false,

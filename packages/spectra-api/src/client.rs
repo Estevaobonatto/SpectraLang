@@ -3,6 +3,7 @@ use crate::{read_args, write_result};
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
 };
+use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
@@ -203,6 +204,43 @@ impl HttpClient {
     }
 
     pub fn request(&self, request: ClientRequest) -> Result<ClientResponse, ClientError> {
+        let span = tracing::begin_external_span(SpanKind::Client, "http.client").ok();
+        if let Some(id) = span {
+            let _ = tracing::span_set_attribute(id, "http.request.method", &request.method);
+            let _ = tracing::span_set_attribute(id, "url.full", &request.url);
+        }
+        let mut request = request;
+        if let Some(traceparent) = tracing::current_traceparent() {
+            upsert_header(&mut request.headers, "traceparent", &traceparent);
+        }
+        let result = self.request_inner(request);
+        if let Some(id) = span {
+            if let Ok(response) = &result {
+                let _ = tracing::span_set_attribute_int(
+                    id,
+                    "http.response.status_code",
+                    response.status_code as i64,
+                );
+                let _ = tracing::span_set_attribute_int(
+                    id,
+                    "http.response.body.size",
+                    response.body.bytes().len() as i64,
+                );
+            }
+            let _ = tracing::span_set_status(
+                id,
+                if result.is_ok() {
+                    SpanStatus::Ok
+                } else {
+                    SpanStatus::Error
+                },
+            );
+            let _ = tracing::span_end(id);
+        }
+        result
+    }
+
+    fn request_inner(&self, request: ClientRequest) -> Result<ClientResponse, ClientError> {
         let mut current = request;
         for redirect_count in 0..=self.config.max_redirects {
             let parsed_url = parse_http_url(&current.url)?;
@@ -776,10 +814,43 @@ pub extern "C" fn client_timeout_ms(ctx: *mut SpectraHostCallContext) -> i32 {
 mod tests {
     use super::*;
     use crate::server::{HttpServer, ServerConfig, ServerResponse};
-    use std::io::Write;
+    use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::Arc;
     use std::thread;
+
+    // Client tests share process-global tracing state; serialize the whole
+    // module so unrelated requests cannot publish spans to another test's
+    // collector.
+    static CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn spawn_test_collector(listener: TcpListener) -> thread::JoinHandle<Vec<u8>> {
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("collector request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            let body_start = loop {
+                let read = stream.read(&mut buffer).expect("collector read");
+                assert!(read > 0, "collector request truncated");
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(index) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break index + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..body_start]);
+            let content_length = headers.lines().find_map(|line| {
+                line.strip_prefix("Content-Length:")
+                    .or_else(|| line.strip_prefix("content-length:"))
+            }).and_then(|value| value.trim().parse::<usize>().ok()).expect("content length");
+            while request.len() < body_start + content_length {
+                let read = stream.read(&mut buffer).expect("collector body read");
+                assert!(read > 0, "collector body truncated");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").expect("collector response");
+            request[body_start..body_start + content_length].to_vec()
+        })
+    }
 
     fn start_client_test_server() -> HttpServer {
         HttpServer::start(
@@ -797,6 +868,15 @@ mod tests {
                     ),
                 ),
                 "/large" => ServerResponse::bytes(200, request.body.bytes()),
+                "/trace" => ServerResponse::text(
+                    200,
+                    request
+                        .headers
+                        .iter()
+                        .find(|header| header.name.eq_ignore_ascii_case("traceparent"))
+                        .map(|header| header.value.clone())
+                        .unwrap_or_default(),
+                ),
                 "/redirect-post" => redirect_response(302, "/landed"),
                 "/redirect-preserve" => redirect_response(307, "/echo"),
                 "/loop" => redirect_response(302, "/loop"),
@@ -833,6 +913,7 @@ mod tests {
 
     #[test]
     fn client_supports_methods_and_arbitrary_bodies() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig::default());
 
@@ -872,7 +953,126 @@ mod tests {
     }
 
     #[test]
+    fn client_injects_w3c_trace_context_and_emits_client_span() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let collector = TcpListener::bind("127.0.0.1:0").expect("collector bind");
+        let collector_addr = collector.local_addr().expect("collector address");
+        let collector_thread = thread::spawn(move || {
+            let (mut stream, _) = collector.accept().expect("collector request");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            let body_start;
+            loop {
+                let read = stream.read(&mut buffer).expect("collector read");
+                assert!(read > 0, "collector request truncated");
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(index) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    body_start = index + 4;
+                    break;
+                }
+            }
+            let headers = String::from_utf8_lossy(&request[..body_start]);
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    line.strip_prefix("Content-Length:")
+                        .or_else(|| line.strip_prefix("content-length:"))
+                })
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .expect("content length");
+            while request.len() < body_start + content_length {
+                let read = stream.read(&mut buffer).expect("collector body read");
+                assert!(read > 0, "collector body truncated");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .expect("collector response");
+            request[body_start..body_start + content_length].to_vec()
+        });
+        let config = tracing::config_new(
+            &format!("http://{collector_addr}/v1/traces"),
+            "spectra-api-client-test",
+        )
+        .expect("trace config");
+        tracing::config_start(config).expect("trace worker");
+        let root = tracing::span_start("client.test", SpanKind::Internal).expect("root span");
+        let expected = tracing::inject(root).expect("root traceparent");
+        let mut server = start_client_test_server();
+        let client = HttpClient::new(ClientConfig::default());
+        let response = client.get(&url(&server, "/trace")).expect("traced request");
+        let propagated = String::from_utf8(response.body.bytes()).unwrap();
+        assert!(
+            propagated.starts_with(&expected[..35]),
+            "trace ID must propagate"
+        );
+        assert_ne!(propagated, expected, "client span must be a child span");
+        tracing::span_end(root).expect("root end");
+        tracing::flush().expect("client trace flush");
+        tracing::config_shutdown(config).expect("client trace shutdown");
+        let payload = collector_thread.join().expect("collector thread");
+        assert!(payload
+            .windows(b"http.client".len())
+            .any(|window| window == b"http.client"));
+        let _ = server.shutdown();
+    }
+
+    #[test]
+    fn concurrent_requests_isolate_trace_context() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let collector = TcpListener::bind("127.0.0.1:0").expect("collector bind");
+        let collector_addr = collector.local_addr().expect("collector address");
+        let collector_thread = spawn_test_collector(collector);
+        let config = tracing::config_new(
+            &format!("http://{collector_addr}/v1/traces"),
+            "spectra-api-concurrency-test",
+        ).expect("trace config");
+        tracing::config_start(config).expect("trace worker");
+        let mut server = start_client_test_server();
+        let address = server.local_addr();
+        let client = Arc::new(HttpClient::new(ClientConfig::default()));
+        let handles = (0..8)
+            .map(|_| {
+                let client = Arc::clone(&client);
+                thread::spawn(move || {
+                    let root = tracing::span_start("request.root", SpanKind::Server).expect("root");
+                    let expected = tracing::inject(root).expect("traceparent");
+                    let response = client
+                        .get(&format!("http://{address}/trace"))
+                        .expect("request");
+                    let propagated =
+                        String::from_utf8(response.body.bytes()).expect("traceparent text");
+                    tracing::span_end(root).expect("root end");
+                    (expected, propagated)
+                })
+            })
+            .collect::<Vec<_>>();
+        let results = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("request thread"))
+            .collect::<Vec<_>>();
+        let trace_ids = results
+            .iter()
+            .map(|(value, _)| &value[..35])
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            trace_ids.len(),
+            results.len(),
+            "concurrent requests shared a trace ID"
+        );
+        for (expected, propagated) in results {
+            assert!(propagated.starts_with(&expected[..35]));
+            assert_ne!(propagated, expected);
+        }
+        tracing::flush().expect("concurrent trace flush");
+        tracing::config_shutdown(config).expect("concurrent trace shutdown");
+        assert!(!collector_thread.join().expect("collector thread").is_empty());
+        let _ = server.shutdown();
+    }
+
+    #[test]
     fn client_reuses_pooled_connection() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig::default());
         client.get(&url(&server, "/echo")).expect("first GET");
@@ -885,6 +1085,7 @@ mod tests {
 
     #[test]
     fn client_follows_redirects_with_method_semantics() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig::default());
 
@@ -908,6 +1109,7 @@ mod tests {
 
     #[test]
     fn client_enforces_redirect_limit() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig {
             max_redirects: 2,
@@ -922,6 +1124,7 @@ mod tests {
 
     #[test]
     fn client_handles_large_bodies() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig {
             max_body_bytes: 512 * 1024,
@@ -937,6 +1140,7 @@ mod tests {
 
     #[test]
     fn client_reports_explicit_timeout() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig {
             timeout: Duration::from_millis(20),
@@ -949,6 +1153,7 @@ mod tests {
 
     #[test]
     fn client_reports_connection_failure() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind unused port");
         let addr = listener.local_addr().expect("local addr");
         drop(listener);
@@ -964,6 +1169,7 @@ mod tests {
 
     #[test]
     fn client_reports_protocol_error() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind protocol server");
         let addr = listener.local_addr().expect("local addr");
         let join = thread::spawn(move || {

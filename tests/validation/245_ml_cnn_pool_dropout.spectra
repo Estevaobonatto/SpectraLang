@@ -1,0 +1,26 @@
+// Extended validation: convolution, pooling and inference dropout mode.
+module ml_cnn_pool_dropout;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(true);
+    let input = tensor.full_f(4, 1.0);
+    let target = tensor.full_f(4, 1.0);
+    let kernel = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+    let bias = tensor.requires_grad(tensor.full_f(1, 0.0), true);
+    let prediction = ml.conv2d(input, kernel, bias, 1, 1, 2, 2, 1, 1, 1);
+    let loss = ml.mse_loss(prediction, target);
+    tensor.backward(loss);
+    ml.sgd_step(kernel, 0.05);
+    ml.sgd_step(bias, 0.05);
+
+    let pooled = ml.max_pool2d(input, 1, 1, 2, 2, 2, 2);
+    if tensor.len(pooled) != 1 { return 1; }
+    let inference = ml.dropout(prediction, 0.5, false);
+    if tensor.len(inference) != 4 { return 2; }
+    tensor.free_all();
+    return 0;
+}

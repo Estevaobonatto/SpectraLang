@@ -3,7 +3,8 @@
 
 use crate::builder::IRBuilder;
 use crate::ir::{
-    Function as IRFunction, Module as IRModule, Parameter, Terminator, Type as IRType, Value,
+    FloatWidth as IRFloatWidth, Function as IRFunction, IntWidth as IRIntWidth,
+    LocalDebugInfo, Module as IRModule, Parameter, SourceSpan, Terminator, Type as IRType, Value,
 };
 use spectra_compiler::ast::{
     BinaryOperator, Block, Enum as ASTEnum, EnumVariant, Expression, ExpressionKind, FStringPart,
@@ -341,6 +342,7 @@ impl MonomorphizationRequest {
 }
 
 pub struct ASTLowering {
+    source_file: String,
     builder: IRBuilder,
     current_function: Option<IRFunction>,
     value_map: ScopeStack,
@@ -409,8 +411,18 @@ pub struct ASTLowering {
 }
 
 impl ASTLowering {
+    fn source_span(&self, span: Span) -> SourceSpan {
+        SourceSpan {
+            file: self.source_file.clone(),
+            start_line: span.start_location.line as u32,
+            start_column: span.start_location.column as u32,
+            end_line: span.end_location.line as u32,
+            end_column: span.end_location.column as u32,
+        }
+    }
     pub fn new() -> Self {
         let mut lowering = Self {
+            source_file: "<unknown>".to_string(),
             builder: IRBuilder::new(),
             current_function: None,
             value_map: ScopeStack::new(),
@@ -448,6 +460,10 @@ impl ASTLowering {
         lowering.register_builtin_generic_enums();
         lowering.register_builtin_async_traits();
         lowering
+    }
+
+    pub fn set_source_file(&mut self, file: impl Into<String>) {
+        self.source_file = file.into();
     }
 
     fn register_builtin_async_traits(&mut self) {
@@ -607,6 +623,7 @@ impl ASTLowering {
             ExpressionKind::Cast {
                 expr: inner,
                 target_type,
+                ..
             } => {
                 let value = self.eval_const_expression(inner)?;
                 let target = self.lower_type_annotation(target_type);
@@ -718,16 +735,53 @@ impl ASTLowering {
         match (value, target) {
             (LoweredConstValue::Int(v), IRType::Int) => Some(LoweredConstValue::Int(v)),
             (LoweredConstValue::Int(v), IRType::Float) => Some(LoweredConstValue::Float(v as f64)),
+            (LoweredConstValue::Int(v), IRType::ExactInt { signed, width }) => {
+                let (min, max) = Self::exact_int_bounds(*signed, *width);
+                (min..=max).contains(&v).then_some(LoweredConstValue::Int(v))
+            }
+            (LoweredConstValue::Int(v), IRType::ExactFloat { .. }) => {
+                Some(LoweredConstValue::Float(v as f64))
+            }
             (LoweredConstValue::Int(v), IRType::Char) => {
                 char::from_u32(v as u32).map(LoweredConstValue::Char)
             }
             (LoweredConstValue::Float(v), IRType::Float) => Some(LoweredConstValue::Float(v)),
             (LoweredConstValue::Float(v), IRType::Int) => Some(LoweredConstValue::Int(v as i64)),
+            (LoweredConstValue::Float(v), IRType::ExactFloat { .. }) => {
+                Some(LoweredConstValue::Float(v))
+            }
+            (LoweredConstValue::Float(v), IRType::ExactInt { signed, width }) => {
+                if !v.is_finite() || v.fract() != 0.0 {
+                    return None;
+                }
+                let (min, max) = Self::exact_int_bounds(*signed, *width);
+                let value = v as i128;
+                (value >= min as i128 && value <= max as i128)
+                    .then_some(LoweredConstValue::Int(value as i64))
+            }
             (LoweredConstValue::Char(v), IRType::Char) => Some(LoweredConstValue::Char(v)),
             (LoweredConstValue::Char(v), IRType::Int) => Some(LoweredConstValue::Int(v as i64)),
+            (LoweredConstValue::Char(v), IRType::ExactInt { signed, width }) => {
+                let value = v as i64;
+                let (min, max) = Self::exact_int_bounds(*signed, *width);
+                (min..=max).contains(&value).then_some(LoweredConstValue::Int(value))
+            }
             (LoweredConstValue::Bool(v), IRType::Bool) => Some(LoweredConstValue::Bool(v)),
             (LoweredConstValue::String(v), IRType::String) => Some(LoweredConstValue::String(v)),
             _ => None,
+        }
+    }
+
+    fn exact_int_bounds(signed: bool, width: IRIntWidth) -> (i64, i64) {
+        match (signed, width) {
+            (true, IRIntWidth::I8) => (i8::MIN as i64, i8::MAX as i64),
+            (true, IRIntWidth::I16) => (i16::MIN as i64, i16::MAX as i64),
+            (true, IRIntWidth::I32) => (i32::MIN as i64, i32::MAX as i64),
+            (true, IRIntWidth::I64 | IRIntWidth::Isize | IRIntWidth::Usize) => (i64::MIN, i64::MAX),
+            (false, IRIntWidth::I8) => (0, u8::MAX as i64),
+            (false, IRIntWidth::I16) => (0, u16::MAX as i64),
+            (false, IRIntWidth::I32) => (0, u32::MAX as i64),
+            (false, IRIntWidth::I64 | IRIntWidth::Isize | IRIntWidth::Usize) => (0, i64::MAX),
         }
     }
 
@@ -743,6 +797,7 @@ impl ASTLowering {
 
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> Result<IRModule, Vec<MidendError>> {
         let mut ir_module = IRModule::new(&ast_module.name);
+        ir_module.source_file = Some(self.source_file.clone());
 
         // Populate stdlib alias map for unqualified call resolution.
         self.std_import_aliases = ast_module.std_import_aliases.iter().cloned().collect();
@@ -1304,6 +1359,8 @@ impl ASTLowering {
             IRType::Void
             | IRType::Int
             | IRType::Float
+            | IRType::ExactInt { .. }
+            | IRType::ExactFloat { .. }
             | IRType::Bool
             | IRType::String
             | IRType::Char
@@ -2957,6 +3014,20 @@ impl ASTLowering {
             .insert(ast_func.name.clone(), return_type.clone());
 
         let mut ir_func = IRFunction::new(&ast_func.name, params.clone(), return_type.clone());
+        ir_func.source_span = Some(self.source_span(ast_func.span));
+        ir_func.locals = ast_func
+            .params
+            .iter()
+            .zip(params.iter())
+            .map(|(ast_param, param)| LocalDebugInfo {
+                name: param.name.clone(),
+                ty: param.ty.clone(),
+                value_id: Some(param.id),
+                declaration: Some(self.source_span(ast_param.span)),
+                scope_start: Some(self.source_span(ast_func.body.span)),
+                scope_end: Some(self.source_span(ast_func.body.span)),
+            })
+            .collect();
 
         // Create entry block
         let entry_block = ir_func.add_block("entry");
@@ -4642,6 +4713,7 @@ impl ASTLowering {
     }
 
     fn lower_statement(&mut self, stmt: &Statement, ir_func: &mut IRFunction) {
+        self.builder.set_source_span(Some(self.source_span(stmt.span)));
         match &stmt.kind {
             StatementKind::Let(let_stmt) => {
                 let binding_name = match &let_stmt.pattern {
@@ -4740,6 +4812,22 @@ impl ASTLowering {
                     }
 
                     let name = binding_name.expect("identifier pattern should be present");
+
+                    // Keep user bindings in the debug model even when the
+                    // value is represented directly in SSA.  The backend can
+                    // later map the value to a register or stack location;
+                    // the declaration and type must not be reconstructed
+                    // from the sidecar.
+                    if let Some(ty) = binding_type.clone().or_else(|| inferred_type.clone()) {
+                        ir_func.locals.push(LocalDebugInfo {
+                            name: name.clone(),
+                            ty,
+                            value_id: Some(value.id),
+                            declaration: Some(self.source_span(stmt.span)),
+                            scope_start: Some(self.source_span(stmt.span)),
+                            scope_end: None,
+                        });
+                    }
 
                     match &value_expr.kind {
                         ExpressionKind::ArrayLiteral { .. } => {
@@ -5541,13 +5629,32 @@ impl ASTLowering {
     }
 
     fn lower_expression(&mut self, expr: &Expression, ir_func: &mut IRFunction) -> Value {
+        self.builder.set_source_span(Some(self.source_span(expr.span)));
         match &expr.kind {
             ExpressionKind::NumberLiteral(n) => {
                 // Try to parse as integer first, then float
                 if let Ok(int_val) = n.parse::<i64>() {
-                    self.builder.build_const_int(ir_func, int_val)
+                    if let Some(annotation) = self.current_expected_annotation.clone() {
+                        let ty = self.lower_type_annotation(&annotation);
+                        if matches!(ty, IRType::ExactInt { .. }) {
+                            self.builder.build_const_int_typed(ir_func, int_val, ty)
+                        } else {
+                            self.builder.build_const_int(ir_func, int_val)
+                        }
+                    } else {
+                        self.builder.build_const_int(ir_func, int_val)
+                    }
                 } else if let Ok(float_val) = n.parse::<f64>() {
-                    self.builder.build_const_float(ir_func, float_val)
+                    if let Some(annotation) = self.current_expected_annotation.clone() {
+                        let ty = self.lower_type_annotation(&annotation);
+                        if matches!(ty, IRType::ExactFloat { .. }) {
+                            self.builder.build_const_float_typed(ir_func, float_val, ty)
+                        } else {
+                            self.builder.build_const_float(ir_func, float_val)
+                        }
+                    } else {
+                        self.builder.build_const_float(ir_func, float_val)
+                    }
                 } else {
                     // Fallback to 0 if parsing fails
                     self.builder.build_const_int(ir_func, 0)
@@ -5628,6 +5735,31 @@ impl ASTLowering {
                 let lhs = self.lower_expression(left, ir_func);
                 let rhs = self.lower_expression(right, ir_func);
 
+                if let IRType::ExactInt { signed, width } = &left_ir_type {
+                    if left_ir_type == right_ir_type {
+                        let op_name = match operator {
+                            BinaryOperator::Add => Some("add"),
+                            BinaryOperator::Subtract => Some("sub"),
+                            BinaryOperator::Multiply => Some("mul"),
+                            _ => None,
+                        };
+                        if let Some(op_name) = op_name {
+                            let bits = match width {
+                                IRIntWidth::I8 => 8,
+                                IRIntWidth::I16 => 16,
+                                IRIntWidth::I32 => 32,
+                                IRIntWidth::I64 | IRIntWidth::Isize | IRIntWidth::Usize => 64,
+                            };
+                            let lhs_slot = self.builder.build_cast(ir_func, lhs, left_ir_type.clone(), IRType::Int);
+                            let rhs_slot = self.builder.build_cast(ir_func, rhs, right_ir_type.clone(), IRType::Int);
+                            let host = format!("spectra.std.numeric.checked_{op_name}_{}{}", if *signed { "i" } else { "u" }, bits);
+                            if let Some(value) = self.builder.build_typed_host_call(ir_func, host, vec![lhs_slot, rhs_slot], left_ir_type.clone(), true) {
+                                return value;
+                            }
+                        }
+                    }
+                }
+
                 match operator {
                     BinaryOperator::Add => self.builder.build_add(ir_func, lhs, rhs),
                     BinaryOperator::Subtract => self.builder.build_sub(ir_func, lhs, rhs),
@@ -5707,6 +5839,16 @@ impl ASTLowering {
                                 _ => IRType::Void,
                             })
                             .unwrap_or(IRType::Void);
+                        let _ = self
+                            .builder
+                            .build_typed_host_call(
+                                ir_func,
+                                "spectra.async.task.block_on".to_string(),
+                                vec![task],
+                                output_type.clone(),
+                                output_type != IRType::Void,
+                            )
+                            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
                         return self
                             .builder
                             .build_typed_host_call(
@@ -6906,28 +7048,20 @@ impl ASTLowering {
                 };
                 let state = self.next_async_state();
                 self.builder.build_async_suspend(ir_func, task, state);
-                let poll = self
-                    .builder
-                    .build_typed_host_call(
-                        ir_func,
-                        "spectra.async.task.poll".to_string(),
-                        vec![task],
-                        IRType::Bool,
-                        true,
-                    )
-                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 1));
-                let not_cancelled = self
-                    .builder
-                    .build_typed_host_call(
-                        ir_func,
-                        "spectra.async.task.is_cancelled".to_string(),
-                        vec![task],
-                        IRType::Bool,
-                        true,
-                    )
-                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
-                let _ = poll;
-                let _ = not_cancelled;
+                let _ = self.builder.build_typed_host_call(
+                    ir_func,
+                    "spectra.async.task.poll".to_string(),
+                    vec![task],
+                    IRType::Bool,
+                    true,
+                );
+                let _ = self.builder.build_typed_host_call(
+                    ir_func,
+                    "spectra.async.task.is_cancelled".to_string(),
+                    vec![task],
+                    IRType::Bool,
+                    true,
+                );
                 self.builder.build_async_resume(ir_func, task, state);
                 self.builder
                     .build_typed_host_call(
@@ -7001,7 +7135,10 @@ impl ASTLowering {
                 };
                 self.builder.build_host_call(
                     ir_func,
-                    "spectra.std.tensor.backward".to_string(),
+                    // Compiler-only region marker. The midend immediately
+                    // materializes this into AutodiffStep instructions; it is
+                    // never registered as a runtime host call.
+                    "spectra.compiler.autodiff_region".to_string(),
                     vec![loss],
                     false,
                 );
@@ -7051,6 +7188,7 @@ impl ASTLowering {
             ExpressionKind::Cast {
                 expr: inner,
                 target_type,
+                ..
             } => self.lower_cast_expression(inner, target_type, ir_func),
         }
     }
@@ -7082,6 +7220,55 @@ impl ASTLowering {
         // If same type, just copy
         if from_ty == to_ty {
             return operand;
+        }
+
+        // Checked narrowing goes through a runtime validator so dynamic values
+        // cannot silently saturate or truncate.  The host ABI receives the
+        // canonical i64/f64 representation; the result is materialized back
+        // into the exact destination type by the backend.
+        if let IRType::ExactInt { signed, width } = &to_ty {
+            let bits = match width {
+                IRIntWidth::I8 => 8,
+                IRIntWidth::I16 => 16,
+                IRIntWidth::I32 => 32,
+                IRIntWidth::I64 | IRIntWidth::Isize | IRIntWidth::Usize => 64,
+            };
+            let source_is_float = matches!(from_ty, IRType::Float | IRType::ExactFloat { .. });
+            let compatible_source = matches!(from_ty, IRType::Int | IRType::ExactInt { .. } | IRType::Float | IRType::ExactFloat { .. });
+            if compatible_source {
+                let host_operand = if source_is_float {
+                    if matches!(from_ty, IRType::ExactFloat { .. }) {
+                        self.builder.build_cast(ir_func, operand, from_ty.clone(), IRType::Float)
+                    } else { operand }
+                } else if matches!(from_ty, IRType::ExactInt { .. }) {
+                    self.builder.build_cast(ir_func, operand, from_ty.clone(), IRType::Int)
+                } else { operand };
+                let host = if source_is_float {
+                    format!("spectra.std.numeric.checked_float_{}{}", if *signed { "i" } else { "u" }, bits)
+                } else {
+                    format!("spectra.std.numeric.checked_{}{}", if *signed { "i" } else { "u" }, bits)
+                };
+                if let Some(value) = self.builder.build_typed_host_call(ir_func, host, vec![host_operand], to_ty.clone(), true) {
+                    return value;
+                }
+            }
+        }
+
+        if matches!(to_ty, IRType::ExactFloat { width: IRFloatWidth::F32 })
+            && matches!(from_ty, IRType::Float | IRType::ExactFloat { width: IRFloatWidth::F64 })
+        {
+            let host_operand = if matches!(from_ty, IRType::ExactFloat { .. }) {
+                self.builder.build_cast(ir_func, operand, from_ty.clone(), IRType::Float)
+            } else { operand };
+            if let Some(value) = self.builder.build_typed_host_call(
+                ir_func,
+                "spectra.std.numeric.checked_f32".to_string(),
+                vec![host_operand],
+                to_ty.clone(),
+                true,
+            ) {
+                return value;
+            }
         }
 
         self.builder.build_cast(ir_func, operand, from_ty, to_ty)
@@ -7187,35 +7374,12 @@ impl ASTLowering {
     }
 
     fn lower_string_literal(&mut self, literal: &str, ir_func: &mut IRFunction) -> Value {
-        // Allocate buffer with trailing null terminator
-        let bytes = literal.as_bytes();
-        let total_size = bytes.len() + 1; // +1 for '\0'
-        let array_type = IRType::Array {
-            element_type: Box::new(IRType::Int),
-            size: total_size,
-        };
-
-        let buffer_ptr = self.builder.build_alloca(ir_func, array_type);
-
-        // Populate buffer with literal contents
-        for (idx, byte) in bytes.iter().enumerate() {
-            let index = self.builder.build_const_int(ir_func, idx as i64);
-            let slot_ptr =
-                self.builder
-                    .build_getelementptr(ir_func, buffer_ptr, index, IRType::Int);
-            let value = self.builder.build_const_int(ir_func, *byte as i64);
-            self.builder.build_store(ir_func, slot_ptr, value);
-        }
-
-        // Null terminator at the end
-        let terminator_index = self.builder.build_const_int(ir_func, bytes.len() as i64);
-        let terminator_ptr =
-            self.builder
-                .build_getelementptr(ir_func, buffer_ptr, terminator_index, IRType::Int);
-        let zero = self.builder.build_const_int(ir_func, 0);
-        self.builder.build_store(ir_func, terminator_ptr, zero);
-
-        buffer_ptr
+        // R-3126: emit a single ConstString instruction. The backend resolves
+        // this to a stable pointer (global .rodata section in AOT, heap
+        // buffer in JIT) and tracks the compile-time length for fast
+        // `str.len` / `str.char_at` interception.
+        self.builder
+            .build_const_string(ir_func, literal.to_string())
     }
 
     fn lower_pattern_check(
@@ -7616,9 +7780,20 @@ impl ASTLowering {
                 }
 
                 match type_name {
-                    "int" | "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32"
-                    | "u64" | "usize" => IRType::Int,
-                    "float" | "f16" | "bf16" | "f32" | "f64" => IRType::Float,
+                    "int" => IRType::Int,
+                    "float" => IRType::Float,
+                    "i8" => IRType::ExactInt { signed: true, width: IRIntWidth::I8 },
+                    "i16" => IRType::ExactInt { signed: true, width: IRIntWidth::I16 },
+                    "i32" => IRType::ExactInt { signed: true, width: IRIntWidth::I32 },
+                    "i64" => IRType::ExactInt { signed: true, width: IRIntWidth::I64 },
+                    "isize" => IRType::ExactInt { signed: true, width: IRIntWidth::Isize },
+                    "u8" => IRType::ExactInt { signed: false, width: IRIntWidth::I8 },
+                    "u16" => IRType::ExactInt { signed: false, width: IRIntWidth::I16 },
+                    "u32" => IRType::ExactInt { signed: false, width: IRIntWidth::I32 },
+                    "u64" => IRType::ExactInt { signed: false, width: IRIntWidth::I64 },
+                    "usize" => IRType::ExactInt { signed: false, width: IRIntWidth::Usize },
+                    "f32" => IRType::ExactFloat { width: IRFloatWidth::F32 },
+                    "f64" => IRType::ExactFloat { width: IRFloatWidth::F64 },
                     "bool" => IRType::Bool,
                     "string" => IRType::String,
                     "char" => IRType::Char,
@@ -7815,6 +7990,23 @@ impl ASTLowering {
         match ast_type {
             ASTType::Int => IRType::Int,
             ASTType::Float => IRType::Float,
+            ASTType::ExactInt { signed, width } => IRType::ExactInt {
+                signed: *signed,
+                width: match width {
+                    spectra_compiler::ast::IntWidth::I8 => IRIntWidth::I8,
+                    spectra_compiler::ast::IntWidth::I16 => IRIntWidth::I16,
+                    spectra_compiler::ast::IntWidth::I32 => IRIntWidth::I32,
+                    spectra_compiler::ast::IntWidth::I64 => IRIntWidth::I64,
+                    spectra_compiler::ast::IntWidth::Isize => IRIntWidth::Isize,
+                    spectra_compiler::ast::IntWidth::Usize => IRIntWidth::Usize,
+                },
+            },
+            ASTType::ExactFloat { width } => IRType::ExactFloat {
+                width: match width {
+                    spectra_compiler::ast::FloatWidth::F32 => IRFloatWidth::F32,
+                    spectra_compiler::ast::FloatWidth::F64 => IRFloatWidth::F64,
+                },
+            },
             ASTType::Bool => IRType::Bool,
             ASTType::String => IRType::String,
             ASTType::Char => IRType::Char,
@@ -8134,10 +8326,45 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
     match path {
         [] => None,
         [first, ..] if first != "std" => None,
+        [_, api, db, sqlite, function] if api == "api" && db == "db" && sqlite == "sqlite" => {
+            lookup_std_api_host_function("db.sqlite", function)
+        }
+        [_, api, db, postgres, function] if api == "api" && db == "db" && postgres == "postgres" => {
+            lookup_std_api_host_function("db.postgres", function)
+        }
+        [_, api, db, redis, function] if api == "api" && db == "db" && redis == "redis" => {
+            lookup_std_api_host_function("db.redis", function)
+        }
         [_, api, module, function] if api == "api" => {
             lookup_std_api_host_function(module, function)
         }
-        [_, module, function] => match (module.as_str(), function.as_str()) {
+        [_, module, function] => {
+            if module == "numeric" {
+                if function == "checked_f32" {
+                    return Some(HostFunctionDescriptor {
+                        runtime_name: "spectra.std.numeric.checked_f32",
+                        return_type: IRType::ExactFloat { width: IRFloatWidth::F32 },
+                        returns_value: true,
+                    });
+                }
+                let (signed, width): (bool, IRIntWidth) = match function.as_str() {
+                    "wrapping_add_i8" | "wrapping_sub_i8" | "wrapping_mul_i8" => (true, IRIntWidth::I8),
+                    "wrapping_add_i16" | "wrapping_sub_i16" | "wrapping_mul_i16" => (true, IRIntWidth::I16),
+                    "wrapping_add_i32" | "wrapping_sub_i32" | "wrapping_mul_i32" => (true, IRIntWidth::I32),
+                    "wrapping_add_i64" | "wrapping_sub_i64" | "wrapping_mul_i64" => (true, IRIntWidth::I64),
+                    "wrapping_add_u8" | "wrapping_sub_u8" | "wrapping_mul_u8" => (false, IRIntWidth::I8),
+                    "wrapping_add_u16" | "wrapping_sub_u16" | "wrapping_mul_u16" => (false, IRIntWidth::I16),
+                    "wrapping_add_u32" | "wrapping_sub_u32" | "wrapping_mul_u32" => (false, IRIntWidth::I32),
+                    "wrapping_add_u64" | "wrapping_sub_u64" | "wrapping_mul_u64" => (false, IRIntWidth::I64),
+                    _ => return None,
+                };
+                return Some(HostFunctionDescriptor {
+                    runtime_name: Box::leak(format!("spectra.std.numeric.{function}").into_boxed_str()),
+                    return_type: IRType::ExactInt { signed, width },
+                    returns_value: true,
+                });
+            }
+            match (module.as_str(), function.as_str()) {
             ("math", "abs") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.math.abs",
                 return_type: IRType::Int,
@@ -8470,6 +8697,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("tensor", "stats_cpu_fallbacks") => {
                 Some(host_int("spectra.std.tensor.stats_cpu_fallbacks"))
             }
+            ("tensor", "stats_device_resident_tensors") => {
+                Some(host_int("spectra.std.tensor.stats_device_resident_tensors"))
+            }
+            ("tensor", "stats_gpu_backward_ops") => {
+                Some(host_int("spectra.std.tensor.stats_gpu_backward_ops"))
+            }
             ("tensor", "stats_graph_nodes") => {
                 Some(host_int("spectra.std.tensor.stats_graph_nodes"))
             }
@@ -8504,6 +8737,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("tensor", "free") => Some(host_void("spectra.std.tensor.free")),
             ("tensor", "free_all") => Some(host_int("spectra.std.tensor.free_all")),
+            ("tensor", "refill") => Some(host_void("spectra.std.tensor.refill")),
             // ── std.ml ───────────────────────────────────────────────────
             ("ml", "module_new") => Some(host_int("spectra.std.ml.module_new")),
             ("ml", "module_add_parameter") => {
@@ -8625,9 +8859,11 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "kv_cache_len") => Some(host_int("spectra.std.ml.kv_cache_len")),
             ("ml", "logits_sample") => Some(host_int("spectra.std.ml.logits_sample")),
             ("ml", "tokenizer_wordpiece") => Some(host_int("spectra.std.ml.tokenizer_wordpiece")),
+            ("ml", "tokenizer_load") => Some(host_int("spectra.std.ml.tokenizer_load")),
             ("ml", "tokenizer_encode") => Some(host_int("spectra.std.ml.tokenizer_encode")),
             ("ml", "tokenizer_decode") => Some(host_string("spectra.std.ml.tokenizer_decode")),
             ("ml", "text_embed") => Some(host_int("spectra.std.ml.text_embed")),
+            ("ml", "embedding_load") => Some(host_int("spectra.std.ml.embedding_load")),
             ("ml", "vector_index_new") => Some(host_int("spectra.std.ml.vector_index_new")),
             ("ml", "vector_index_insert") => Some(host_int("spectra.std.ml.vector_index_insert")),
             ("ml", "vector_index_query") => Some(host_string("spectra.std.ml.vector_index_query")),
@@ -8635,6 +8871,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 Some(host_string("spectra.std.ml.vector_index_persist"))
             }
             ("ml", "vector_index_load") => Some(host_int("spectra.std.ml.vector_index_load")),
+            ("ml", "vector_index_set_metadata") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.vector_index_set_metadata",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "vector_index_metrics") => Some(host_string("spectra.std.ml.vector_index_metrics")),
             ("ml", "rag_chunk_text") => Some(host_string("spectra.std.ml.rag_chunk_text")),
             ("ml", "rag_build_prompt") => Some(host_string("spectra.std.ml.rag_build_prompt")),
             ("ml", "rag_evaluate_answer") => Some(host_int("spectra.std.ml.rag_evaluate_answer")),
@@ -8646,9 +8888,40 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("ml", "metrics_generation") => Some(host_string("spectra.std.ml.metrics_generation")),
             ("ml", "serving_metrics") => Some(host_string("spectra.std.ml.serving_metrics")),
             ("ml", "evaluation_report") => Some(host_string("spectra.std.ml.evaluation_report")),
+            ("ml", "artifact_new") => Some(host_int("spectra.std.ml.artifact_new")),
+            ("ml", "artifact_set_metadata") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.artifact_set_metadata",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "artifact_add_tensor") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.artifact_add_tensor",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "artifact_save") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.artifact_save",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "artifact_load") => Some(host_int("spectra.std.ml.artifact_load")),
+            ("ml", "artifact_tensor") => Some(host_int("spectra.std.ml.artifact_tensor")),
+            ("ml", "artifact_metadata") => Some(host_string("spectra.std.ml.artifact_metadata")),
+            ("ml", "artifact_validate") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.ml.artifact_validate",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("ml", "artifact_free") => Some(host_void("spectra.std.ml.artifact_free")),
             // ── std.concurrent ───────────────────────────────────────────
             ("concurrent", "task_spawn") => Some(host_int("spectra.std.concurrent.task_spawn")),
             ("concurrent", "task_join") => Some(host_int("spectra.std.concurrent.task_join")),
+            ("concurrent", "task_spawn_batch") => {
+                Some(host_int("spectra.std.concurrent.task_spawn_batch"))
+            }
+            ("concurrent", "task_join_batch_sum") => {
+                Some(host_int("spectra.std.concurrent.task_join_batch_sum"))
+            }
             ("concurrent", "task_is_done") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.concurrent.task_is_done",
                 return_type: IRType::Bool,
@@ -8896,6 +9169,32 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 runtime_name: "spectra.std.string.pad_right",
                 return_type: IRType::String,
                 returns_value: true,
+            }),
+            // ── std.string string builder (R-3108) ────────────────────────
+            ("string", "builder_new") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_new",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "builder_push") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_push",
+                return_type: IRType::Void,
+                returns_value: false,
+            }),
+            ("string", "builder_len") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_len",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("string", "builder_finish") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_finish",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("string", "builder_free") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.string.builder_free",
+                return_type: IRType::Void,
+                returns_value: false,
             }),
             ("string", "split_by") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.split_by",
@@ -9302,6 +9601,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 returns_value: true,
             }),
             _ => None,
+            }
         },
         _ => None,
     }
@@ -9514,6 +9814,89 @@ fn lookup_std_api_host_function(module: &str, function: &str) -> Option<HostFunc
         ("middleware", "trace_short_circuited") => {
             Some(host_bool("spectra.api.middleware.trace_short_circuited"))
         }
+        ("trace", "config_new") => Some(host_int("spectra.api.trace.config_new")),
+        ("trace", "config_set_sample_rate") => Some(host_bool("spectra.api.trace.config_set_sample_rate")),
+        ("trace", "config_set_batch_size") => Some(host_bool("spectra.api.trace.config_set_batch_size")),
+        ("trace", "config_start") => Some(host_bool("spectra.api.trace.config_start")),
+        ("trace", "config_shutdown") => Some(host_bool("spectra.api.trace.config_shutdown")),
+        ("trace", "span_start") => Some(host_int("spectra.api.trace.span_start")),
+        ("trace", "span_set_attribute") => Some(host_bool("spectra.api.trace.span_set_attribute")),
+        ("trace", "span_set_attribute_int") => Some(host_bool("spectra.api.trace.span_set_attribute_int")),
+        ("trace", "span_set_attribute_bool") => Some(host_bool("spectra.api.trace.span_set_attribute_bool")),
+        ("trace", "span_set_status") => Some(host_bool("spectra.api.trace.span_set_status")),
+        ("trace", "span_end") => Some(host_bool("spectra.api.trace.span_end")),
+        ("trace", "current") => Some(host_int("spectra.api.trace.current")),
+        ("trace", "parent") => Some(host_int("spectra.api.trace.parent")),
+        ("trace", "inject") => Some(host_bool("spectra.api.trace.inject")),
+        ("trace", "extract") => Some(host_bool("spectra.api.trace.extract")),
+        ("trace", "flush") => Some(host_int("spectra.api.trace.flush")),
+        ("trace", "last_error") => Some(host_string("spectra.api.trace.last_error")),
+        ("health", "startup_complete") => Some(host_bool("spectra.api.health.startup_complete")),
+        ("health", "startup_failed") => Some(host_bool("spectra.api.health.startup_failed")),
+        ("db.sqlite", "open") => Some(host_int("spectra.api.db.sqlite.open")),
+        ("db.sqlite", "close") => Some(host_bool("spectra.api.db.sqlite.close")),
+        ("db.sqlite", "prepare") => Some(host_int("spectra.api.db.sqlite.prepare")),
+        ("db.sqlite", "execute_async") => Some(host_int("spectra.api.db.sqlite.execute_async")),
+        ("db.sqlite", "bind_null") => Some(host_bool("spectra.api.db.sqlite.bind_null")),
+        ("db.sqlite", "bind_int") => Some(host_bool("spectra.api.db.sqlite.bind_int")),
+        ("db.sqlite", "bind_float") => Some(host_bool("spectra.api.db.sqlite.bind_float")),
+        ("db.sqlite", "bind_text") => Some(host_bool("spectra.api.db.sqlite.bind_text")),
+        ("db.sqlite", "bind_blob") => Some(host_bool("spectra.api.db.sqlite.bind_blob")),
+        ("db.sqlite", "step") => Some(host_int("spectra.api.db.sqlite.step")),
+        ("db.sqlite", "column_count") => Some(host_int("spectra.api.db.sqlite.column_count")),
+        ("db.sqlite", "column_type") => Some(host_int("spectra.api.db.sqlite.column_type")),
+        ("db.sqlite", "column_int") => Some(host_int("spectra.api.db.sqlite.column_int")),
+        ("db.sqlite", "column_float") => Some(host_float("spectra.api.db.sqlite.column_float")),
+        ("db.sqlite", "column_text") => Some(host_string("spectra.api.db.sqlite.column_text")),
+        ("db.sqlite", "reset") => Some(host_bool("spectra.api.db.sqlite.reset")),
+        ("db.sqlite", "finalize") => Some(host_bool("spectra.api.db.sqlite.finalize")),
+        ("db.sqlite", "begin") => Some(host_bool("spectra.api.db.sqlite.begin")),
+        ("db.sqlite", "commit") => Some(host_bool("spectra.api.db.sqlite.commit")),
+        ("db.sqlite", "rollback") => Some(host_bool("spectra.api.db.sqlite.rollback")),
+        ("db.sqlite", "last_error_code") => Some(host_string("spectra.api.db.sqlite.last_error_code")),
+        ("db.sqlite", "last_error_message") => Some(host_string("spectra.api.db.sqlite.last_error_message")),
+        ("db.postgres", "open") => Some(host_int("spectra.api.db.postgres.open")),
+        ("db.postgres", "close") => Some(host_bool("spectra.api.db.postgres.close")),
+        ("db.postgres", "prepare") => Some(host_int("spectra.api.db.postgres.prepare")),
+        ("db.postgres", "bind_null") => Some(host_bool("spectra.api.db.postgres.bind_null")),
+        ("db.postgres", "bind_int") => Some(host_bool("spectra.api.db.postgres.bind_int")),
+        ("db.postgres", "bind_float") => Some(host_bool("spectra.api.db.postgres.bind_float")),
+        ("db.postgres", "bind_text") => Some(host_bool("spectra.api.db.postgres.bind_text")),
+        ("db.postgres", "step") => Some(host_int("spectra.api.db.postgres.step")),
+        ("db.postgres", "column_count") => Some(host_int("spectra.api.db.postgres.column_count")),
+        ("db.postgres", "column_type") => Some(host_int("spectra.api.db.postgres.column_type")),
+        ("db.postgres", "column_int") => Some(host_int("spectra.api.db.postgres.column_int")),
+        ("db.postgres", "column_text") => Some(host_string("spectra.api.db.postgres.column_text")),
+        ("db.postgres", "reset") => Some(host_bool("spectra.api.db.postgres.reset")),
+        ("db.postgres", "finalize") => Some(host_bool("spectra.api.db.postgres.finalize")),
+        ("db.postgres", "begin") => Some(host_bool("spectra.api.db.postgres.begin")),
+        ("db.postgres", "commit") => Some(host_bool("spectra.api.db.postgres.commit")),
+        ("db.postgres", "rollback") => Some(host_bool("spectra.api.db.postgres.rollback")),
+        ("db.postgres", "execute_async") => Some(host_task_int("spectra.api.db.postgres.execute_async")),
+        ("db.postgres", "step_async") => Some(host_task_int("spectra.api.db.postgres.step_async")),
+        ("db.postgres", "savepoint") => Some(host_bool("spectra.api.db.postgres.savepoint")),
+        ("db.postgres", "rollback_to") => Some(host_bool("spectra.api.db.postgres.rollback_to")),
+        ("db.postgres", "release_savepoint") => Some(host_bool("spectra.api.db.postgres.release_savepoint")),
+        ("db.postgres", "copy_in_text_async") => Some(host_task_int("spectra.api.db.postgres.copy_in_text_async")),
+        ("db.postgres", "copy_out_text_async") => Some(host_task_string("spectra.api.db.postgres.copy_out_text_async")),
+        ("db.postgres", "listen") => Some(host_int("spectra.api.db.postgres.listen")),
+        ("db.postgres", "notify_async") => Some(host_task_bool("spectra.api.db.postgres.notify_async")),
+        ("db.postgres", "notification_next_async") => Some(host_task_int("spectra.api.db.postgres.notification_next_async")),
+        ("db.postgres", "notification_channel") => Some(host_string("spectra.api.db.postgres.notification_channel")),
+        ("db.postgres", "notification_payload") => Some(host_string("spectra.api.db.postgres.notification_payload")),
+        ("db.postgres", "notification_process_id") => Some(host_int("spectra.api.db.postgres.notification_process_id")),
+        ("db.postgres", "notification_free") => Some(host_bool("spectra.api.db.postgres.notification_free")),
+        ("db.postgres", "notification_close") => Some(host_bool("spectra.api.db.postgres.notification_close")),
+        ("db.postgres", "last_error_code") => Some(host_string("spectra.api.db.postgres.last_error_code")),
+        ("db.postgres", "last_error_message") => Some(host_string("spectra.api.db.postgres.last_error_message")),
+        ("db.redis", "open") => Some(host_int("spectra.api.db.redis.open")),
+        ("db.redis", "close") => Some(host_bool("spectra.api.db.redis.close")),
+        ("db.redis", "get") => Some(host_string("spectra.api.db.redis.get")),
+        ("db.redis", "set") => Some(host_bool("spectra.api.db.redis.set")),
+        ("db.redis", "delete") => Some(host_bool("spectra.api.db.redis.delete")),
+        ("db.redis", "expire") => Some(host_bool("spectra.api.db.redis.expire")),
+        ("db.redis", "incr") => Some(host_int("spectra.api.db.redis.incr")),
+        ("db.redis", "exists") => Some(host_bool("spectra.api.db.redis.exists")),
         ("cors", "policy") => Some(host_int("spectra.api.cors.policy")),
         ("cors", "permissive") => Some(host_int("spectra.api.cors.permissive")),
         ("cors", "allow_origin") => Some(host_int("spectra.api.cors.allow_origin")),
@@ -9545,7 +9928,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "multipart"
                     || module == "handler"
                     || module == "cors"
-                    || module == "middleware") =>
+                    || module == "middleware"
+                    || module == "trace") =>
         {
             name.as_str()
         }
@@ -9561,7 +9945,8 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "multipart"
                     || module == "handler"
                     || module == "cors"
-                    || module == "middleware") =>
+                    || module == "middleware"
+                    || module == "trace") =>
         {
             name.as_str()
         }
@@ -9596,7 +9981,13 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "MiddlewareHandle"
             | "AsyncMiddlewareHandle"
             | "MiddlewareTrace"
+            | "TraceConfig"
+            | "TraceSpan"
             | "CorsPolicy"
+            | "PostgresConnection"
+            | "PostgresStatement"
+            | "PostgresNotificationChannel"
+            | "PostgresNotification"
     )
 }
 
@@ -9629,6 +10020,8 @@ fn is_std_api_handle_type_name(name: &str) -> bool {
             | "MiddlewareHandle"
             | "AsyncMiddlewareHandle"
             | "MiddlewareTrace"
+            | "TraceConfig"
+            | "TraceSpan"
             | "CorsPolicy"
     )
 }
@@ -9646,6 +10039,26 @@ fn host_task_int(runtime_name: &'static str) -> HostFunctionDescriptor {
         runtime_name,
         return_type: IRType::Task {
             output: Box::new(IRType::Int),
+        },
+        returns_value: true,
+    }
+}
+
+fn host_task_bool(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Task {
+            output: Box::new(IRType::Bool),
+        },
+        returns_value: true,
+    }
+}
+
+fn host_task_string(runtime_name: &'static str) -> HostFunctionDescriptor {
+    HostFunctionDescriptor {
+        runtime_name,
+        return_type: IRType::Task {
+            output: Box::new(IRType::String),
         },
         returns_value: true,
     }
@@ -9815,6 +10228,7 @@ mod tests {
         assert!(pretty.contains("async.ready"));
         assert!(pretty.contains("spectra.async.task.ready"));
         assert!(pretty.contains("spectra.async.task.poll"));
+        assert!(!pretty.contains("spectra.async.task.block_on"));
         assert!(pretty.contains("spectra.async.task.result"));
     }
 

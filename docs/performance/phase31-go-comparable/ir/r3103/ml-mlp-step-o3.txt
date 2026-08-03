@@ -1,0 +1,209 @@
+   Compiling bench_ml_mlp_step (\\?\D:\Lang\SpectraLang\benchmarks\cross-lang\ml-mlp-step\spectra\bench.spectra)
+=== Compiler-native Autodiff IR ===
+autodiff_ir schema=spectralang.r3004_autodiff_ir.v1
+fn train_step losses=[5]
+  forward %0 forward.param rule=none inputs=[]
+  forward %1 forward.param rule=none inputs=[]
+  forward %2 forward.param rule=none inputs=[]
+  forward %3 forward.linear rule=linear_backward(input,weight,bias,g) inputs=[0, 1, 2]
+  forward %4 forward.param rule=none inputs=[]
+  forward %5 forward.loss.mse_loss rule=2*(prediction-target)/count inputs=[3, 4]
+  backward %0 seed(%5) rule=seed=1 inputs=[5]
+  backward %1 save(%5) rule=save_forward_value inputs=[5]
+  backward %2 grad(%5,loss.mse_loss) rule=2*(prediction-target)/count inputs=[3, 4]
+  backward %3 accumulate(%3) rule=stable_sum inputs=[3, 4]
+  backward %4 save(%3) rule=save_forward_value inputs=[3]
+  backward %5 grad(%3,linear) rule=linear_backward(input,weight,bias,g) inputs=[0, 1, 2]
+  backward %6 accumulate(%0) rule=stable_sum inputs=[0, 1, 2]
+fn main losses=[]
+  forward %0 forward.create.full_f rule=none inputs=[]
+  forward %1 forward.reshape rule=reshape(g,input_shape) inputs=[0]
+  forward %2 forward.create.full_f rule=none inputs=[]
+  forward %3 forward.create.full_f rule=none inputs=[]
+  forward %4 forward.unknown.spectra.std.tensor.requires_grad rule=none inputs=[3]
+  forward %5 forward.reshape rule=reshape(g,input_shape) inputs=[4]
+  forward %6 forward.create.full_f rule=none inputs=[]
+  forward %7 forward.unknown.spectra.std.tensor.requires_grad rule=none inputs=[6]
+  forward %8 forward.linear rule=linear_backward(input,weight,bias,g) inputs=[1, 5, 7]
+
+=== Tensor IR (CPU legalization) ===
+tensor_graph module bench_ml_mlp_step
+fn train_step {
+  n0 %0 = param(-) -> dtype=? shape=? layout=? device=? @b0:i0
+  n1 %2 = param(-) -> dtype=? shape=? layout=? device=? @b0:i0
+  n2 %3 = param(-) -> dtype=? shape=? layout=? device=? @b0:i0
+  n3 %4 = linear(n0,n1,n2) -> dtype=? shape=? layout=? device=? @b0:i0
+  n4 %1 = param(-) -> dtype=? shape=? layout=? device=? @b0:i1
+  n5 %5 = loss.mse_loss(n3,n4) -> dtype=? shape=[] layout=contiguous device=? @b0:i1
+}
+fn main {
+  n0 %7 = create.full_f(-) -> dtype=float shape=[16] layout=contiguous device=cpu @b0:i8
+  n1 %10 = reshape(n0) -> dtype=float shape=[16,1] layout=contiguous device=cpu @b0:i11
+  n2 %13 = create.full_f(-) -> dtype=float shape=[16] layout=contiguous device=cpu @b0:i14
+  n3 %16 = create.full_f(-) -> dtype=float shape=[1] layout=contiguous device=cpu @b0:i17
+  n4 %18 = unknown.spectra.std.tensor.requires_grad(n3) -> dtype=? shape=? layout=? device=? @b0:i19
+  n5 %21 = reshape(n4) -> dtype=? shape=[1,1] layout=? device=? @b0:i22
+  n6 %24 = create.full_f(-) -> dtype=float shape=[1] layout=contiguous device=cpu @b0:i25
+  n7 %26 = unknown.spectra.std.tensor.requires_grad(n6) -> dtype=? shape=? layout=? device=? @b0:i27
+  n8 %34 = linear(n1,n5,n7) -> dtype=float shape=[16,1] layout=contiguous device=cpu @b3:i0
+}
+
+tensor_ir_report TensorGraphLoweringReport { backend: Cpu, ir_nodes: 15, legalized_nodes: 15, external_fallback_nodes: 2, fusion_groups: 0, planned_buffers: 15, peak_live_buffers: 9 }
+=== IR (before optimization) ===
+module bench_ml_mlp_step {
+
+  fn train_step(int x, int target, int weight, int bias) -> int {
+    entry:
+      %v4 = hostcall spectra.std.ml.linear(%v0, %v2, %v3)
+      %v5 = hostcall spectra.std.ml.mse_loss(%v4, %v1)
+      hostcall spectra.std.tensor.backward(%v5)
+      %v6 = const.int 0
+      %v7 = const.float 0.1
+      hostcall spectra.std.ml.sgd_step(%v2, %v7)
+      %v8 = const.int 0
+      %v9 = const.float 0.1
+      hostcall spectra.std.ml.sgd_step(%v3, %v9)
+      %v10 = const.int 0
+      %v11 = const.int 0
+      ret %v11
+  }
+
+  fn main() -> int {
+    entry:
+      %v0 = alloca int
+      %v1 = hostcall spectra.std.tensor.free_all()
+      %v2 = const.bool true
+      hostcall spectra.std.tensor.set_grad_enabled(%v2)
+      %v3 = const.int 0
+      %v4 = const.int 10
+      %v5 = const.int 16
+      %v6 = const.float 1
+      %v7 = hostcall spectra.std.tensor.full_f(%v5, %v6)
+      %v8 = const.int 16
+      %v9 = const.int 1
+      %v10 = hostcall spectra.std.tensor.reshape(%v7, %v8, %v9)
+      %v11 = const.int 16
+      %v12 = const.float 2
+      %v13 = hostcall spectra.std.tensor.full_f(%v11, %v12)
+      %v14 = const.int 1
+      %v15 = const.float 0
+      %v16 = hostcall spectra.std.tensor.full_f(%v14, %v15)
+      %v17 = const.bool true
+      %v18 = hostcall spectra.std.tensor.requires_grad(%v16, %v17)
+      %v19 = const.int 1
+      %v20 = const.int 1
+      %v21 = hostcall spectra.std.tensor.reshape(%v18, %v19, %v20)
+      %v22 = const.int 1
+      %v23 = const.float 0
+      %v24 = hostcall spectra.std.tensor.full_f(%v22, %v23)
+      %v25 = const.bool true
+      %v26 = hostcall spectra.std.tensor.requires_grad(%v24, %v25)
+      %v27 = const.int 0
+      store %v0, %v27
+      br bb1
+    while.header:
+      %v28 = load(int) %v0
+      %v29 = lt %v28, %v4
+      br.if %v29 -> bb2, else bb3
+    while.body:
+      %v30 = call train_step(%v10, %v13, %v21, %v26)
+      %v31 = load(int) %v0
+      %v32 = const.int 1
+      %v33 = add %v31, %v32
+      store %v0, %v33
+      br bb1
+    while.exit:
+      %v34 = hostcall spectra.std.ml.linear(%v10, %v21, %v26)
+      %v35 = hostcall spectra.std.tensor.len(%v34)
+      %v36 = hostcall spectra.std.tensor.free_all()
+      %v37 = const.int 16
+      %v38 = eq %v35, %v37
+      br.if %v38 -> bb4, else bb5
+    if.then:
+      %v39 = const.int 0
+      ret %v39
+    if.merge:
+      %v40 = const.int 0
+      %v41 = const.int 1
+      ret %v41
+  }
+}
+
+
+=== IR (after optimization) ===
+module bench_ml_mlp_step {
+
+  fn train_step(int x, int target, int weight, int bias) -> int {
+    entry:
+      %v4 = hostcall spectra.std.ml.linear(%v0, %v2, %v3)
+      %v5 = hostcall spectra.std.ml.mse_loss(%v4, %v1)
+      hostcall spectra.std.tensor.backward(%v5)
+      %v7 = const.float 0.1
+      hostcall spectra.std.ml.sgd_step(%v2, %v7)
+      %v9 = const.float 0.1
+      hostcall spectra.std.ml.sgd_step(%v3, %v9)
+      %v11 = const.int 0
+      ret %v11
+  }
+
+  fn main() -> int {
+    entry:
+      %v0 = alloca int
+      %v1 = hostcall spectra.std.tensor.free_all()
+      %v2 = const.bool true
+      hostcall spectra.std.tensor.set_grad_enabled(%v2)
+      %v4 = const.int 10
+      %v5 = const.int 16
+      %v6 = const.float 1
+      %v7 = hostcall spectra.std.tensor.full_f(%v5, %v6)
+      %v8 = const.int 16
+      %v9 = const.int 1
+      %v10 = hostcall spectra.std.tensor.reshape(%v7, %v8, %v9)
+      %v11 = const.int 16
+      %v12 = const.float 2
+      %v13 = hostcall spectra.std.tensor.full_f(%v11, %v12)
+      %v14 = const.int 1
+      %v15 = const.float 0
+      %v16 = hostcall spectra.std.tensor.full_f(%v14, %v15)
+      %v17 = const.bool true
+      %v18 = hostcall spectra.std.tensor.requires_grad(%v16, %v17)
+      %v19 = const.int 1
+      %v20 = const.int 1
+      %v21 = hostcall spectra.std.tensor.reshape(%v18, %v19, %v20)
+      %v22 = const.int 1
+      %v23 = const.float 0
+      %v24 = hostcall spectra.std.tensor.full_f(%v22, %v23)
+      %v25 = const.bool true
+      %v26 = hostcall spectra.std.tensor.requires_grad(%v24, %v25)
+      %v27 = const.int 0
+      store %v0, %v27
+      br bb1
+    while.header:
+      %v28 = load(int) %v0
+      %v29 = lt %v28, %v4
+      br.if %v29 -> bb2, else bb3
+    while.body:
+      %v30 = call train_step(%v10, %v13, %v21, %v26)
+      %v31 = load(int) %v0
+      %v32 = const.int 1
+      %v33 = add %v31, %v32
+      store %v0, %v33
+      br bb1
+    while.exit:
+      %v34 = hostcall spectra.std.ml.linear(%v10, %v21, %v26)
+      %v35 = hostcall spectra.std.tensor.len(%v34)
+      %v36 = hostcall spectra.std.tensor.free_all()
+      %v37 = const.int 16
+      %v38 = eq %v35, %v37
+      br.if %v38 -> bb4, else bb5
+    if.then:
+      %v39 = const.int 0
+      ret %v39
+    if.merge:
+      %v41 = const.int 1
+      ret %v41
+  }
+}
+
+
+    Finished

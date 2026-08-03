@@ -219,13 +219,17 @@ fn instruction_result(instruction: &Instruction) -> Option<Value> {
         | InstructionKind::Phi { result, .. }
         | InstructionKind::Copy { result, .. }
         | InstructionKind::ConstInt { result, .. }
+        | InstructionKind::ConstIntTyped { result, .. }
         | InstructionKind::ConstFloat { result, .. }
+        | InstructionKind::ConstFloatTyped { result, .. }
         | InstructionKind::ConstBool { result, .. }
+        | InstructionKind::ConstString { result, .. }
         | InstructionKind::Cast { result, .. }
         | InstructionKind::MakeDynFatPtr { result, .. }
         | InstructionKind::LoadDynDataPtr { result, .. }
         | InstructionKind::LoadDynVtablePtr { result, .. }
         | InstructionKind::LoadVtableSlot { result, .. } => Some(*result),
+        InstructionKind::AutodiffStep { result, .. } => *result,
         InstructionKind::Call { result, .. }
         | InstructionKind::HostCall { result, .. }
         | InstructionKind::CallIndirect { result, .. } => *result,
@@ -287,8 +291,20 @@ fn instruction_operands(instruction: &Instruction) -> Vec<Value> {
         InstructionKind::Alloca { .. }
         | InstructionKind::FuncAddr { .. }
         | InstructionKind::ConstInt { .. }
+        | InstructionKind::ConstIntTyped { .. }
         | InstructionKind::ConstFloat { .. }
-        | InstructionKind::ConstBool { .. } => Vec::new(),
+        | InstructionKind::ConstFloatTyped { .. }
+        | InstructionKind::ConstBool { .. }
+        | InstructionKind::ConstString { .. } => Vec::new(),
+        InstructionKind::AutodiffStep { upstream, inputs, targets, .. } => {
+            let mut operands = Vec::new();
+            if let Some(value) = upstream {
+                operands.push(*value);
+            }
+            operands.extend(inputs.iter().copied());
+            operands.extend(targets.iter().copied());
+            operands
+        }
     }
 }
 

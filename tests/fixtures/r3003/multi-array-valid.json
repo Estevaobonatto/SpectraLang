@@ -1,0 +1,10 @@
+{
+  "name": "arrays-fixture",
+  "model_version": "v1",
+  "kind": "multi_array",
+  "metadata": {"dtype_policy": "f64", "layout": "contiguous"},
+  "arrays": [
+    {"name": "tokens", "dtype": "int", "shape": [3], "values": [1, 4, 9]},
+    {"name": "scores", "dtype": "float", "shape": [3], "values": [0.25, 0.5, 0.75]}
+  ]
+}

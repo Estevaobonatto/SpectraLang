@@ -1,0 +1,34 @@
+// Extended validation: classification, regression, ranking and report assembly.
+module ml_metrics_report;
+
+import std.tensor as tensor;
+import std.ml as ml;
+import std.string as str;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let labels = tensor.arange(0, 4, 1);
+    let predicted = tensor.arange(0, 4, 1);
+    let classification = ml.metrics_classification(labels, predicted);
+    if !str.contains(classification, "\"accuracy\":1.000000") { return 1; }
+
+    let expected = tensor.full_f(4, 1.0);
+    let actual = tensor.full_f(4, 1.0);
+    let regression = ml.metrics_regression(expected, actual);
+    if !str.contains(regression, "\"mse\":0.000000") { return 2; }
+
+    let relevance = tensor.arange(0, 4, 1);
+    let scores = tensor.full_f(4, 1.0);
+    let ranking = ml.metrics_ranking(relevance, scores, 3);
+    if !str.contains(ranking, "\"ndcg_at_k\"") { return 3; }
+
+    let generation = ml.metrics_generation("the answer uses indexed retrieval", "answer uses retrieval");
+    let serving = ml.serving_metrics(tensor.arange(10, 50, 10), 4, 0);
+    if !str.contains(generation, "\"perplexity\"") { return 4; }
+    if !str.contains(serving, "\"throughput_per_second\"") { return 5; }
+
+    let path = ml.evaluation_report("target/extended-ml/metrics-report.json", "extended-ml", classification, regression, ranking, generation, serving);
+    if !str.contains(path, "metrics-report.json") { return 6; }
+    tensor.free_all();
+    return 0;
+}

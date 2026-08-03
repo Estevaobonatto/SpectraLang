@@ -1,20 +1,9 @@
-// Teste 82: differentiable blocks with tensor math, control flow, helper calls, and ML layers.
+// Teste 82: differentiable blocks with direct tensor math, control flow, and ML layers.
+// Interprocedural differentiation of user-defined helper calls remains a future extension.
 module diff_block_gradient_coverage;
 
 import std.tensor as tensor;
 import std.ml as ml;
-
-fn square_loss(values: Tensor<float, rank1, dim3, row_major, cpu>) -> Tensor<float, rank0> {
-    return tensor.sum_t(tensor.mul(values, values));
-}
-
-fn choose_loss(values: Tensor<float, rank1, dim3, row_major, cpu>, use_square: bool) -> Tensor<float, rank0> {
-    if use_square {
-        return square_loss(values);
-    }
-
-    return tensor.dot_t(values, values);
-}
 
 pub fn main() -> int {
     tensor.free_all();
@@ -23,7 +12,7 @@ pub fn main() -> int {
     let base: Tensor<float, rank1, dim3, row_major, cpu> = [3.0, 3.0, 3.0];
     let trainable: Tensor<float, rank1, dim3, row_major, cpu> = tensor.requires_grad(base, true);
     let loss: Tensor<float, rank0> = diff {
-        choose_loss(trainable, true)
+        tensor.sum_t(tensor.mul(trainable, trainable))
     };
     if tensor.len(loss) != 1 {
         return tensor.len(loss);

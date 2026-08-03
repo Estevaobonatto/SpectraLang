@@ -1,0 +1,181 @@
+{
+  "schema": "spectra.phase31.baseline.v1",
+  "updated": "2026-06-23",
+  "tolerance_policy": "Default: 1e-9 for float sums, 1e-6 for elementwise chains, 1e-4 for matmul, exact for integer reductions.",
+  "max_drift_pct": 15.0,
+  "max_stddev_pct": 10.0,
+  "first_pass_policy": "max_drift_pct is 15% on the first baseline to absorb dev-machine noise. Tighten to 5% once three consecutive runs on a pinned reference machine differ by less than 5%.",
+  "comment": "Baseline values reflect the first complete R-3101 runs on a developer Windows machine. Update via the methodology in docs/performance/phase31-go-comparable/methodology.md once two consecutive runs differ by less than the noise floor.",
+  "scenarios": {
+    "cpu-loop-sum": {
+      "category": "cpu",
+      "iterations": 1000000,
+      "expected_sum": 100000500000,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 34627725,
+      "placeholder": false
+    },
+    "cpu-fibs": {
+      "category": "cpu",
+      "iterations": 200000,
+      "expected_value": 20466831000000,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 50018925,
+      "placeholder": false
+    },
+    "cpu-string-build": {
+      "category": "cpu",
+      "iterations": 50,
+      "expected_output_bytes": 10000,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 47954150,
+      "placeholder": false,
+      "r3122_fast_abi_speedup_x": 5.8
+    },
+    "cpu-hashmap": {
+      "category": "cpu",
+      "iterations": 30,
+      "expected_value": "n>0",
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 134579390,
+      "placeholder": false
+    },
+    "tensor-create": {
+      "category": "tensor",
+      "iterations": 20,
+      "expected_count": 20971520,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 186906850,
+      "placeholder": false,
+      "r3107_pool_speedup_x": 2.74,
+      "r3118_refill_bench": true
+    },
+    "tensor-elementwise": {
+      "category": "tensor",
+      "iterations": 10,
+      "expected_tolerance": "1e-6",
+      "spectra_ns_per_iter": 43305625,
+      "placeholder": false
+    },
+    "tensor-reduce": {
+      "category": "tensor",
+      "iterations": 50,
+      "expected_value": 5000000.0,
+      "tolerance": "1e-9",
+      "spectra_ns_per_iter": 53104700,
+      "placeholder": false
+    },
+    "tensor-matmul": {
+      "category": "tensor",
+      "iterations": 20,
+      "expected_tolerance": "1e-4",
+      "spectra_ns_per_iter": 56710280,
+      "placeholder": false
+    },
+    "ml-mlp-step": {
+      "category": "ml",
+      "iterations": 10,
+      "expected_tolerance": "1e-3",
+      "spectra_ns_per_iter": 76160370,
+      "placeholder": false
+    },
+    "async-echo": {
+      "category": "async",
+      "iterations": 1000,
+      "expected_value": 55000,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 33865050,
+      "placeholder": false,
+      "r3119_slot_pool_speedup_x": 13.15,
+      "r3120_fast_abi_speedup_x": 3.66
+    },
+    "async-pipeline": {
+      "category": "async",
+      "iterations": 200,
+      "expected_value": 99500,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 52467360,
+      "placeholder": false
+    },
+    "sort-int": {
+      "category": "cpu",
+      "iterations": 50000,
+      "expected_value": 1360,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "binary-search": {
+      "category": "cpu",
+      "iterations": 1000000,
+      "expected_value": 19,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "sieve": {
+      "category": "cpu",
+      "iterations": 2000,
+      "expected_value": 46,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "matrix-transpose": {
+      "category": "cpu",
+      "iterations": 20000,
+      "expected_value": 4368320,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "string-reverse": {
+      "category": "string",
+      "iterations": 200000,
+      "expected_value": 88994,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "count-primes": {
+      "category": "cpu",
+      "iterations": 500,
+      "expected_value": 95,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "gcd": {
+      "category": "cpu",
+      "iterations": 1000000,
+      "expected_value": 962,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "pow-fast": {
+      "category": "cpu",
+      "iterations": 50000,
+      "expected_value": 4325366774,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "word-count": {
+      "category": "string",
+      "iterations": 200000,
+      "expected_value": 12,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    },
+    "digit-sum": {
+      "category": "cpu",
+      "iterations": 200,
+      "expected_value": 180001,
+      "tolerance": "exact",
+      "spectra_ns_per_iter": 0,
+      "placeholder": true
+    }
+  }
+}

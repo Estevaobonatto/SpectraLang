@@ -1,0 +1,25 @@
+// Extended validation: dataset transforms, deterministic splits and batching.
+module ml_dataset_split_loader;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let dataset = ml.dataset_from_csv("tests/fixtures/r1701/tabular.csv", 2, 1);
+    if ml.dataset_len(dataset) != 4 { return 1; }
+    let mapped = ml.dataset_map_features(dataset, 2.0, 0.0);
+    let filtered = ml.dataset_filter_label_min(mapped, 1.0);
+    if ml.dataset_len(filtered) != 2 { return 2; }
+    let train = ml.dataset_train_split(dataset, 3);
+    let test = ml.dataset_test_split(dataset, 3);
+    if ml.dataset_len(train) != 3 || ml.dataset_len(test) != 1 { return 3; }
+
+    let loader = ml.dataloader_new(filtered, 1, 123);
+    if ml.dataloader_batch_count(loader) != 2 { return 4; }
+    let features = ml.dataloader_batch_features(loader, 0);
+    let labels = ml.dataloader_batch_labels(loader, 0);
+    if tensor.len(features) != 2 || tensor.len(labels) != 1 { return 5; }
+    tensor.free_all();
+    return 0;
+}

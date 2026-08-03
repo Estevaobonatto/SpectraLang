@@ -757,14 +757,10 @@ Current state: complete for the current production baseline. ADR [0004](adr/0004
 
 ### Tasks
 
-- Define `Device` model:
-  - CPU
-  - CUDA
-  - ROCm
-  - Metal
-- DirectML or Vulkan, depending on target audience
-- Add tensor placement APIs.
-- Add explicit and implicit transfer semantics.
+- Keep CPU (`0`) and optional WGPU (`6`) as the implemented device contract.
+- Keep CUDA, ROCm, Metal, DirectML, and Vulkan explicitly reserved until each has a real backend, capability probe, transfer path, kernel coverage, and validation gate.
+- Preserve explicit tensor placement APIs and predictable host/device transfer semantics.
+- Do not describe reserved device codes as supported accelerators.
 
 ### Acceptance Criteria
 
@@ -773,36 +769,35 @@ Current state: complete for the current production baseline. ADR [0004](adr/0004
 
 ## 7.2 GPU Kernel Execution
 
-Current state: complete for the current production baseline. The optional `gpu` feature adds a real `wgpu` compute backend for float tensor elementwise arithmetic, `relu`, `sum_f`, `matmul`, and `ml.conv2d`. The backend is validated on supported hardware by `cargo test -p spectra-runtime --features gpu`, `cargo run -p spectra-cli --features gpu -- run tests/validation/75_tensor_phase7_gpu.spectra`, and the release benchmark `cargo run --release -p spectra-runtime --features gpu --example tensor_phase7_gpu_bench`. Per user direction for this baseline, correctness and recorded CPU/GPU timings are the completion gate; speedup is not required.
+Current state: validated WGPU baseline, still in progress toward production acceleration. The optional `gpu` feature executes real float kernels for elementwise arithmetic, `relu`, `sum_f`, `matmul`, `ml.conv2d`, selected resident training operations, and supported backward paths. Upload, device buffer pooling, residency, typed GPU errors, CPU fallback, and diagnostics are tested. The backend is not yet CUDA/ROCm/Metal/Vulkan, and kernel efficiency remains limited: `sum` uses `workgroup_size(1)`, `matmul` has no tiling, `conv2d` uses nested loops per thread, and some public paths still require host materialization.
 
-### Tasks
+Note (2026-07-13): performance-expansion blocks for tiled/parallel kernels, broader device memory planning, GPU mixed precision, graph execution, optimizer kernels, and cross-language GPU speedup were retired from the original R-30xx plan. The validated current baseline separately retains real upload, typed errors, buffer pooling, full residency, and supported backward kernels; these are tracked as complete sub-items. Production GPU speedup is not claimed by the baseline and remains follow-up evidence.
 
-- Choose backend approach:
-  - custom kernel compiler
-  - external accelerator library bindings
-  - hybrid
-- Implement kernel launch abstraction.
-- Add GPU implementations for:
-  - elementwise ops
-  - reductions
-  - matmul
-  - convolution
-- Add asynchronous streams and synchronization points.
+### Remaining implementation steps
+
+1. Extract device execution behind a typed executor/backend boundary; keep WGPU runtime dispatch separate from tensor registry and host-call registration.
+2. Add shader/pipeline caching and efficient reduction, tiled matmul, and convolution kernels; measure correctness and throughput without lowering the baseline gate.
+3. Extend residency-aware execution so supported chains avoid host round-trips; make fallback decisions observable per operator.
+4. Implement compiler-native tensor/device lowering through `R-2904`; host calls remain compatibility backend, not sole tensor representation.
+5. Add asynchronous stream/queue semantics only after ordering, synchronization, error propagation, and lifetime contracts are specified and tested.
+6. Add new native accelerator backends only with explicit capability, transfer, kernel, and conformance evidence.
 
 ### Acceptance Criteria
 
 - Same tensor programs run on CPU and GPU with identical semantics.
-- GPU benchmarks record CPU/GPU timings and semantic parity for target workloads; speedup is not required for this baseline.
+- GPU benchmarks record CPU/GPU timings and semantic parity for target workloads.
+- Speedup is follow-up evidence until efficient kernels and workload methodology are established; no current baseline claim promises GPU speedup.
 
 ## 7.3 Mixed Precision
 
-Current state: complete for the current production baseline. `std.tensor.to_precision` supports f64, f32, f16, and bf16 quantization for float tensors, `std.tensor.precision` exposes precision metadata, and `std.ml.unscale_grad` supports loss-scaling workflows. `tests/validation/76_mixed_precision_training.spectra` validates a converging mixed-precision loop.
+Current state: host half complete; GPU half not started. `std.tensor.to_precision` supports f64, f32, f16, and bf16 quantization for float tensors, `std.tensor.precision` exposes precision metadata, and `std.ml.unscale_grad` supports host loss-scaling workflows. `tests/validation/76_mixed_precision_training.spectra` validates host convergence. No f16/bf16 WGSL shader, autocast/precision scope, or GPU-side loss-scaling path exists yet.
 
-### Tasks
+### Remaining implementation steps
 
-- Implement `f16` and `bf16` execution paths.
-- Add loss scaling for training.
-- Add autocast or explicit mixed precision API.
+1. Add WGPU feature detection and typed unsupported-feature diagnostics.
+2. Add f16 storage/shader variants; define bf16 representation and conversion policy.
+3. Add explicit precision scope or autocast policy, then GPU loss scaling and unscale operations.
+4. Validate numerical stability and convergence against the existing host reference.
 
 ### Acceptance Criteria
 
@@ -1012,7 +1007,7 @@ Make the language productive enough for daily engineering.
 - `spectralang run` emits an `error[runtime]` diagnostic with the source location and stack frame `0: main()` when a program exits with a non-zero status.
 - `spectralang compile --emit-object` and `--emit-exe` write a sibling `.spectra-debug.json` source map containing the artifact path, source path, entrypoint span, exported native symbol, and supported debugger workflow.
 - `scripts/validate_debugger_stack_traces.py` validates runtime stack output and AOT debug map emission.
-- Native DWARF/PDB emission is not claimed by the current production baseline; that remains a future backend enhancement if the project needs debugger-native source stepping.
+- R-2903 owns native debug emission. Windows AOT debug builds attach compiler-owned CodeView records and request linker-produced PDBs; Unix builds generate DWARF v4 DIEs and line programs through `gimli` and attach them to the native object when a Unix target/toolchain is available. The CLI now receives function/local metadata from the IR and Cranelift value labels are collected from the register allocator; source-text scanning is not an authoritative debug source. The `.spectra-debug.json` file remains supplementary metadata and is never accepted as a replacement for the native artifact. Structural parsing is mandatory in the Phase 29 gate; interactive debugger smoke must execute when a usable debugger is available and is not satisfied by tool discovery alone. The aggregate `run_tests.ps1` records the known allocator-location gap as `INFO:DEFERRED` when structural checks pass, while the direct validator remains fail-closed. R-2903 remains incomplete until allocator locations are consumed by final native records and a Linux lane validates DWARF.
 
 ## 10.3 Profiler and Benchmark Tooling
 
@@ -1054,12 +1049,9 @@ the normal CLI pipeline.
 
 ### Tasks
 
-- Implement task/runtime model:
-  - threads
-  - task executor
-  - channels
-  - synchronization primitives
-- Decide whether concurrency is stdlib-only or syntax-backed.
+- Preserve current stdlib-only task handles, channels, counters, synchronization, and specialized real-thread `pipeline_sum` behavior.
+- Do not describe `task_spawn` as general worker execution: it stores an immediate host value and returns a deterministic slot handle.
+- Define a separate future workstream for arbitrary-function parallel execution, worker pool/scheduler semantics, data-race rules, and parallel loop syntax if the language adopts them.
 
 ### Acceptance Criteria
 
@@ -1340,9 +1332,9 @@ Completed:
 - Explicit `Tensor<float, rank1>` and `Tensor<float, rank2>` literals lower to runtime tensor allocation.
 - Rank, dtype, static shape, layout, and device mismatches fail during semantic analysis with stable JSON diagnostic codes `E1401` through `E1405`.
 - Static shape checks cover declared tensor compatibility, elementwise tensor operations, `tensor.matmul`, `tensor.reshape`, and `ml.linear`.
-- `diff { ... }` is available as the language-level differentiable block expression and lowers to the existing `std.tensor.backward` autograd runtime.
+- `diff { ... }` is available as the language-level differentiable block expression and lowers to compiler-visible R-3004 reverse steps dispatched directly to runtime kernels; the public `std.tensor.backward` path remains compatibility-only.
 - Unsupported qualified stdlib operations inside `diff { ... }` fail with stable diagnostic `E1406`.
-- Gradient validation covers tensor math, helper calls, control flow, and `std.ml` layer/loss integration.
+- Gradient validation covers direct tensor math, control-flow around differentiable blocks, and `std.ml` layer/loss integration. Interprocedural differentiation of user-defined helper calls remains a future extension outside the current Phase 14 completion gate.
 
 Future extensions outside the Phase 14 completion gate:
 
@@ -1402,7 +1394,7 @@ Compile tensor/model programs to optimized graph and device execution targets.
 
 ### Current Implementation State
 
-Status: R-1601, R-1602, and R-1603 are complete for the current graph/device execution baseline.
+Status: R-1601 and R-1602 are complete. R-1603 has a validated WGPU graph/device execution baseline but remains `in_progress` for production continuation. `R-3080` backward kernels and `R-3052` full residency are complete for their currently supported operation sets; compiler-native device lowering, efficient kernels, GPU mixed precision, and broader accelerator coverage remain open.
 
 Completed:
 
@@ -1415,7 +1407,7 @@ Completed:
 - `TensorGraph::compare_optimized()` compares observable original and optimized graph outputs under the documented `1e-9` tolerance policy.
 - `midend/tests/snapshots/tensor_graph_optimized.snap` locks the optimized graph dump format.
 - `run_tests.ps1` includes the R-1602 graph optimization gate.
-- R-1603 extends the optional `gpu` runtime feature into a production WGPU baseline for float tensor transfer, elementwise ops, unary `relu`/`neg`, reductions, `matmul`, `std.ml.conv2d`, and autodiff-required forward kernels.
+- R-1603 extends the optional `gpu` runtime feature into a validated WGPU baseline for float tensor transfer, elementwise ops, unary `relu`/`neg`, reductions, `matmul`, `std.ml.conv2d`, resident training operations, and supported autodiff kernels.
 - CPU fallback remains the default build path and is also used when a WGPU kernel reports failure after dispatch.
 - Device capability diagnostics are exposed through `std.tensor.device_status`, `device_available`, `stats_gpu_kernel_ops`, `stats_cpu_fallbacks`, `stats_device_transfers`, and `kernel_strategy`.
 - `scripts/validate_r1603_gpu_backend.py` validates the default CPU fallback path and the optional WGPU backend path.
@@ -1425,7 +1417,8 @@ Completed:
 
 - Tensor programs should lower to a validated graph representation.
 - Graph optimization should be observable and correctness-preserving.
-- GPU support should be equivalent to CPU fallback within documented tolerance.
+- GPU support should be equivalent to CPU fallback within documented tolerance for covered operations.
+- Production completion requires explicit device lowering, efficient kernels, and evidence for each newly claimed operation; WGPU baseline correctness must not be conflated with native multi-backend or general compiler GPU support.
 
 ## Phase 17: Data and Experiment Platform
 
@@ -1472,7 +1465,7 @@ and RAG-oriented development.
 ### Workstreams
 
 - `R-1801 ONNX Import and Export`: supported ONNX subset export/import, shape/dtype validation, and external runtime validation.
-- `R-1802 Transformer and LLM Runtime Primitives`: attention, layer norm, embeddings, positional encoding, GELU/SwiGLU, KV cache, and sampling.
+- `R-1802 Transformer and LLM Runtime Primitives`: attention, layer norm, embeddings, positional encoding, GELU/SwiGLU, KV cache, and sampling. The validated CPU host baseline is complete; accelerator parity is outside this item and belongs to the active GPU/optimization workstreams.
 - `R-1803 Tokenization, Embeddings, and RAG Toolkit`: deterministic tokenization, vector indexes, retrieval, chunking, prompt assembly, and RAG evaluation.
 
 ### Acceptance Direction
@@ -1624,7 +1617,7 @@ AI users.
 
 ### Remaining Integrated Project Certification
 
-`R-2013` continues the post-baseline certification track focused
+`R-2013` completes the post-baseline certification track focused
 on complete checked-in `.spectra` projects that combine the basic language
 surface with AI Support features. This track does not reopen the completed
 `R-2003` through `R-2007` pre-API stabilization evidence or the completed
@@ -1641,6 +1634,16 @@ directories with `spectra.toml`, `src/main.spectra`, supporting
 the matrix requires them. The runner must reject missing files, missing package
 tests, parser-only substitutions, non-deterministic outputs, and commands that
 do not match the R-2008 matrix.
+
+The R-2013 implementation now provides the aggregate fail-closed validator
+`scripts/validate_r2013_release_candidate.py`. It regenerates the R-2001,
+R-2011, and R-2012 reports in one ordered execution and writes the versioned
+release-candidate evidence to `target/r2013-release-candidate/report.json`.
+The directed certification passes all eight matrix projects with zero
+untracked failures. The repository-wide `run_tests.ps1` also returns zero
+after the Phase 31 code-validation runner was separated from the standalone
+performance certification. `R-2013` is therefore complete; its current report
+is `target/r2013-release-candidate/report.json`.
 
 When execution of this track finds a real compiler, runtime, package, or AI
 Support defect, the defect must either be fixed in the same change with
@@ -1781,8 +1784,9 @@ baselines.
   `std.api.*`, `spectra.api.*` host calls, `packages/spectra-api`,
   HTTP/1.1-first delivery, `rustls`, and Phase 21 async dependencies)
 - `R-2202` `spectra-api` Rust crate and host call registration (complete;
-  `packages/spectra-api` links against `spectra-runtime`, registers 194
-  `spectra.api.*` host calls through the runtime host-call registry, exposes
+  `packages/spectra-api` links against `spectra-runtime`, registers 277 public
+  `spectra.api.*` host calls through the runtime host-call registry, satisfies
+  the runtime's 211-name required namespace, exposes
   `spectra_api_register_host_calls`, and is validated by
   `scripts/validate_r2202_spectra_api_hostcalls.py`)
 - `R-2203` `std.api.*` semantic and tooling surface (complete; virtual
@@ -1926,9 +1930,34 @@ baselines.
 
 ### Phase 25 — Persistence and Database
 
+The Phase 25 foundation is the reusable async-aware connection pool in
+`packages/spectra-db`. R-2501 owns bounded capacity, FIFO acquisition,
+timeouts, cancellation, idle reaping, graceful shutdown and pool lifecycle
+telemetry. It deliberately does not expose a database API or simulate a
+driver; SQLite and the other protocols must consume the pool through their
+own real factories. R-2701 database-query tracing remains dependent on the
+pool and the first real SQLite driver.
+
+R-2504 is the first real consumer: it provides bundled SQLite connections,
+typed prepared statements, transactions, concurrent file-backed reads and a
+public `spectra.api.db.sqlite` host-call surface. Query tracing is emitted by
+the driver for actual operations; PostgreSQL, Redis and the type-safe query
+builder remain separate workstreams. Its v2 gate also certifies the
+pool-backed async path, cancellation, non-blocking SQLite lock waits, and
+HTTP-parented OTLP query spans.
+
 - `R-2501` Connection pool (async-aware)
 - `R-2502` SQL query builder (type-safe)
+- `R-2502` is implemented as the shared typed Rust AST/dialect contract in
+  `spectra-db`; SQLite is the first validated dialect and drivers execute its
+  parameterized output without interpolating user values. The public
+  `spectra.api.db.sqlite` raw-statement surface remains compatible until a
+  language-level typed query contract is designed.
 - `R-2503` Migrations framework
+- `R-2503` is implemented first against the certified SQLite driver, with
+  paired up/down files, deterministic SHA-256 drift detection, atomic
+  application and rollback, and a real `spectralang db` CLI. Future drivers
+  consume the Rust migration contract after their own production gates pass.
 - `R-2504` SQLite driver (sync and async)
 - `R-2505` PostgreSQL driver (async, prepared, COPY)
 - `R-2506` MySQL driver
@@ -1940,6 +1969,20 @@ baselines.
 - `R-2512` Database example: REST + PostgreSQL
 - `R-2513` Redis example: rate-limit via Redis
 - `R-2514` Migration example: multi-version evolution
+
+`R-2514` is complete and certifies the migration workflow on SQLite with three versioned
+migrations. The Spectra fixture checks the resulting schema and seed rows,
+while the independent CLI validator proves rollback, re-application,
+idempotency, checksums, drift rejection, transactional failure and concurrent
+runners without introducing a parallel migration API.
+
+`R-2511` is the first integrated database/API proof and is complete after the
+independent validator and real TCP harness passed. Its Spectra fixture
+validates the language-facing SQLite and server lifecycle, while a real Rust
+TCP harness validates dynamic CRUD handlers using the certified SQLite driver,
+R-2502 parameterized queries, R-2503 migrations, health, metrics and tracing.
+The project does not claim generic Spectra request callbacks from this example;
+that capability remains a separate language/API design task.
 
 ### Phase 26 — API Tooling and Developer Experience
 
@@ -1960,6 +2003,74 @@ baselines.
 - `R-2615` Project templates: REST, GraphQL, gRPC, microservice
 
 ### Phase 27 — Observability and API Operations
+
+R-2701 is the operational tracing contract for the API and AI workstreams.
+Its production path is runtime-owned W3C context, real HTTP server/client
+instrumentation, and OTLP/HTTP protobuf export to a collector. Serving and
+distributed-training work may depend on this contract. R-2701 is complete for
+the currently supported boundaries: bounded export, failure handling,
+concurrency isolation, independent payload validation, HTTP client propagation,
+filesystem spans, and real SQLite query/transaction spans. Its focused and
+early integrated gates are recorded in `target/r2701-tracing/global-gate.json`
+and `TEST_RESULTS.txt`. PostgreSQL and Redis are not claimed until their
+drivers are implemented.
+
+The exporter lifecycle regression was closed by making shutdown drain the
+queue once, clearing active state after export failure, and using a shared
+test guard with ephemeral collectors for HTTP tracing isolation.
+
+R-2505 is now the active Phase 25 workstream. Its PostgreSQL driver reuses the
+R-2501 pool and R-2502 query contract, exposes real prepared statements and
+transactions, and now provides bounded cancellable async tasks, incremental
+COPY, typed LISTEN/NOTIFY handles, and driver-owned tracing across the public
+Spectra API. A local PostgreSQL 16.14 run now produces a certifying v2
+`passed` report proving named capability tests, 100,000-row COPY,
+LISTEN/NOTIFY, async cancellation, independent OTLP decoding, tracing, and
+HTTP-parent propagation. Production promotion remains reserved for the
+checked-in PostgreSQL 16 CI lane reproducing and publishing that report.
+Environments without PostgreSQL record `skipped_environment`; they do not
+constitute completion evidence, and R-2505 remains `in_progress`.
+
+R-2507 is the parallel Redis 7 workstream. It reuses the R-2501 pool,
+provides real async commands and a dedicated pub/sub connection, and supplies
+the backend contract required by the distributed cache and rate-limiting
+tracks. Redis host calls remain incomplete until the Redis 7 CI lane validates
+the fixture and independent report; no local skip is treated as production
+evidence.
+
+R-2510 adds the operational health foundation without coupling liveness to
+external services. A runtime-owned bounded evaluator publishes atomic
+snapshots consumed by `/healthz`, `/readyz`, and `/startupz`; required and
+optional checks have distinct readiness semantics, real timeouts and
+sanitised diagnostics. SQLite checks are validated against a file-backed
+database, while PostgreSQL and Redis remain environment-gated until their
+real services are available. R-2703 consumes this registry for deployment
+hardening rather than implementing a second health-check system.
+
+R-2703 is the integrated deployment layer for this contract. Its Kubernetes,
+Docker and systemd examples reference the real health routes and are checked
+by an independent validator. Liveness remains dependency-independent,
+readiness controls rollout traffic, and startup gates initialization; systemd
+watchdog support remains disabled until a real `sd_notify` implementation is
+available.
+
+R-2702 provides the operational metrics contract consumed by the API server.
+`HttpServer` shares a thread-safe Rust `MetricsRegistry` and reserves
+`/metrics` for deterministic Prometheus text exposition. HTTP request count,
+duration, errors, active/accepted connections, and timeouts are recorded from
+real server activity; custom counters and histograms use bounded, validated
+labels. An independent parser validates the payload produced by a real TCP
+server, including concurrent updates and rejection of sensitive or
+non-finite values. This first version intentionally has no Spectra host calls;
+R-2707 will consume the registry for the integrated OTel/Prometheus example.
+
+R-2707 certifies the integrated observability example without expanding the
+language surface: the Spectra fixture configures `std.api.trace`, serves a
+real HTTP route, and the external harness scrapes the existing `/metrics`
+route. A separate OTLP collector process receives and independently decodes
+protobuf, while a separate parser validates Prometheus exposition. The
+evidence includes typed attributes, real HTTP spans, request/error metrics,
+histogram series, flush, shutdown, process cleanup, and secret absence.
 
 - `R-2701` OpenTelemetry-compatible tracing
 - `R-2702` Prometheus-compatible metrics endpoint
@@ -1991,16 +2102,157 @@ delete, but not real enough to certify.
 - `R-2903` Native debug info emission
 - `R-2904` First-class tensor IR and device lowering
 
+R-2901 is complete: exact-width semantic/IR/backend storage, checked dynamic
+narrowing, checked arithmetic, explicit wrapping helpers, AOT object emission,
+and C ABI evidence are covered by the executable validator and normal CLI
+fixtures.
+
 ### Phase 30 — Production ML Systems Gap Closure
 
 This phase converts local or simulated ML-system baselines into real
 production paths. It follows the API/runtime observability work where
 networking, lifecycle, and operations are prerequisites.
 
+The phase also owns the Production Standard Library and Artifact Runtime
+workstream. Public stdlib APIs must not be marketed as production when their
+implementation is a local simulation, hash-based approximation, alias-only
+ABI, narrow sidecar format, or host-call surface without normal CLI evidence.
+The workstream requires shared versioned artifact contracts, integrity
+validation, executable capability classification, and target-perspective
+evidence for process and network boundaries.
+
+R-3007 now provides the executable evidence layer for this workstream. The
+versioned `scripts/stdlib_contract.toml` manifest reconciles semantic modules,
+runtime/API registrations, lowering sources, documentation, fixtures, and
+normal CLI probes. Its JSON report records production, baseline, simulation,
+unsupported, and incomplete claims separately, exposes source divergences, and
+fails closed for unclassified symbols or contradictory production claims. The
+initial probe is `tests/validation/185_stdlib_contract_audit.spectra`; a failed
+report is evidence for the responsible production task and does not promote
+the underlying implementation.
+
+The completed audit implementation uses typed source inventories rather than
+matching every textual `std.*` occurrence. It ran eleven namespace or external
+conformance probes, covered 651 discovered symbols, and recorded 58 tracked
+follow-ups without promoting the remaining ML, serving, tensor-device, or
+distributed baselines to production.
+
 - `R-3001` Networked ML serving runtime
 - `R-3002` Distributed training real transport
 - `R-3003` Production model artifact formats
 - `R-3004` Compiler-native autodiff lowering
+- `R-3005` Production tokenization and embedding backends
+- `R-3006` Persistent production vector index
+- `R-3007` Stdlib production contract and capability audit
+
+The workstream is coupled to `R-2901` exact-width numeric ABI semantics and
+`R-2904` first-class tensor/device lowering. Existing CPU transformer and LLM
+primitives are complete under `R-1802`; accelerator parity is not silently
+claimed by that item. NPY/ONNX support, single-process distributed workers,
+hash embeddings, and in-process serving remain explicit baselines until their
+production tasks pass their evidence gates. R-3006 is the production
+exception for vector search.
+
+R-2904 is complete. The compiler materializes the existing tensor graph as a
+typed legalization boundary with deterministic fusion and memory-planning
+evidence. JIT and AOT invoke the same validation before code generation, CPU
+and WGPU use the same device-aware graph contract, and host calls remain only
+as an explicit compatibility execution backend. R-3004 is now in progress:
+it consumes this contract to materialize a versioned compiler-native reverse
+graph with registered gradient rules, saved-forward values, seeds, and explicit
+accumulation. R-3004 is complete for its supported operation set: `diff` now
+materializes explicit `AutodiffStep` instructions and dispatches reverse
+kernels directly; the legacy runtime `tensor.backward` path is retained only
+as an explicit public compatibility API. The independent report proves CPU,
+JIT, AOT object emission, negative diagnostics, and public backward
+compatibility; WGPU remains environment-dependent.
+
+R-3003 is the first implementation in this workstream. Its Spectra Artifact
+Container v1 is the shared contract for checkpoint and multi-array persistence:
+validated binary framing, canonical manifest, explicit tensor representation,
+per-array/global SHA-256 integrity, compatibility metadata, and atomic writes.
+The contract is consumed through `std.ml` handles and proven by a normal CLI
+round trip plus an independent parser and corruption suite. R-3005 and R-3006
+remain downstream consumers; they must not reintroduce JSON sidecars.
+
+R-3005 consumes this contract through additive production loaders. Versioned
+WordPiece vocabularies are validated from artifact metadata, real embedding
+weights are loaded from rank-2 tensor arrays, and encode/decode plus lookup
+are proven through the normal CLI. The previous inline tokenizer and hash
+embedding remain explicit compatibility baselines rather than hidden fallback
+paths. R-3006 replaces the former linear in-memory vector search and JSON
+sidecar with deterministic HNSW search persisted in the same Artifact Container
+v1, including model metadata, padded graph links, checksums, atomic writes,
+reload validation, and query/latency evidence. The legacy JSON index is
+rejected rather than silently migrated.
+The R-3005 gate now proves valid vocabulary and embedding artifacts,
+deterministic special-token handling, reference lookup values, and rejection
+of twelve malformed or incompatible fixtures through the normal CLI workflow.
+The R-3006 gate proves valid and corrupt index containers, deterministic
+round-trip results, HNSW metadata, and measured query/insert counters through
+the normal CLI workflow. R-3006 is complete: its report passed, the full
+`run_tests.ps1` suite passed all 373 decisive tests with zero failures, and
+the persistent HNSW implementation is now the certified vector-index path.
+
+### Phase 31 — Benchmark Evidence Hardening
+
+`R-3101` and `R-3130` are complete. Reports
+must identify profile, binary, revision, host, timestamp, and sample policy;
+measurements above the 10% standard-deviation threshold are inconclusive;
+confirmed drift remains a failure; and baseline updates require repeated stable
+runs with review evidence. Standalone performance certification uses five
+independent attempts, three warmups, twenty timed samples, and up to two
+confirmations. Repository code validation uses one execution per runtime and
+scenario with no statistical certification. This split keeps `run_tests.ps1`
+fast while preserving the full performance contract.
+
+The semantic mismatch in `async-echo` was corrected with a real fan-out/fan-in
+contract: ten executable task units are registered before joining, the runtime
+uses a persistent worker pool, and diagnostics prove a maximum of ten pending
+tasks. The earlier `R-3131` reports (`1.025752` and `1.048312`) are preserved
+as historical evidence from revision `bd48a6b`, but current reports at the
+later HEAD contradicted that parity window. `R-3131` is therefore reopened by
+`R-3133`, while `R-3130` and the dependent `R-2013` remain complete. The
+historical Spectra baseline remains unchanged.
+
+The Phase 31 work now distinguishes two independent evidence products. R-3103
+certifies functional/performance repeatability and an executable optimization
+plan from current release benchmarks plus O0/O3 IR snapshots. Its hypotheses
+are explicitly classified as `benchmark_and_ir_hypothesis`: they guide the
+next implementation items but do not claim that a measured gap is a causal
+hotspot. R-3102 remains `in_progress` as the later Linux `perf`/FlameGraph
+attribution track; its environmental blocker does not prevent R-3103 from
+closing once the benchmark and IR gates pass. The baseline is immutable, and
+the five-independent-attempt policy is retained for standalone certification.
+
+`R-3133` is the current-revision reconciliation gate for this contract. It
+measures the exact `task_spawn_batch`/`task_join_batch_sum` path through
+`batch-reset-only`, `batch-spawn-only`, `batch-join-only`, `batch-full`, and
+`batch-full-no-reset`, while preserving the legacy diagnostic variants. Its
+versioned schema records process-inclusive medians, p95, dispersion, revision,
+commands, and internal locks/scheduler/execution/task/batch counters. The
+classification is deterministic (`compiler_backend_lowering`,
+`runtime_batch_path`, `benchmark_process_startup`, `external_noise`, or
+`benchmark_contract`); benchmark timing is hypothesis evidence, never causal
+profiler attribution. A runtime/backend finding may receive only a narrow fix
+with a regression fixture. Startup, contract, and noise findings remain
+follow-up work without baseline or silent 5% contract changes. `R-3104` stays
+not started until `R-3103` has passed its benchmark+IR gates, including a
+conclusive `tensor-create` result.
+
+R-1603 GPU validation follows the same evidence rule. Its CPU and WGPU tests
+run in separate serialized commands with per-step timeouts and captured output,
+while adapter absence remains an explicit supported skip condition.
+
+R-3132 adds the next backend/runtime optimization under this evidence rule:
+`task_spawn` followed by a single-use immediate `task_join` is fused only when
+the IR proves that the handle cannot be observed or escape. The fused path has
+one registry lock, preserves task accounting, creates no observable slot, and
+has generic-host and JIT/AOT Fast ABI implementations. The historical
+33,865,050 ns baseline is intentionally unchanged. The measured 38.9 ms result
+was accepted for R-3132 without changing the baseline. R-3130 subsequently
+replaced the semantically unequal fixture with real fan-out/fan-in evidence;
+that gate and the dependent R-2013 certification now pass independently.
 
 ## Architectural Principles for the API Platform
 

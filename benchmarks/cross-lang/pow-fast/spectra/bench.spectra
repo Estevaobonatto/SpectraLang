@@ -1,0 +1,37 @@
+// Phase 31: pow-fast (Spectra)
+// Fast exponentiation by squaring on a list of (base, exp) pairs, repeated.
+
+module bench_pow_fast;
+
+pub fn main() -> int {
+    let iters = 50000;
+    let bases  = [2, 3, 5, 7, 10, 13, 2, 4, 6, 8];
+    let exps   = [10, 8, 6, 5, 4, 3, 20, 15, 12, 10];
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        let acc = 0;
+        let p = 0;
+        while p < 10 {
+            let mut_base = bases[p];
+            let mut_exp = exps[p];
+            let mut_result = 1;
+            while mut_exp > 0 {
+                if mut_exp - (mut_exp / 2) * 2 == 1 {
+                    mut_result = mut_result * mut_base;
+                }
+                mut_base = mut_base * mut_base;
+                mut_exp = mut_exp / 2;
+            }
+            acc = acc + mut_result;
+            p = p + 1;
+        }
+        // Results (Python sum(b**e for b,e in zip(bases,exps))): 4325366774
+        total = total + acc;
+        it = it + 1;
+    }
+    if total == 4325366774 * iters {
+        return 0;
+    }
+    return 1;
+}

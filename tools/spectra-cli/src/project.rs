@@ -1,14 +1,33 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProjectSourceEntry {
+    pub path: PathBuf,
+    pub package_name: Option<String>,
+    pub package_root: Option<PathBuf>,
+}
+
+impl ProjectSourceEntry {
+    pub fn plain(path: PathBuf) -> Self {
+        Self {
+            path,
+            package_name: None,
+            package_root: None,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ResolvedModule {
     pub name: String,
     pub path: PathBuf,
     pub imports: Vec<String>,
+    pub package_name: Option<String>,
+    pub package_root: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -18,20 +37,26 @@ pub struct ProjectPlan {
 
 impl ProjectPlan {
     pub fn build(entries: Vec<PathBuf>) -> Result<Self, ProjectError> {
+        Self::build_with_sources(entries.into_iter().map(ProjectSourceEntry::plain).collect())
+    }
+
+    pub fn build_with_sources(entries: Vec<ProjectSourceEntry>) -> Result<Self, ProjectError> {
         if entries.is_empty() {
             return Ok(Self {
                 modules: Vec::new(),
             });
         }
 
-        let mut discovered: HashSet<PathBuf> = HashSet::new();
+        let mut discovered: BTreeMap<PathBuf, ProjectSourceEntry> = BTreeMap::new();
         let mut entry_set: HashSet<PathBuf> = HashSet::new();
 
         for entry in entries {
-            let normalized =
-                normalize_path(&entry).map_err(|error| ProjectError::Io { path: entry, error })?;
+            let normalized = normalize_path(&entry.path).map_err(|error| ProjectError::Io {
+                path: entry.path.clone(),
+                error,
+            })?;
             entry_set.insert(normalized.clone());
-            collect_sources(&normalized, &mut discovered)?;
+            collect_sources(&normalized, &entry, &mut discovered)?;
         }
 
         if discovered.is_empty() {
@@ -41,9 +66,17 @@ impl ProjectPlan {
         }
 
         let mut modules = Vec::new();
-        let mut module_map: HashMap<String, PathBuf> = HashMap::new();
+        let mut module_map: HashMap<String, ModuleOrigin> = HashMap::new();
+        let mut package_roots = BTreeMap::new();
 
-        for path in discovered.into_iter() {
+        for (path, source_entry) in discovered {
+            if let (Some(package_name), Some(package_root)) =
+                (&source_entry.package_name, &source_entry.package_root)
+            {
+                package_roots
+                    .entry(package_name.clone())
+                    .or_insert_with(|| package_root.clone());
+            }
             let source = fs::read_to_string(&path).map_err(|error| ProjectError::Io {
                 path: path.clone(),
                 error,
@@ -58,24 +91,32 @@ impl ProjectPlan {
                     .unwrap_or_else(|| "main".to_string())
             });
 
+            let origin = ModuleOrigin {
+                path: path.clone(),
+                package_name: source_entry.package_name.clone(),
+                package_root: source_entry.package_root.clone(),
+            };
+
             if let Some(existing) = module_map.get(&module) {
                 return Err(ProjectError::DuplicateModule {
                     module,
                     existing: existing.clone(),
-                    duplicate: path.clone(),
+                    duplicate: origin,
                 });
             }
 
             let imports = extract_imports(&source);
-            module_map.insert(module.clone(), path.clone());
+            module_map.insert(module.clone(), origin);
             modules.push(ResolvedModule {
                 name: module,
                 path,
                 imports,
+                package_name: source_entry.package_name,
+                package_root: source_entry.package_root,
             });
         }
 
-        let missing = collect_missing_dependencies(&modules, &module_map);
+        let missing = collect_missing_dependencies(&modules, &module_map, &package_roots);
         if !missing.is_empty() {
             return Err(ProjectError::MissingDependencies(missing));
         }
@@ -96,6 +137,13 @@ impl ProjectPlan {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ModuleOrigin {
+    path: PathBuf,
+    package_name: Option<String>,
+    package_root: Option<PathBuf>,
+}
+
 #[derive(Debug)]
 pub enum ProjectError {
     Io {
@@ -110,8 +158,8 @@ pub enum ProjectError {
     },
     DuplicateModule {
         module: String,
-        existing: PathBuf,
-        duplicate: PathBuf,
+        existing: ModuleOrigin,
+        duplicate: ModuleOrigin,
     },
     MissingDependencies(Vec<MissingDependency>),
     CyclicDependency(Vec<String>),
@@ -122,6 +170,10 @@ pub enum ProjectError {
 pub struct MissingDependency {
     pub module: String,
     pub missing: Vec<String>,
+    pub package_name: Option<String>,
+    pub package_root: Option<PathBuf>,
+    pub missing_package: Option<String>,
+    pub missing_package_root: Option<PathBuf>,
 }
 
 impl fmt::Display for ProjectError {
@@ -145,23 +197,46 @@ impl fmt::Display for ProjectError {
             } => {
                 write!(
                     f,
-                    "module '{}' is declared by two different files:\n  \
-                     first:  {}\n  \
-                     second: {}\n\
+                    "module '{}' is declared by two package sources:\n  \
+                     first:  package '{}' at '{}' (root '{}')\n  \
+                     second: package '{}' at '{}' (root '{}')\n\
                      help: each module name must be unique within a project",
                     module,
-                    existing.display(),
-                    duplicate.display()
+                    display_package_name(existing.package_name.as_deref()),
+                    existing.path.display(),
+                    display_package_root(existing.package_root.as_deref()),
+                    display_package_name(duplicate.package_name.as_deref()),
+                    duplicate.path.display(),
+                    display_package_root(duplicate.package_root.as_deref())
                 )
             }
             ProjectError::MissingDependencies(items) => {
                 writeln!(f, "unresolved imports:")?;
                 for item in items {
                     for missing in &item.missing {
+                        let package_context = item
+                            .package_name
+                            .as_deref()
+                            .map(|name| {
+                                format!(
+                                    " in package '{}' (root '{}')",
+                                    name,
+                                    display_package_root(item.package_root.as_deref())
+                                )
+                            })
+                            .unwrap_or_default();
+                        let requested_context = item
+                            .missing_package
+                            .as_deref()
+                            .zip(item.missing_package_root.as_deref())
+                            .map(|(name, root)| {
+                                format!(" (package '{}' source: {})", name, root.display())
+                            })
+                            .unwrap_or_default();
                         writeln!(
                             f,
-                            "  - module '{}' imports '{}', but no file declaring 'module {};' was found",
-                            item.module, missing, missing
+                            "  - module '{}'{} imports '{}', but no file declaring 'module {};' was found{}",
+                            item.module, package_context, missing, missing, requested_context
                         )?;
                     }
                 }
@@ -194,7 +269,11 @@ impl fmt::Display for ProjectError {
 
 impl std::error::Error for ProjectError {}
 
-fn collect_sources(path: &Path, out: &mut HashSet<PathBuf>) -> Result<(), ProjectError> {
+fn collect_sources(
+    path: &Path,
+    origin: &ProjectSourceEntry,
+    out: &mut BTreeMap<PathBuf, ProjectSourceEntry>,
+) -> Result<(), ProjectError> {
     let metadata = fs::metadata(path).map_err(|error| ProjectError::Io {
         path: path.to_path_buf(),
         error,
@@ -213,7 +292,7 @@ fn collect_sources(path: &Path, out: &mut HashSet<PathBuf>) -> Result<(), Projec
                 error,
             })?;
             let child_path = entry.path();
-            collect_sources(&child_path, out)?;
+            collect_sources(&child_path, origin, out)?;
         }
     } else if metadata.is_file() {
         if is_source_file(path) {
@@ -221,7 +300,7 @@ fn collect_sources(path: &Path, out: &mut HashSet<PathBuf>) -> Result<(), Projec
                 path: path.to_path_buf(),
                 error,
             })?;
-            out.insert(normalized);
+            out.entry(normalized).or_insert_with(|| origin.clone());
         }
     }
 
@@ -315,7 +394,8 @@ fn extract_imports(source: &str) -> Vec<String> {
 
 fn collect_missing_dependencies(
     modules: &[ResolvedModule],
-    module_map: &HashMap<String, PathBuf>,
+    module_map: &HashMap<String, ModuleOrigin>,
+    package_roots: &BTreeMap<String, PathBuf>,
 ) -> Vec<MissingDependency> {
     let mut missing = Vec::new();
 
@@ -328,14 +408,43 @@ fn collect_missing_dependencies(
             .collect();
 
         if !unresolved.is_empty() {
+            let package_match = unresolved
+                .iter()
+                .filter_map(|dependency| {
+                    package_roots
+                        .keys()
+                        .filter(|package| {
+                            dependency == *package
+                                || dependency.starts_with(&format!("{}.", package))
+                        })
+                        .max_by_key(|package| package.len())
+                        .cloned()
+                })
+                .next();
+            let package_match_root = package_match
+                .as_ref()
+                .and_then(|package| package_roots.get(package).cloned());
             missing.push(MissingDependency {
                 module: module.name.clone(),
                 missing: unresolved,
+                package_name: module.package_name.clone(),
+                package_root: module.package_root.clone(),
+                missing_package: package_match,
+                missing_package_root: package_match_root,
             });
         }
     }
 
     missing
+}
+
+fn display_package_name(name: Option<&str>) -> &str {
+    name.unwrap_or("<unscoped>")
+}
+
+fn display_package_root(root: Option<&Path>) -> String {
+    root.map(|path| path.display().to_string())
+        .unwrap_or_else(|| "<unknown>".to_string())
 }
 
 fn is_builtin_module(name: &str) -> bool {
@@ -410,4 +519,94 @@ fn topological_order(modules: &[ResolvedModule]) -> Result<Vec<usize>, ProjectEr
 
     // Post-order DFS already produces dependencies-first topological order.
     Ok(order)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempProject {
+        root: PathBuf,
+    }
+
+    impl TempProject {
+        fn new(label: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!("spectra-r906-{label}-{nonce}"));
+            fs::create_dir_all(&root).expect("create temp project");
+            Self { root }
+        }
+
+        fn source(&self, package: &str, file: &str, contents: &str) -> ProjectSourceEntry {
+            let root = self.root.join(package);
+            let path = root.join("src").join(file);
+            fs::create_dir_all(path.parent().expect("source parent")).expect("create source");
+            fs::write(&path, contents).expect("write source");
+            ProjectSourceEntry {
+                path: root.join("src"),
+                package_name: Some(package.to_string()),
+                package_root: Some(root),
+            }
+        }
+    }
+
+    impl Drop for TempProject {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn package_origins_are_preserved_and_order_is_dependency_first() {
+        let temp = TempProject::new("origins");
+        let app = temp.source(
+            "app",
+            "main.spectra",
+            "module app.main;\nimport lib.core;\n",
+        );
+        let lib = temp.source("lib", "core.spectra", "module lib.core;\n");
+
+        let plan = ProjectPlan::build_with_sources(vec![app, lib]).expect("build plan");
+        assert_eq!(plan.modules()[0].name, "lib.core");
+        assert_eq!(plan.modules()[0].package_name.as_deref(), Some("lib"));
+        assert_eq!(plan.modules()[1].package_name.as_deref(), Some("app"));
+    }
+
+    #[test]
+    fn duplicate_module_diagnostic_contains_both_packages_and_roots() {
+        let temp = TempProject::new("duplicate");
+        let first = temp.source("alpha", "same.spectra", "module shared.same;\n");
+        let second = temp.source("beta", "same.spectra", "module shared.same;\n");
+
+        let error = ProjectPlan::build_with_sources(vec![first, second])
+            .expect_err("duplicate module must fail");
+        let text = error.to_string();
+        assert!(text.contains("shared.same"));
+        assert!(text.contains("alpha"));
+        assert!(text.contains("beta"));
+        assert!(text.contains("root"));
+    }
+
+    #[test]
+    fn missing_import_diagnostic_identifies_known_package_source() {
+        let temp = TempProject::new("missing");
+        let app = temp.source(
+            "app",
+            "main.spectra",
+            "module app.main;\nimport lib.missing;\n",
+        );
+        let lib = temp.source("lib", "core.spectra", "module lib.core;\n");
+
+        let error = ProjectPlan::build_with_sources(vec![app, lib])
+            .expect_err("missing package module must fail");
+        let text = error.to_string();
+        assert!(text.contains("lib.missing"));
+        assert!(text.contains("package 'lib' source:"));
+        assert!(text.contains("package 'app'"));
+    }
 }

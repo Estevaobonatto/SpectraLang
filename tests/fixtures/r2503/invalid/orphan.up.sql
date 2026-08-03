@@ -1,0 +1,1 @@
+CREATE TABLE orphaned (id INTEGER PRIMARY KEY);

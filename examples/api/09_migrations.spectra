@@ -1,0 +1,31 @@
+module migrations_example;
+
+// A fixture validates the language-facing SQLite surface. The independent
+// R-2514 validator executes migrate/rollback/re-apply through the real CLI.
+import {
+    SqliteConnection,
+    SqliteStatement,
+    open,
+    close,
+    prepare,
+    step,
+    column_int,
+    column_text,
+    finalize,
+} from std.api.db.sqlite;
+
+pub fn main() -> int {
+    let database: SqliteConnection = open("target/r2514-migrations-example.sqlite");
+    let query: SqliteStatement = prepare(database, "SELECT id,name,email FROM users ORDER BY id");
+    if step(query) != 1 { return 10; }
+    if column_int(query, 0) != 1 { return 11; }
+    if column_text(query, 1) != "Ada" { return 12; }
+    if column_text(query, 2) != "ada@example.test" { return 13; }
+    if step(query) != 1 { return 14; }
+    if column_int(query, 0) != 2 { return 15; }
+    if column_text(query, 1) != "Grace" { return 16; }
+    if column_text(query, 2) != "grace@example.test" { return 17; }
+    if finalize(query) != true { return 18; }
+    if close(database) != true { return 19; }
+    return 0;
+}

@@ -320,13 +320,48 @@ Usa **Cranelift ObjectModule** (`cranelift_object`):
 - Pre-interna nomes de host functions como seções `.rodata` para endereços relocáveis.
 - Suporta modo `--emit-exe`: renomeia `main` para `spectra_user_main` e sintetiza um shim C `main(argc, argv)` que inicializa o runtime e chama a entry point Spectra.
 
+#### 2.8.3 Seam HostCall/ABI
+
+O contrato de imports nativos usado por JIT e AOT tem uma única fonte no
+catálogo interno `runtime/src/abi.rs` (`RuntimeImport`, `FastHostCall` e
+`HostCallClass`). O catálogo é parte do toolchain, está oculto da documentação
+pública e contém, para cada import, nome Spectra quando aplicável, símbolo
+nativo, assinatura Cranelift, aridade e endereço JIT.
+
+`backend/src/hostcall_abi.rs` é o adapter comum dos dois backends:
+
+- `RuntimeBindings` mantém os `FuncId`s em uma tabela indexada pelo enum, sem
+  `HashMap` no caminho de geração;
+- `HostCallLoweringContext` agrupa bindings, nomes/literais internados, estado
+  do planner de batching e estatísticas;
+- JIT registra os endereços e AOT declara os mesmos símbolos por meio do mesmo
+  catálogo e da mesma tradução de assinatura.
+
+O lowering classifica um nome uma vez em `FastHostCall`. A aridade é validada
+antes da interceptação: nome conhecido com aridade incorreta e nome desconhecido
+seguem o caminho genérico cacheado `spectra_rt_host_invoke_cached`. Fast paths
+nunca são enviados ao batch genérico; dependências entre resultados, o limite
+de oito chamadas e o orçamento de 4096 bytes permanecem política do backend.
+O cache é um slot `SpectraHostCallCache` por nome, mantido vivo pelo JIT ou
+emitido como dado local gravável no AOT. Hits validam a geração global com
+atomics e não adquirem o lock do registry; misses e invalidações consultam o
+registry pelo caminho existente. Registro, substituição, remoção e `clear`
+continuam imediatamente visíveis a código já compilado. O batch cacheado usa
+um descriptor de sete palavras e uma única fronteira de `catch_unwind`, mas
+os imports legados permanecem disponíveis sem alteração de contrato.
+
+O runtime continua owner do registry, do contexto, dos status, da publicação
+atômica e do dispatch dinâmico. As alocações atuais de argumentos/resultados
+permanecem fora desta fase. A atribuição causal de performance continua
+dependente da evidência oficial Linux de R-3102.
+
 ### 2.9 Fase 8 — Runtime e Execução
 
 **Arquivo principal:** `runtime/src/lib.rs`
 
 O runtime é inicializado uma única vez por processo (`OnceLock<RuntimeState>`):
 - **Memória**: `HybridMemory` combina alocação manual (via `spectra_rt_manual_alloc`) com um garbage collector traçado.
-- **Host calls**: Funções da stdlib (I/O, math, collections) são registradas como callbacks invocáveis pelo nome via `spectra_rt_host_invoke`.
+- **Host calls**: Funções da stdlib (I/O, math, collections) são registradas como callbacks invocáveis pelo nome via os entry points genérico legado ou cacheado.
 - **Args**: `set_program_args` configura `std.env.env_arg` / `std.env.env_args_count`.
 - **Execution**: Após JIT, o resultado de `main()` (se houver) é propagado como exit code do processo.
 

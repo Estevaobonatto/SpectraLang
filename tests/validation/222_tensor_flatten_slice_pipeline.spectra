@@ -1,0 +1,21 @@
+// Extended validation: reshape, flatten and half-open slicing.
+module tensor_flatten_slice_pipeline;
+
+import std.tensor as tensor;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let base = tensor.arange(1, 7, 1);
+    let matrix = tensor.reshape(base, 2, 3);
+    if tensor.rank(matrix) != 2 { return 1; }
+
+    let flat = tensor.flatten(matrix);
+    if tensor.rank(flat) != 1 || tensor.len(flat) != 6 { return 2; }
+    if tensor.sum(flat) != 21 { return 3; }
+
+    let middle = tensor.slice(base, 1, 5);
+    if tensor.len(middle) != 4 { return 4; }
+    if tensor.sum(middle) != 14 { return 5; }
+    tensor.free_all();
+    return 0;
+}

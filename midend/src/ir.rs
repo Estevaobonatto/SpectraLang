@@ -3,6 +3,27 @@
 
 pub mod pretty;
 
+/// Stable source location carried from the Spectra AST into native debug
+/// generation. Lines and columns are one-based, matching compiler spans.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SourceSpan {
+    pub file: String,
+    pub start_line: u32,
+    pub start_column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalDebugInfo {
+    pub name: String,
+    pub ty: Type,
+    pub value_id: Option<usize>,
+    pub declaration: Option<SourceSpan>,
+    pub scope_start: Option<SourceSpan>,
+    pub scope_end: Option<SourceSpan>,
+}
+
 /// IR Module - top level container
 #[derive(Debug, Clone)]
 pub struct Module {
@@ -11,6 +32,7 @@ pub struct Module {
     pub globals: Vec<Global>,
     /// vtable definitions for dyn Trait dispatch
     pub vtables: Vec<VTableDef>,
+    pub source_file: Option<String>,
 }
 
 /// A vtable that maps a concrete type's methods for a trait.
@@ -42,6 +64,8 @@ pub struct Function {
     pub blocks: Vec<BasicBlock>,
     pub next_value_id: usize,
     pub next_block_id: usize,
+    pub source_span: Option<SourceSpan>,
+    pub locals: Vec<LocalDebugInfo>,
 }
 
 /// Function parameter
@@ -66,6 +90,7 @@ pub struct BasicBlock {
 pub struct Instruction {
     pub id: usize,
     pub kind: InstructionKind,
+    pub source_span: Option<SourceSpan>,
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +204,18 @@ pub enum InstructionKind {
         args: Vec<Value>,
         result_type: Option<Type>,
     },
+    /// Compiler-generated reverse-mode autodiff step. Unlike `HostCall`, this
+    /// node has a closed operation contract and is dispatched by the backend
+    /// to a dedicated reverse kernel.
+    AutodiffStep {
+        result: Option<Value>,
+        operation: String,
+        /// Forward output whose saved creator/value is consumed by the reverse kernel.
+        output: Value,
+        upstream: Option<Value>,
+        inputs: Vec<Value>,
+        targets: Vec<Value>,
+    },
     /// Get the address of a named function as an opaque i64 pointer (for closures/HOF).
     FuncAddr {
         result: Value,
@@ -228,13 +265,31 @@ pub enum InstructionKind {
         result: Value,
         value: i64,
     },
+    ConstIntTyped {
+        result: Value,
+        value: i64,
+        ty: Type,
+    },
     ConstFloat {
         result: Value,
         value: f64,
     },
+    ConstFloatTyped {
+        result: Value,
+        value: f64,
+        ty: Type,
+    },
     ConstBool {
         result: Value,
         value: bool,
+    },
+    /// String literal value. Codegen resolves this to a stable pointer
+    /// (global data section in AOT, heap-allocated immutable buffer in
+    /// JIT). Length is always known at compile time and the bytes are
+    /// stored null-terminated, one byte per `i64` slot.
+    ConstString {
+        result: Value,
+        value: String,
     },
     /// Numeric type conversion: int↔float, int↔char
     Cast {
@@ -301,6 +356,13 @@ pub enum Type {
     Void,
     Int,
     Float,
+    ExactInt {
+        signed: bool,
+        width: IntWidth,
+    },
+    ExactFloat {
+        width: FloatWidth,
+    },
     Bool,
     String,
     Char,
@@ -345,6 +407,22 @@ pub enum Type {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IntWidth {
+    I8,
+    I16,
+    I32,
+    I64,
+    Isize,
+    Usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FloatWidth {
+    F32,
+    F64,
+}
+
 /// Constant values
 #[derive(Debug, Clone)]
 pub enum Constant {
@@ -363,6 +441,7 @@ impl Module {
             functions: Vec::new(),
             globals: Vec::new(),
             vtables: Vec::new(),
+            source_file: None,
         }
     }
 
@@ -385,6 +464,8 @@ impl Function {
             blocks: Vec::new(),
             next_value_id: param_count, // Start after parameters
             next_block_id: 0,
+            source_span: None,
+            locals: Vec::new(),
         }
     }
 
@@ -420,7 +501,7 @@ impl Function {
 impl BasicBlock {
     pub fn add_instruction(&mut self, kind: InstructionKind) -> usize {
         let id = self.instructions.len();
-        self.instructions.push(Instruction { id, kind });
+        self.instructions.push(Instruction { id, kind, source_span: None });
         id
     }
 
@@ -431,11 +512,11 @@ impl BasicBlock {
 
 impl Type {
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Type::Int | Type::Float)
+        matches!(self, Type::Int | Type::Float | Type::ExactInt { .. } | Type::ExactFloat { .. })
     }
 
     pub fn is_integer(&self) -> bool {
-        matches!(self, Type::Int)
+        matches!(self, Type::Int | Type::ExactInt { .. })
     }
 
     pub fn is_bool(&self) -> bool {

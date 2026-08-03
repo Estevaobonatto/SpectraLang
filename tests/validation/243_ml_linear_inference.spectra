@@ -1,0 +1,20 @@
+// Extended validation: typed linear layer inference and output layout.
+module ml_linear_inference;
+
+import std.tensor as tensor;
+import std.ml as ml;
+
+pub fn main() -> int {
+    tensor.free_all();
+    tensor.set_grad_enabled(false);
+    let input: Tensor<float, rank2, dim2, dim2, row_major, cpu> = [[1.0, 2.0], [3.0, 4.0]];
+    let weight: Tensor<float, rank2, dim2, dim1, row_major, cpu> = [[1.0], [2.0]];
+    let bias: Tensor<float, rank1, dim1, row_major, cpu> = [1.0];
+    let output = ml.linear(input, weight, bias);
+    if tensor.rows(output) != 2 || tensor.cols(output) != 1 { return 1; }
+    if tensor.get_f(output, 0) as int != 6 { return 2; }
+    if tensor.get_f(output, 1) as int != 12 { return 3; }
+    tensor.set_grad_enabled(true);
+    tensor.free_all();
+    return 0;
+}

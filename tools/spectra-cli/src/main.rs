@@ -9,11 +9,12 @@ mod release_channel;
 mod runtime_lib;
 
 use compiler_integration::{
-    forward_program_args, take_last_exec_exit, ModulePipelineSummary, SpectraCompiler,
+    forward_program_args, take_last_exec_exit, ModulePipelineSummary, NativeDebugMetadata,
+    SpectraCompiler,
 };
 use formatter::{run as run_formatter, ExplainMode, FormatOptions};
 use package::{PackageCommand, PackageInvocation};
-use project::ProjectPlan;
+use project::{ProjectPlan, ProjectSourceEntry};
 use release_channel::{cli_channel, cli_compatibility_level};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -22,8 +23,9 @@ use spectra_compiler::{
     error::CompilerError,
     lint::LintDiagnostic,
     span::Span,
-    CompilationOptions, Lexer, LintOptions, LintRule, Parser,
+    CompilationOptions, DebugInfoMode, Lexer, LintOptions, LintRule, Parser,
 };
+use spectra_db::{migrations::SqliteMigrator, sqlite::SqliteConnection};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -134,6 +136,18 @@ struct ReleaseInfoOptions {
 }
 
 #[derive(Debug)]
+struct DbInvocation {
+    command: DbCommand,
+    database: PathBuf,
+    migrations_dir: PathBuf,
+    steps: usize,
+    json: bool,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum DbCommand { Migrate, Rollback, Status }
+
+#[derive(Debug)]
 enum CliAction {
     Help(HelpTopic),
     ListExperimental,
@@ -146,6 +160,7 @@ enum CliAction {
     ReleaseInfo(ReleaseInfoOptions),
     Package(PackageInvocation),
     Format(FormatOptions),
+    Db(DbInvocation),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -158,6 +173,7 @@ enum HelpTopic {
     Package,
     Format,
     Lint,
+    Db,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -237,6 +253,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
                 HelpTopic::NewProject => print_new_help(),
                 HelpTopic::ReleaseInfo => print_release_info_help(),
                 HelpTopic::Package => print_package_help(),
+                HelpTopic::Db => print_db_help(),
                 HelpTopic::Format => print_format_help(),
                 HelpTopic::Lint => print_lint_help(),
             }
@@ -252,6 +269,7 @@ fn execute_action(action: CliAction) -> CliResult<()> {
         CliAction::ReleaseInfo(options) => execute_release_info(options),
         CliAction::Package(invocation) => execute_package_command(invocation),
         CliAction::Format(options) => execute_format(options),
+        CliAction::Db(invocation) => execute_db_command(invocation),
     }
 }
 
@@ -274,6 +292,7 @@ fn parse_cli() -> CliResult<CliAction> {
                     "new" | "new-project" => Ok(CliAction::Help(HelpTopic::NewProject)),
                     "release-info" | "release" => Ok(CliAction::Help(HelpTopic::ReleaseInfo)),
                     "package" | "pkg" => Ok(CliAction::Help(HelpTopic::Package)),
+                    "db" | "database" => Ok(CliAction::Help(HelpTopic::Db)),
                     "repl" => Ok(CliAction::Help(HelpTopic::Repl)),
                     "fmt" | "format" => Ok(CliAction::Help(HelpTopic::Format)),
                     "lint" => Ok(CliAction::Help(HelpTopic::Lint)),
@@ -345,6 +364,16 @@ fn parse_cli() -> CliResult<CliAction> {
             let invocation = parse_package_invocation(&mut args)?;
             return Ok(CliAction::Package(invocation));
         }
+        Some("db") => {
+            args.next();
+            if let Some(flag) = args.peek() {
+                if matches!(flag.as_str(), "--help" | "-h") {
+                    args.next();
+                    return Ok(CliAction::Help(HelpTopic::Db));
+                }
+            }
+            return Ok(CliAction::Db(parse_db_invocation(&mut args)?));
+        }
         Some("fmt") | Some("format") => {
             args.next();
             if let Some(flag) = args.peek() {
@@ -413,6 +442,83 @@ fn parse_build_command_name(value: &str) -> Option<BuildCommand> {
     }
 }
 
+fn parse_db_invocation<I>(args: &mut std::iter::Peekable<I>) -> CliResult<DbInvocation>
+where
+    I: Iterator<Item = String>,
+{
+    let command = match args.next().as_deref() {
+        Some("migrate") => DbCommand::Migrate,
+        Some("rollback") => DbCommand::Rollback,
+        Some("status") => DbCommand::Status,
+        Some(other) => return Err(usage_error(&format!("Unknown db subcommand '{other}'."))),
+        None => return Err(usage_error("Missing db subcommand. Use migrate, rollback, or status.")),
+    };
+    let mut database = None;
+    let mut migrations_dir = None;
+    let mut steps = 1;
+    let mut json = false;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--database" => database = Some(PathBuf::from(args.next().ok_or_else(|| usage_error("Missing path after --database."))?)),
+            "--migrations-dir" => migrations_dir = Some(PathBuf::from(args.next().ok_or_else(|| usage_error("Missing path after --migrations-dir."))?)),
+            "--steps" => {
+                let value = args.next().ok_or_else(|| usage_error("Missing number after --steps."))?;
+                steps = value.parse::<usize>().map_err(|_| usage_error("--steps must be a non-negative integer."))?;
+            }
+            "--json" => json = true,
+            "--help" | "-h" => return Err(usage_error("Use 'spectralang help db' for database command help.")),
+            other => return Err(usage_error(&format!("Unknown db option '{other}'."))),
+        }
+    }
+    if json && !matches!(command, DbCommand::Status) {
+        return Err(usage_error("--json is currently supported only by 'db status'."));
+    }
+    Ok(DbInvocation {
+        command,
+        database: database.ok_or_else(|| usage_error("--database is required."))?,
+        migrations_dir: migrations_dir.ok_or_else(|| usage_error("--migrations-dir is required."))?,
+        steps,
+        json,
+    })
+}
+
+fn execute_db_command(invocation: DbInvocation) -> CliResult<()> {
+    let connection = SqliteConnection::open(&invocation.database, std::time::Duration::from_secs(5))
+        .map_err(|error| CliError::io(error.to_string()))?;
+    let migrator = SqliteMigrator::from_directory(connection, &invocation.migrations_dir)
+        .map_err(|error| CliError::compilation(error.to_string()))?;
+    match invocation.command {
+        DbCommand::Migrate => {
+            let entries = migrator.migrate().map_err(|error| CliError::compilation(error.to_string()))?;
+            for entry in entries {
+                println!("applied {} {}", entry.version, entry.name);
+            }
+        }
+        DbCommand::Rollback => {
+            let entries = migrator.rollback(invocation.steps).map_err(|error| CliError::compilation(error.to_string()))?;
+            for entry in entries {
+                println!("rolled back {} {}", entry.version, entry.name);
+            }
+        }
+        DbCommand::Status => {
+            let status = migrator.status().map_err(|error| CliError::compilation(error.to_string()))?;
+            if invocation.json {
+                let value = json!({
+                    "applied": status.applied.iter().map(|entry| json!({"version": entry.version, "name": entry.name, "checksum": entry.checksum, "applied_at": entry.applied_at})).collect::<Vec<_>>(),
+                    "pending": status.pending.iter().map(|entry| json!({"version": entry.version, "name": entry.name, "checksum": entry.checksum})).collect::<Vec<_>>(),
+                    "drift": status.drift.iter().map(|entry| json!({"version": entry.version, "reason": entry.reason})).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&value).map_err(|error| CliError::io(error.to_string()))?);
+            } else {
+                println!("applied: {}", status.applied.len());
+                println!("pending: {}", status.pending.len());
+                for entry in status.drift { println!("drift {}: {}", entry.version, entry.reason); }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn parse_compilation_invocation<I>(
     args: &mut std::iter::Peekable<I>,
     command: BuildCommand,
@@ -452,6 +558,8 @@ where
             }
             "--dump-ast" => options.dump_ast = true,
             "--dump-ir" => options.dump_ir = true,
+            "--debug-info=native" => options.debug_info = DebugInfoMode::Native,
+            "--debug-info=none" => options.debug_info = DebugInfoMode::None,
             "--timings" | "-T" => {
                 options.collect_metrics = true;
                 show_pipeline_summary = true;
@@ -930,6 +1038,7 @@ where
     let mut catalog: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut offline = false;
+    let mut locked = false;
     let mut extra_positionals: Vec<String> = Vec::new();
     let mut test_filter: Option<String> = None;
     let mut test_list = false;
@@ -999,6 +1108,9 @@ where
             }
             "--offline" => {
                 offline = true;
+            }
+            "--locked" => {
+                locked = true;
             }
             "--filter" if subcommand == "test" => {
                 test_filter = Some(
@@ -1095,7 +1207,10 @@ where
                     })?,
                 }),
                 Some("list") | None => PackageCommand::Catalog(package::CatalogCommand::List),
-                Some("sync") => PackageCommand::Catalog(package::CatalogCommand::Sync),
+                Some("sync") => PackageCommand::Catalog(package::CatalogCommand::Sync {
+                    offline,
+                    locked,
+                }),
                 Some("remove") => PackageCommand::Catalog(package::CatalogCommand::Remove {
                     name: extra_positionals.get(0).cloned().ok_or_else(|| {
                         usage_error("package catalog remove requires a catalog name.")
@@ -1121,7 +1236,12 @@ where
         }
     };
 
-    Ok(PackageInvocation { root, command })
+    Ok(PackageInvocation {
+        root,
+        command,
+        offline,
+        locked,
+    })
 }
 
 fn parse_format_invocation<I>(args: &mut std::iter::Peekable<I>) -> CliResult<FormatOptions>
@@ -1259,19 +1379,24 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         let source = fs::read_to_string(source_path)
             .map_err(|e| CliError::io(format!("Cannot read '{}': {}", source_path.display(), e)))?;
         let filename = source_path.to_string_lossy().to_string();
+        let native_debug = matches!(options.debug_info, DebugInfoMode::Native);
         let mut compiler = SpectraCompiler::new(options);
         compiler.set_emit_output(false);
-        let obj_bytes = compiler
-            .compile_to_object_bytes(&source, &filename)
+        let (obj_bytes, debug_metadata) = compiler
+            .compile_to_object_with_debug_metadata(&source, &filename)
             .map_err(|e| CliError::compilation(e))?;
         fs::write(obj_path, &obj_bytes)
             .map_err(|e| CliError::io(format!("Cannot write '{}': {}", obj_path.display(), e)))?;
+        if native_debug {
+            attach_native_debug(obj_path, source_path, &debug_metadata)?;
+        }
         let debug_map_path = write_aot_debug_map(
             source_path,
             obj_path,
             &source,
             AotArtifactKind::Object,
             &["gdb", "lldb"],
+            native_debug,
         )?;
         println!("     Written object {}", obj_path.display());
         println!("     Written debug map {}", debug_map_path.display());
@@ -1296,14 +1421,17 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
                  SPECTRA_RUNTIME_LIB environment variable.",
             )
         })?;
+        runtime_lib::validate_required_symbols(&runtime_lib)
+            .map_err(CliError::compilation)?;
 
         // Write the executable object to a temporary path next to the output.
         let obj_path = exe_path.with_extension("spectra_tmp.obj");
 
+        let native_debug = matches!(options.debug_info, DebugInfoMode::Native);
         let mut compiler = SpectraCompiler::new(options);
         compiler.set_emit_output(false);
-        let obj_bytes = compiler
-            .compile_to_executable_object_bytes(&source, &filename)
+        let (obj_bytes, debug_metadata) = compiler
+            .compile_to_executable_object_with_debug_metadata(&source, &filename)
             .map_err(|e| CliError::compilation(e))?;
 
         fs::write(&obj_path, &obj_bytes).map_err(|e| {
@@ -1314,7 +1442,11 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             ))
         })?;
 
-        let link_result = linker::link_executable(&obj_path, &runtime_lib, exe_path);
+        if native_debug {
+            attach_native_debug(&obj_path, source_path, &debug_metadata)?;
+        }
+
+        let link_result = linker::link_executable(&obj_path, &runtime_lib, exe_path, native_debug);
         let _ = fs::remove_file(&obj_path); // always clean up the temp object
         link_result.map_err(|e| CliError::compilation(e))?;
 
@@ -1324,6 +1456,7 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             &source,
             AotArtifactKind::Executable,
             &["gdb", "lldb", "cdb"],
+            native_debug,
         )?;
         println!("     Written executable {}", exe_path.display());
         println!("     Written debug map {}", debug_map_path.display());
@@ -1372,17 +1505,24 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
                     );
                 }
                 match package::resolve(root) {
-                    Ok(workspace) if workspace.packages.len() > 1 => {
-                        (workspace.source_entries(), workspace.root_package_name())
-                    }
+                    Ok(workspace) if workspace.packages.len() > 1 => (
+                        workspace.source_entries_with_origins(),
+                        workspace.root_package_name(),
+                    ),
                     _ => {
                         let src_dirs = cfg.src_dirs(root);
                         let sources = discovery::discover_sources(&src_dirs);
-                        (sources, Some(cfg.name().to_string()))
+                        (
+                            sources.into_iter().map(ProjectSourceEntry::plain).collect(),
+                            Some(cfg.name().to_string()),
+                        )
                     }
                 }
             }
-            Ok(None) => (entries, None),
+            Ok(None) => (
+                entries.into_iter().map(ProjectSourceEntry::plain).collect(),
+                None,
+            ),
             Err(err) => {
                 return Err(CliError::io(format!(
                     "Failed to load spectra.toml: {}",
@@ -1391,10 +1531,13 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             }
         }
     } else {
-        (entries, None)
+        (
+            entries.into_iter().map(ProjectSourceEntry::plain).collect(),
+            None,
+        )
     };
 
-    execute_plan_with_options(
+    execute_plan_with_sources(
         kind,
         options,
         final_entries,
@@ -1439,6 +1582,9 @@ fn compile_plan(
         }
 
         let filename = module.path.to_string_lossy().to_string();
+        if module.package_name.is_some() {
+            compiler.set_current_package_name(module.package_name.clone());
+        }
         match fs::read_to_string(&module.path) {
             Ok(source) => {
                 // When the source file has no explicit `module` declaration the
@@ -1886,7 +2032,32 @@ fn execute_plan_with_options(
     verbose: bool,
     bench_json: Option<PathBuf>,
 ) -> CliResult<()> {
-    let plan = ProjectPlan::build(entries).map_err(|error| CliError::io(error.to_string()))?;
+    execute_plan_with_sources(
+        kind,
+        options,
+        entries.into_iter().map(ProjectSourceEntry::plain).collect(),
+        package_name,
+        show_pipeline_summary,
+        show_aggregate_summary,
+        print_success,
+        verbose,
+        bench_json,
+    )
+}
+
+fn execute_plan_with_sources(
+    kind: BuildCommand,
+    options: CompilationOptions,
+    entries: Vec<ProjectSourceEntry>,
+    package_name: Option<String>,
+    show_pipeline_summary: bool,
+    show_aggregate_summary: bool,
+    print_success: bool,
+    verbose: bool,
+    bench_json: Option<PathBuf>,
+) -> CliResult<()> {
+    let plan = ProjectPlan::build_with_sources(entries)
+        .map_err(|error| CliError::io(error.to_string()))?;
 
     if plan.modules().is_empty() {
         return Err(CliError::usage("No Spectra source files found to compile."));
@@ -1940,6 +2111,10 @@ fn execute_plan_with_options(
         return Err(CliError::compilation(
             "could not compile due to previous error(s)",
         ));
+    }
+
+    if let Some(report) = spectra_runtime::concurrent_diagnostics_report_json() {
+        println!("SPECTRA_CONCURRENT_DIAGNOSTICS={report}");
     }
 
     // Propagate the Spectra program's exit code when running via JIT.
@@ -2028,6 +2203,8 @@ struct AotDebugMap<'a> {
     entrypoint: Option<AotDebugEntrypoint>,
     native_debuggers: &'a [&'a str],
     strategy: &'a str,
+    native_format: &'a str,
+    native_artifact: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -2056,6 +2233,7 @@ fn write_aot_debug_map(
     source: &str,
     artifact_kind: AotArtifactKind,
     native_debuggers: &'static [&'static str],
+    native_debug: bool,
 ) -> CliResult<PathBuf> {
     let entrypoint =
         if let Some((line_index, column_index, line_text)) = find_main_location_in_source(source) {
@@ -2092,7 +2270,21 @@ fn write_aot_debug_map(
         },
         entrypoint,
         native_debuggers,
-        strategy: "Break on the exported symbol in the native debugger and use this map to resolve the Spectra source span until native DWARF/PDB emission is available.",
+        strategy: if native_debug {
+            "Native debug records are embedded in the object; executable links request a real PDB/DWARF artifact. This sidecar supplements, but does not replace, native debug information."
+        } else {
+            "Native debug emission was explicitly disabled; this sidecar contains source metadata only."
+        },
+        native_format: if native_debug {
+            if cfg!(windows) { "codeview/pdb" } else { "dwarf" }
+        } else {
+            "none"
+        },
+        native_artifact: if native_debug && matches!(artifact_kind, AotArtifactKind::Executable) {
+            Some(display_path(&artifact_path.with_extension("pdb")))
+        } else {
+            None
+        },
     };
     let text = serde_json::to_string_pretty(&map)
         .map_err(|e| CliError::io(format!("Cannot serialize AOT debug map: {}", e)))?;
@@ -2110,6 +2302,134 @@ fn debug_map_path_for_artifact(artifact_path: &Path) -> PathBuf {
     let mut debug_map_path = artifact_path.as_os_str().to_os_string();
     debug_map_path.push(".spectra-debug.json");
     PathBuf::from(debug_map_path)
+}
+
+/// Add compiler-owned CodeView records to a COFF object.  The backend owns
+/// both the records and the COFF container rewrite; the sidecar is not used
+/// to synthesize native debug information.
+fn attach_native_codeview(
+    object_path: &Path,
+    source_path: &Path,
+    debug_metadata: &NativeDebugMetadata,
+) -> CliResult<()> {
+    let functions = debug_metadata.functions.iter().map(|function| function.name.clone()).collect::<Vec<_>>();
+    let object_bytes = fs::read(object_path)
+        .map_err(|e| CliError::io(format!("Cannot read object for debug ranges: {}", e)))?;
+    let mut ranged_functions = spectra_backend::debug::coff_function_ranges(&object_bytes);
+    // Only symbols present in the object are eligible for native debug
+    // records.  This prevents a sidecar/source name from becoming a fake PDB
+    // procedure.  The wrapper is present only for executable objects.
+    ranged_functions.retain(|function| functions.iter().any(|name| name == &function.name));
+    if ranged_functions.is_empty() {
+        return Err(CliError::compilation(
+            "--debug-info=native found no user function symbols in the COFF object",
+        ));
+    }
+    for function in &mut ranged_functions {
+        function.locals = debug_metadata.functions.iter()
+            .find(|metadata| metadata.name == function.name)
+            .map(|metadata| metadata.locals.clone())
+            .unwrap_or_default();
+        function.local_offsets = debug_metadata.functions.iter()
+            .find(|metadata| metadata.name == function.name)
+            .map(|metadata| metadata.local_offsets.clone())
+            .unwrap_or_default();
+    }
+    let records = spectra_backend::debug::codeview_section_with_ranges(
+        &source_path.to_string_lossy(),
+        &ranged_functions,
+        &fs::read_to_string(source_path).map_err(|e| CliError::io(format!("Cannot read source for debug lines: {e}")))?,
+    );
+    let rewritten = spectra_backend::debug::append_coff_section(
+        &object_bytes,
+        ".debug$S",
+        &records,
+        0x4230_0040,
+    )
+    .map_err(CliError::compilation)?;
+    fs::write(object_path, rewritten)
+        .map_err(|e| CliError::io(format!("Cannot write CodeView-enabled object: {}", e)))
+}
+
+fn attach_native_debug(object_path: &Path, source_path: &Path, debug_metadata: &NativeDebugMetadata) -> CliResult<()> {
+    if cfg!(windows) {
+        attach_native_codeview(object_path, source_path, debug_metadata)
+    } else {
+        attach_native_dwarf(object_path, source_path, debug_metadata)
+    }
+}
+
+fn attach_native_dwarf(object_path: &Path, source_path: &Path, debug_metadata: &NativeDebugMetadata) -> CliResult<()> {
+    let object_bytes = fs::read(object_path)
+        .map_err(|e| CliError::io(format!("Cannot read object for DWARF attachment: {e}")))?;
+    let source_functions = debug_metadata.functions.iter().map(|function| function.name.clone()).collect::<Vec<_>>();
+    let mut functions = spectra_backend::debug::native_function_ranges(&object_bytes);
+    functions.retain(|function| source_functions.iter().any(|name| name == &function.name));
+    if functions.is_empty() {
+        return Err(CliError::compilation(
+            "--debug-info=native found no user function symbols in the Unix object",
+        ));
+    }
+    for function in &mut functions {
+        function.locals = debug_metadata.functions.iter()
+            .find(|metadata| metadata.name == function.name)
+            .map(|metadata| metadata.locals.clone())
+            .unwrap_or_default();
+        function.local_offsets = debug_metadata.functions.iter()
+            .find(|metadata| metadata.name == function.name)
+            .map(|metadata| metadata.local_offsets.clone())
+            .unwrap_or_default();
+    }
+    let source = fs::read_to_string(source_path)
+        .map_err(|e| CliError::io(format!("Cannot read source for DWARF lines: {e}")))?;
+    let sections = spectra_backend::dwarf::sections_for_functions(
+        &source_path.to_string_lossy(),
+        &source,
+        &functions,
+    )
+    .map_err(CliError::compilation)?;
+    let objcopy = find_tool_on_path("llvm-objcopy").ok_or_else(|| {
+        CliError::compilation(
+            "--debug-info=native on Unix requires llvm-objcopy as a COFF/ELF container editor",
+        )
+    })?;
+    let mut input = object_path.to_path_buf();
+    for (index, (name, data)) in sections.iter().enumerate() {
+        let section_path = object_path.with_extension(format!("spectra-dwarf-{index}"));
+        let output_path = object_path.with_extension(format!("spectra-dwarf-out-{index}"));
+        fs::write(&section_path, data)
+            .map_err(|e| CliError::io(format!("Cannot write DWARF section {name}: {e}")))?;
+        let status = std::process::Command::new(&objcopy)
+            .args(["--add-section", &format!("{name}={}", section_path.display())])
+            .arg(&input)
+            .arg(&output_path)
+            .status()
+            .map_err(|e| CliError::compilation(format!("Cannot execute llvm-objcopy: {e}")))?;
+        let _ = fs::remove_file(&section_path);
+        if !status.success() {
+            let _ = fs::remove_file(&output_path);
+            return Err(CliError::compilation(format!("llvm-objcopy failed to attach {name}")));
+        }
+        if input != object_path {
+            let _ = fs::remove_file(&input);
+        }
+        input = output_path;
+    }
+    fs::rename(&input, object_path).map_err(|e| {
+        let _ = fs::remove_file(&input);
+        CliError::io(format!("Cannot replace object with DWARF-enabled object: {e}"))
+    })
+}
+
+fn find_tool_on_path(name: &str) -> Option<PathBuf> {
+    let path = env::var_os("PATH")?;
+    for directory in env::split_paths(&path) {
+        let candidate = directory.join(name);
+        if candidate.is_file() { return Some(candidate); }
+        let candidate = directory.join(format!("{name}.exe"));
+        if candidate.is_file() { return Some(candidate); }
+    }
+    None
 }
 
 fn find_main_location_in_source(source: &str) -> Option<(usize, usize, &str)> {
@@ -2728,9 +3048,9 @@ fn run_async_test_case(
         };
     }
 
-    let mut entries = workspace.source_entries();
-    entries.push(wrapper_path);
-    let plan = match ProjectPlan::build(entries) {
+    let mut entries = workspace.source_entries_with_origins();
+    entries.push(ProjectSourceEntry::plain(wrapper_path));
+    let plan = match ProjectPlan::build_with_sources(entries) {
         Ok(plan) => plan,
         Err(error) => {
             return PackageTestCaseReport {
@@ -2784,14 +3104,22 @@ fn run_async_test_case(
     }
 }
 
-fn execute_package_tests(root: &Path, options: package::PackageTestOptions) -> CliResult<()> {
-    let workspace = package::resolve(root).map_err(|error| CliError::io(error.to_string()))?;
+fn execute_package_tests(
+    root: &Path,
+    options: package::PackageTestOptions,
+    offline: bool,
+    locked: bool,
+) -> CliResult<()> {
+    let workspace = package::resolve_with_options(
+        root,
+        package::ResolveOptions { offline: offline || locked },
+    )
+    .map_err(|error| CliError::io(error.to_string()))?;
     emit_package_deprecation_warnings(&workspace);
     let test_entries = package::discover_test_entries(&workspace);
     let all_cases = discover_async_test_cases(&test_entries)?;
     let cases = filter_async_tests(all_cases, options.filter.as_deref());
-    let lock_path =
-        package::write_lockfile(&workspace).map_err(|error| CliError::io(error.to_string()))?;
+    let lock_path = write_or_verify_package_lockfile(&workspace, locked)?;
 
     if options.list {
         let tests = cases
@@ -2826,12 +3154,12 @@ fn execute_package_tests(root: &Path, options: package::PackageTestOptions) -> C
     }
 
     if cases.is_empty() {
-        let mut entries = workspace.source_entries();
-        entries.extend(test_entries);
+        let mut entries = workspace.source_entries_with_origins();
+        entries.extend(test_entries.into_iter().map(ProjectSourceEntry::plain));
         if !options.json {
             println!("     Locked {}", lock_path.display());
         }
-        return execute_plan_with_options(
+        return execute_plan_with_sources(
             BuildCommand::Check,
             CompilationOptions::default(),
             entries,
@@ -2898,24 +3226,41 @@ fn execute_package_tests(root: &Path, options: package::PackageTestOptions) -> C
     }
 }
 
+fn write_or_verify_package_lockfile(
+    workspace: &package::ResolvedWorkspace,
+    locked: bool,
+) -> CliResult<PathBuf> {
+    if locked {
+        package::verify_lockfile(workspace).map_err(|error| CliError::io(error.to_string()))
+    } else {
+        package::write_lockfile(workspace).map_err(|error| CliError::io(error.to_string()))
+    }
+}
+
 fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
+    let offline = invocation.offline;
+    let locked = invocation.locked;
     match invocation.command {
         PackageCommand::Lock | PackageCommand::Update => {
-            let workspace = package::resolve(&invocation.root)
+            let workspace = package::resolve_with_options(
+                &invocation.root,
+                package::ResolveOptions { offline: offline || locked },
+            )
                 .map_err(|error| CliError::io(error.to_string()))?;
             emit_package_deprecation_warnings(&workspace);
-            let path = package::write_lockfile(&workspace)
-                .map_err(|error| CliError::io(error.to_string()))?;
+            let path = write_or_verify_package_lockfile(&workspace, locked)?;
             println!("     Locked {}", path.display());
             Ok(())
         }
         PackageCommand::Build | PackageCommand::Check | PackageCommand::Run => {
-            let workspace = package::resolve(&invocation.root)
+            let workspace = package::resolve_with_options(
+                &invocation.root,
+                package::ResolveOptions { offline: offline || locked },
+            )
                 .map_err(|error| CliError::io(error.to_string()))?;
             emit_package_deprecation_warnings(&workspace);
-            let lock_path = package::write_lockfile(&workspace)
-                .map_err(|error| CliError::io(error.to_string()))?;
-            let entries = workspace.source_entries();
+            let lock_path = write_or_verify_package_lockfile(&workspace, locked)?;
+            let entries = workspace.source_entries_with_origins();
             let kind = match invocation.command {
                 PackageCommand::Build => BuildCommand::Compile,
                 PackageCommand::Check => BuildCommand::Check,
@@ -2927,7 +3272,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 options.run_jit = true;
             }
             println!("     Locked {}", lock_path.display());
-            execute_plan_with_options(
+            execute_plan_with_sources(
                 kind,
                 options,
                 entries,
@@ -2939,21 +3284,25 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
                 None,
             )
         }
-        PackageCommand::Test(options) => execute_package_tests(&invocation.root, options),
+        PackageCommand::Test(options) => {
+            execute_package_tests(&invocation.root, options, offline, locked)
+        }
         PackageCommand::Bench => {
-            let workspace = package::resolve(&invocation.root)
+            let workspace = package::resolve_with_options(
+                &invocation.root,
+                package::ResolveOptions { offline: offline || locked },
+            )
                 .map_err(|error| CliError::io(error.to_string()))?;
             emit_package_deprecation_warnings(&workspace);
-            let lock_path = package::write_lockfile(&workspace)
-                .map_err(|error| CliError::io(error.to_string()))?;
+            let lock_path = write_or_verify_package_lockfile(&workspace, locked)?;
             println!("     Locked {}", lock_path.display());
-            execute_plan_with_options(
+            execute_plan_with_sources(
                 BuildCommand::Bench,
                 CompilationOptions {
                     collect_metrics: true,
                     ..CompilationOptions::default()
                 },
-                workspace.source_entries(),
+                workspace.source_entries_with_origins(),
                 workspace.root_package_name(),
                 true,
                 true,
@@ -2963,11 +3312,13 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             )
         }
         PackageCommand::Doc => {
-            let workspace = package::resolve(&invocation.root)
+            let workspace = package::resolve_with_options(
+                &invocation.root,
+                package::ResolveOptions { offline: offline || locked },
+            )
                 .map_err(|error| CliError::io(error.to_string()))?;
             emit_package_deprecation_warnings(&workspace);
-            let lock_path = package::write_lockfile(&workspace)
-                .map_err(|error| CliError::io(error.to_string()))?;
+            let lock_path = write_or_verify_package_lockfile(&workspace, locked)?;
             let docs_path =
                 package::write_docs(&workspace).map_err(|error| CliError::io(error.to_string()))?;
             println!("     Locked {}", lock_path.display());
@@ -2975,7 +3326,7 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
             Ok(())
         }
         PackageCommand::Fetch { offline } => {
-            let lock_path = package::fetch(&invocation.root, offline)
+            let lock_path = package::fetch(&invocation.root, offline || invocation.offline, locked)
                 .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Fetched {}", lock_path.display());
             Ok(())
@@ -3094,51 +3445,35 @@ fn execute_package_command(invocation: PackageInvocation) -> CliResult<()> {
 }
 
 fn execute_package_catalog_command(root: &Path, command: package::CatalogCommand) -> CliResult<()> {
-    let catalog_config = root.join(".spectra").join("catalogs").join("catalogs.toml");
     match command {
         package::CatalogCommand::Add { name, source } => {
-            if let Some(parent) = catalog_config.parent() {
-                fs::create_dir_all(parent).map_err(|error| CliError::io(error.to_string()))?;
-            }
-            let mut text = if catalog_config.is_file() {
-                fs::read_to_string(&catalog_config)
-                    .map_err(|error| CliError::io(error.to_string()))?
-            } else {
-                String::from("# Spectra package catalogs\n")
-            };
-            text.push_str(&format!(
-                "{} = \"{}\"\n",
-                name,
-                source.replace('\\', "\\\\")
-            ));
-            fs::write(&catalog_config, text).map_err(|error| CliError::io(error.to_string()))?;
+            package::catalog_add(root, &name, &source)
+                .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Added catalog {} -> {}", name, source);
             Ok(())
         }
-        package::CatalogCommand::List | package::CatalogCommand::Sync => {
-            if catalog_config.is_file() {
-                let text = fs::read_to_string(&catalog_config)
-                    .map_err(|error| CliError::io(error.to_string()))?;
-                print!("{}", text);
+        package::CatalogCommand::List => {
+            for row in package::catalog_list(root)
+                .map_err(|error| CliError::io(error.to_string()))?
+            {
+                println!("{}", row);
             }
-            if matches!(command, package::CatalogCommand::Sync) {
-                println!("     Synced local catalog cache");
+            Ok(())
+        }
+        package::CatalogCommand::Sync { offline, locked } => {
+            let entries = package::catalog_sync(root, offline, locked)
+                .map_err(|error| CliError::io(error.to_string()))?;
+            for entry in entries {
+                println!(
+                    "     Synced {} ({})",
+                    entry.name,
+                    entry.resolved_rev.as_deref().unwrap_or("local")
+                );
             }
             Ok(())
         }
         package::CatalogCommand::Remove { name } => {
-            if !catalog_config.is_file() {
-                return Ok(());
-            }
-            let text = fs::read_to_string(&catalog_config)
-                .map_err(|error| CliError::io(error.to_string()))?;
-            let prefix = format!("{} =", name);
-            let filtered = text
-                .lines()
-                .filter(|line| !line.trim_start().starts_with(&prefix))
-                .collect::<Vec<_>>()
-                .join("\n");
-            fs::write(&catalog_config, format!("{}\n", filtered))
+            package::catalog_remove(root, &name)
                 .map_err(|error| CliError::io(error.to_string()))?;
             println!("     Removed catalog {}", name);
             Ok(())
@@ -3661,6 +3996,7 @@ fn print_global_help() {
     println!("    new        Scaffold a new Spectra project");
     println!("    release-info  Report CLI and package release channel metadata");
     println!("    package    Resolve, lock, build, publish, and consume packages");
+    println!("    db         Apply, inspect, and roll back database migrations");
     println!("    fmt        Format Spectra source files");
     println!("    help       Print this help message");
     println!();
@@ -3681,6 +4017,7 @@ fn print_global_help() {
     println!("    spectralang release-info --json --root .");
     println!("    spectralang package build --root .");
     println!("    spectralang package add math --path ../math");
+    println!("    spectralang db migrate --database app.sqlite --migrations-dir migrations");
     println!("    spectralang --list-experimental");
     println!("    spectralang fmt src/");
     println!("    spectralang fmt --stdin < file.spectra");
@@ -3797,6 +4134,24 @@ fn print_release_info_help() {
     println!("    spectralang release-info --json --root tests/projects/valid/package_workspace");
 }
 
+fn print_db_help() {
+    println!("SpectraLang CLI - 'db' command");
+    println!();
+    println!("USAGE:");
+    println!("    spectralang db <migrate|rollback|status> [OPTIONS]");
+    println!();
+    println!("OPTIONS:");
+    println!("    --database <path>          SQLite database path");
+    println!("    --migrations-dir <path>    Migration files directory");
+    println!("    --steps <count>            Number of migrations to roll back (default: 1)");
+    println!("    --json                     Emit JSON (status only)");
+    println!();
+    println!("EXAMPLES:");
+    println!("    spectralang db migrate --database app.sqlite --migrations-dir migrations");
+    println!("    spectralang db rollback --database app.sqlite --migrations-dir migrations --steps 1");
+    println!("    spectralang db status --database app.sqlite --migrations-dir migrations --json");
+}
+
 fn print_package_help() {
     println!("SpectraLang CLI - 'package' command");
     println!();
@@ -3836,7 +4191,8 @@ fn print_package_help() {
     println!("    --branch <name>        Git branch for package source");
     println!("    --catalog <path>       Catalog index/directory for search/add/register");
     println!("    --out <path>           Output path for 'publish-metadata'");
-    println!("    --offline              Use cached Git packages only for 'fetch'");
+    println!("    --offline              Use only restored package caches (package commands)");
+    println!("    --locked               Require an existing, unmodified spectra.lock");
     println!("    --list                 List async tests for 'test'");
     println!("    --filter <text>        Run or list async tests whose name/path contains text");
     println!("    --json                 Emit JSON report for 'test'");

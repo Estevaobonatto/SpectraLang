@@ -1,0 +1,23 @@
+module ml_vector_index_production;
+
+import std.ml as ml;
+import std.tensor as tensor;
+import std.string as str;
+
+pub fn main() -> int {
+    tensor.free_all();
+    let index = ml.vector_index_new(4);
+    if !ml.vector_index_set_metadata(index, "model_version", "r3006-cli-v1") { return 1; }
+    if ml.vector_index_insert(index, "alpha", tensor.vector_f(4, 1.0)) != 1 { return 2; }
+    if ml.vector_index_insert(index, "beta", tensor.vector_f(4, 2.0)) != 2 { return 3; }
+    let query = ml.vector_index_query(index, tensor.vector_f(4, 1.0), 1);
+    if !str.contains(query, "alpha") || !str.contains(query, "spectra.ml.vector_query.v2") || !str.contains(query, "hnsw") { return 4; }
+    let metrics = ml.vector_index_metrics(index);
+    if !str.contains(metrics, "query_count") || !str.contains(metrics, "hnsw") { return 5; }
+    let path = ml.vector_index_persist(index, "target/r3006-vector-index/cli-index.spar");
+    let loaded = ml.vector_index_load(path);
+    let loaded_query = ml.vector_index_query(loaded, tensor.vector_f(4, 1.0), 1);
+    if !str.contains(loaded_query, "alpha") { return 6; }
+    tensor.free_all();
+    return 0;
+}

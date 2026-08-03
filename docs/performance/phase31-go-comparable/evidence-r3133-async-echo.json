@@ -1,0 +1,226 @@
+{
+  "schema": "spectra.phase31.r3133_async_echo_reconciliation.v1",
+  "status": "passed",
+  "generated_at_utc": "2026-08-01T15:42:15.940347+00:00",
+  "revision": "b358153d18820e3e70ca9f1098d3fb7fb7fadab7",
+  "profile": "release",
+  "binary": "target/release/spectralang.exe",
+  "workload_contract": "fanout_fanin_real_concurrency.v2",
+  "classification": {
+    "category": "external_noise",
+    "confidence": "high",
+    "reason": "paired async-echo or process-inclusive batch dispersion exceeded 10%"
+  },
+  "baseline": {
+    "path": "docs\\performance\\phase31-go-comparable\\baseline.json",
+    "sha256_before": "452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b",
+    "sha256_after": "452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b",
+    "modified": false
+  },
+  "diagnostic": {
+    "path": "target\\phase31\\async-echo-diagnostics\\r3133-release.json",
+    "sha256": "4f1e6a0a4138fb81da4e1edce3d855e4f370e54e50be9cfad45fc3d21b5b4c1a"
+  },
+  "reports": [
+    {
+      "path": "target\\phase31\\r3133-async-echo-only.json",
+      "sha256": "537a934fe18660c73edf112e9674912f674e744a8883b94e1452a37068896ab1"
+    }
+  ],
+  "reports_semantically_compatible": true,
+  "scenario_contract": [
+    "cpu-loop-sum",
+    "cpu-fibs",
+    "cpu-string-build",
+    "cpu-hashmap",
+    "tensor-create",
+    "tensor-elementwise",
+    "tensor-reduce",
+    "tensor-matmul",
+    "ml-mlp-step",
+    "async-echo",
+    "async-pipeline",
+    "sort-int",
+    "binary-search",
+    "sieve",
+    "matrix-transpose",
+    "string-reverse",
+    "count-primes",
+    "gcd",
+    "pow-fast",
+    "word-count",
+    "digit-sum"
+  ],
+  "scenarios": [
+    {
+      "id": "async-echo",
+      "correctness_passed": true,
+      "spectra": {
+        "median_ns": 37891050,
+        "p95_ns": 74069400,
+        "stddev_ns": 15884069,
+        "ns_per_iter": 33162700,
+        "failure_class": null
+      },
+      "gap_to_go": 1.154469,
+      "reference_performance_passed": true
+    }
+  ],
+  "async_echo": [
+    {
+      "report": "target\\phase31\\r3133-async-echo-only.json",
+      "gap_to_go": 1.154469,
+      "paired_gap_stddev_pct": 3.0061623710320267,
+      "reference_performance_passed": true
+    }
+  ],
+  "batch_variants": {
+    "batch-reset-only": {
+      "median_ns": 45353000,
+      "stddev_pct": 21.395,
+      "diagnostics": {
+        "fused_fast_abi_calls": 0,
+        "spawn_fast_abi_calls": 2,
+        "join_fast_abi_calls": 2,
+        "batch_spawn_fast_abi_calls": 0,
+        "batch_join_fast_abi_calls": 0,
+        "reset_fast_abi_calls": 10000,
+        "locks_acquired": 10016,
+        "slots_created": 1,
+        "tasks_counted": 2,
+        "tasks_created": 2,
+        "tasks_executed": 2,
+        "task_polls": 0,
+        "task_wakeups": 2,
+        "task_joins": 2,
+        "batches_created": 0,
+        "batches_joined": 0,
+        "tasks_cancelled": 0,
+        "tasks_failed": 0,
+        "pending_tasks": 0,
+        "max_pending_tasks": 1,
+        "scheduler_ns": 126100,
+        "execution_ns": 400,
+        "executor_workers": 2
+      }
+    },
+    "batch-spawn-only": {
+      "median_ns": 52508250,
+      "stddev_pct": 35.703,
+      "diagnostics": {
+        "fused_fast_abi_calls": 0,
+        "spawn_fast_abi_calls": 2,
+        "join_fast_abi_calls": 2,
+        "batch_spawn_fast_abi_calls": 1000,
+        "batch_join_fast_abi_calls": 0,
+        "reset_fast_abi_calls": 2000,
+        "locks_acquired": 3016,
+        "slots_created": 1,
+        "tasks_counted": 10002,
+        "tasks_created": 10002,
+        "tasks_executed": 132,
+        "task_polls": 0,
+        "task_wakeups": 3,
+        "task_joins": 2,
+        "batches_created": 1000,
+        "batches_joined": 0,
+        "tasks_cancelled": 0,
+        "tasks_failed": 0,
+        "pending_tasks": 9870,
+        "max_pending_tasks": 9870,
+        "scheduler_ns": 8483700,
+        "execution_ns": 255500,
+        "executor_workers": 2
+      }
+    },
+    "batch-join-only": {
+      "median_ns": 32836500,
+      "stddev_pct": 28.084,
+      "diagnostics": {
+        "fused_fast_abi_calls": 0,
+        "spawn_fast_abi_calls": 2,
+        "join_fast_abi_calls": 2,
+        "batch_spawn_fast_abi_calls": 1000,
+        "batch_join_fast_abi_calls": 1000,
+        "reset_fast_abi_calls": 0,
+        "locks_acquired": 3016,
+        "slots_created": 1,
+        "tasks_counted": 10002,
+        "tasks_created": 10002,
+        "tasks_executed": 10002,
+        "task_polls": 0,
+        "task_wakeups": 1002,
+        "task_joins": 10002,
+        "batches_created": 1000,
+        "batches_joined": 1000,
+        "tasks_cancelled": 0,
+        "tasks_failed": 0,
+        "pending_tasks": 0,
+        "max_pending_tasks": 10,
+        "scheduler_ns": 1871300,
+        "execution_ns": 526900,
+        "executor_workers": 2
+      }
+    },
+    "batch-full": {
+      "median_ns": 34176950,
+      "stddev_pct": 28.432,
+      "diagnostics": {
+        "fused_fast_abi_calls": 0,
+        "spawn_fast_abi_calls": 2,
+        "join_fast_abi_calls": 2,
+        "batch_spawn_fast_abi_calls": 1000,
+        "batch_join_fast_abi_calls": 1000,
+        "reset_fast_abi_calls": 1000,
+        "locks_acquired": 4016,
+        "slots_created": 1,
+        "tasks_counted": 10002,
+        "tasks_created": 10002,
+        "tasks_executed": 10002,
+        "task_polls": 0,
+        "task_wakeups": 1002,
+        "task_joins": 10002,
+        "batches_created": 1000,
+        "batches_joined": 1000,
+        "tasks_cancelled": 0,
+        "tasks_failed": 0,
+        "pending_tasks": 0,
+        "max_pending_tasks": 10,
+        "scheduler_ns": 8223400,
+        "execution_ns": 533200,
+        "executor_workers": 2
+      }
+    },
+    "batch-full-no-reset": {
+      "median_ns": 35524000,
+      "stddev_pct": 28.913,
+      "diagnostics": {
+        "fused_fast_abi_calls": 0,
+        "spawn_fast_abi_calls": 2,
+        "join_fast_abi_calls": 2,
+        "batch_spawn_fast_abi_calls": 1000,
+        "batch_join_fast_abi_calls": 1000,
+        "reset_fast_abi_calls": 0,
+        "locks_acquired": 3016,
+        "slots_created": 1,
+        "tasks_counted": 10002,
+        "tasks_created": 10002,
+        "tasks_executed": 10002,
+        "task_polls": 0,
+        "task_wakeups": 1002,
+        "task_joins": 10002,
+        "batches_created": 1000,
+        "batches_joined": 1000,
+        "tasks_cancelled": 0,
+        "tasks_failed": 0,
+        "pending_tasks": 0,
+        "max_pending_tasks": 10,
+        "scheduler_ns": 1610300,
+        "execution_ns": 575100,
+        "executor_workers": 2
+      }
+    }
+  },
+  "failures": [],
+  "baseline_modified": false
+}

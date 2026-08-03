@@ -1,0 +1,56 @@
+// Phase 31: concurrent-fanout (Spectra)
+// 8-way fanout via task_spawn/task_join. Each task carries a pre-computed
+// sum-of-squares for a 1000-element slice [k*1000, (k+1)*1000). Total
+// = sum(i^2 for i in 0..7999) = 170634668000 per iter.
+
+module bench_concurrent_fanout;
+
+import std.concurrent as concurrent;
+
+pub fn sum_sq(lo: int, hi: int) -> int {
+    let mut_v = 0;
+    let mut_i = lo;
+    while mut_i < hi {
+        mut_v = mut_v + mut_i * mut_i;
+        mut_i = mut_i + 1;
+    }
+    return mut_v;
+}
+
+pub fn main() -> int {
+    let iters = 1000;
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        concurrent.reset();
+        // Pre-compute the 8 partial sums (so the task payload is fixed).
+        let s0 = sum_sq(0, 1000);
+        let s1 = sum_sq(1000, 2000);
+        let s2 = sum_sq(2000, 3000);
+        let s3 = sum_sq(3000, 4000);
+        let s4 = sum_sq(4000, 5000);
+        let s5 = sum_sq(5000, 6000);
+        let s6 = sum_sq(6000, 7000);
+        let s7 = sum_sq(7000, 8000);
+        // Spawn 8 tasks
+        let t0 = concurrent.task_spawn(s0);
+        let t1 = concurrent.task_spawn(s1);
+        let t2 = concurrent.task_spawn(s2);
+        let t3 = concurrent.task_spawn(s3);
+        let t4 = concurrent.task_spawn(s4);
+        let t5 = concurrent.task_spawn(s5);
+        let t6 = concurrent.task_spawn(s6);
+        let t7 = concurrent.task_spawn(s7);
+        // Join all 8 and total
+        let acc = concurrent.task_join(t0) + concurrent.task_join(t1)
+                + concurrent.task_join(t2) + concurrent.task_join(t3)
+                + concurrent.task_join(t4) + concurrent.task_join(t5)
+                + concurrent.task_join(t6) + concurrent.task_join(t7);
+        total = total + acc;
+        it = it + 1;
+    }
+    if total == 170634668000 * iters {
+        return 0;
+    }
+    return 1;
+}

@@ -1,18 +1,20 @@
 # AGENTS.md
 
-SEMPRE USAR SKILL CAVEMAN E SUAS VARIANTES
-
 ## Purpose
 
 This file defines repository-specific instructions for coding agents working in SpectraLang.
 
-Its main focus is the correct use and maintenance of the implementation planning documents created for the project:
+The repository contains implementation planning documents that agents can use when
+the user explicitly asks for roadmap or planning work:
 
 - [docs/production-ai-implementation-plan.md](/D:/Lang/SpectraLang/docs/production-ai-implementation-plan.md)
 - [docs/roadmap-backlog.md](/D:/Lang/SpectraLang/docs/roadmap-backlog.md)
 - [roadmap/roadmap.toml](/D:/Lang/SpectraLang/roadmap/roadmap.toml)
 
-Agents must treat these files as operational project artifacts, not passive documentation.
+These files are operational project artifacts when that scope is requested, but they
+are not mandatory inputs for ordinary implementation tasks. By default, agents
+follow the user's request, inspect the relevant code and tests, and validate the
+requested change without selecting or updating roadmap items.
 
 ---
 
@@ -45,7 +47,12 @@ The platform targets two complementary workstreams:
 
 ## Source of Truth Rules
 
-When working with implementation planning, use the following precedence:
+For ordinary implementation work, the user's request, actual code, and passing
+tests define the scope and current reality. The planning documents are not required
+unless the user explicitly asks to use them.
+
+When the user explicitly requests roadmap or planning work, use the following
+precedence:
 
 1. Actual code and tests
 2. `roadmap/roadmap.toml`
@@ -53,7 +60,7 @@ When working with implementation planning, use the following precedence:
 4. `docs/production-ai-implementation-plan.md`
 5. Older planning notes such as `docs/project-manager.md`
 
-Interpretation rules:
+Interpretation rules for roadmap or planning work:
 
 - Code and passing tests define current reality.
 - `roadmap/roadmap.toml` is the canonical structured execution tracker.
@@ -65,7 +72,11 @@ Interpretation rules:
 
 ## Required Planning Files
 
-Agents must preserve and maintain the following files:
+When roadmap or planning work is explicitly requested, agents must preserve and
+maintain the following files:
+
+For ordinary implementation tasks, do not update these files merely because the
+code happens to relate to an existing or future roadmap item.
 
 ### 1. Strategic Plan
 
@@ -120,48 +131,41 @@ Update this file when:
 - risk changes
 - an item is created or closed
 
-Whenever an item is changed in the backlog, update `roadmap.toml` in the same change unless there is a clear reason not to.
+When roadmap mode is active, whenever an item is changed in the backlog, update
+`roadmap.toml` in the same change unless there is a clear reason not to.
 
 ---
 
 ## Agent Responsibilities
 
-When an agent works on implementation tasks, it must decide whether the work changes:
+The user's explicit request defines the scope of ordinary implementation work.
+Agents do not need to identify roadmap items, consult planning documents, or
+update roadmap state unless the request explicitly activates roadmap or planning
+work.
 
-- code only
-- code plus roadmap status
-- roadmap only
-- roadmap plus strategic plan
+### Activating Roadmap Mode
 
-### Minimum Required Behavior
+Roadmap mode is active when the user explicitly:
 
-For every substantial implementation task, the agent should:
+- asks the agent to follow or execute the roadmap;
+- names a roadmap phase or item such as `R-xxxx` as the implementation target; or
+- asks to create, revise, validate, or synchronize the planning documents.
 
-1. Identify the relevant roadmap item IDs if they exist.
-2. Check whether the task changes status, dependencies, or acceptance criteria.
-3. Update `roadmap/roadmap.toml` if the task materially changes execution state.
-4. Update `docs/roadmap-backlog.md` if the task changes human planning context.
-5. Update `docs/production-ai-implementation-plan.md` only if strategy or architecture changed.
+Once roadmap mode is active, the roadmap governance rules in this file apply to
+the requested scope, including item identification, status, dependencies,
+acceptance criteria, document synchronization, and completion reporting.
 
-### Examples
-
-If a bug fix completes a tracked item:
-- update code
-- update `roadmap.toml` status
-- update backlog status/notes if relevant
-
-If a task only fixes a local parser bug not tied to roadmap structure:
-- update code
-- only update roadmap files if the bug was part of a tracked item
-
-If a new AI workstream is introduced, such as ONNX export:
-- update strategic plan
-- update backlog
-- update roadmap.toml
+For ordinary implementation work, the agent should inspect the relevant code and
+tests, implement the requested behavior, run proportional validation, and report
+the result without changing roadmap documents.
 
 ---
 
 ## Status Update Rules
+
+This section applies only when roadmap mode is active. It does not require status
+updates for ordinary implementation work that the user did not connect to the
+roadmap.
 
 Use only these status values in `roadmap/roadmap.toml` unless the file schema is intentionally changed:
 
@@ -234,8 +238,9 @@ Required behavior:
   without flags, compiles, and executes through the normal CLI path when it has
   runtime behavior
 - if a construct has compile-only coverage but no reliable execution coverage,
-  keep it tracked as incomplete or add a roadmap item with production
-  acceptance criteria before calling it complete
+  report the missing execution evidence and do not claim runtime support as
+  validated. Add a roadmap item only when roadmap mode is active or the user
+  explicitly requests planning follow-up.
 
 Current production baseline:
 
@@ -243,10 +248,15 @@ Current production baseline:
   experimental features.
 - `--enable-experimental <feature>` is accepted only as a compatibility no-op
   until a future gated feature is added and documented.
-- `spectralang --list-experimental` must report no active syntax gates unless
-  the maturity policy and roadmap are updated in the same change.
+- `spectralang --list-experimental` must report no active syntax gates unless the
+  maturity policy documents and validates a future gate. Updating the roadmap in
+  the same change is required only when roadmap mode is active.
 
 ### Integrated Project Failure Triage Rule
+
+The technical failure-triage requirements apply whenever this validation track is
+executed. Creating a roadmap item for an unfixed failure is required only when
+roadmap mode is active or the user explicitly requests that follow-up.
 
 When executing the Phase 20 integrated language and AI Support validation track
 (`R-2008` through `R-2013`), agents must not ignore real implementation
@@ -256,16 +266,20 @@ Required behavior:
 
 - if the failure is fixed in the same change, add regression coverage and record
   validation evidence
-- if the failure is not fixed in the same change, add a new roadmap/backlog item
-  beyond `R-2008` through `R-2013`
-- the new item must include owner, phase, dependencies, risk, acceptance
-  criteria, and the reproducing project or command
+- if the failure is not fixed in the same change, report it with the reproducing
+  project or command; in roadmap mode, add a new roadmap/backlog item beyond
+  `R-2008` through `R-2013`
+- when a roadmap item is created, it must include owner, phase, dependencies,
+  risk, acceptance criteria, and the reproducing project or command
 - do not mark the integrated project gate complete while untracked failures
   remain
 
 ---
 
 ## Acceptance Criteria Rules
+
+These are technical quality rules for the requested work and do not require a
+roadmap item or planning-document update.
 
 Acceptance criteria are completion gates, not aspirations.
 
@@ -297,6 +311,8 @@ If implementation reveals that an acceptance criterion is wrong or unrealistic:
 
 ## Dependency Update Rules
 
+This section applies only when roadmap mode is active.
+
 When changing an item in `roadmap.toml`, review:
 
 - `dependencies`
@@ -316,6 +332,9 @@ Do not leave stale dependencies behind.
 ---
 
 ## Adding New Roadmap Items
+
+This section applies only when roadmap mode is active or the user explicitly asks
+to create a roadmap item.
 
 When adding a new roadmap item:
 
@@ -368,6 +387,8 @@ Do not renumber existing IDs unless absolutely necessary.
 
 ## Owner Groups
 
+This ownership table applies when assigning or reviewing roadmap items.
+
 Every roadmap item in `roadmap/roadmap.toml` is owned by exactly one group.
 Owners are responsible for design, implementation, tests, and the
 acceptance criteria of items in their group, and for raising cross-cutting
@@ -398,6 +419,8 @@ this file apply uniformly across all owner groups.
 
 ## Splitting and Merging Items
 
+This section applies only when roadmap mode is active.
+
 If a roadmap item is too large:
 
 - split it into smaller items
@@ -414,6 +437,9 @@ If two items are truly redundant:
 ---
 
 ## Documentation Synchronization Rules
+
+These synchronization rules apply only when planning documents are explicitly in
+scope or roadmap mode is active.
 
 When changing planning docs:
 
@@ -433,6 +459,9 @@ Expected synchronization:
 ---
 
 ## Validation Rules for Planning Files
+
+These validation rules apply only after planning files are edited as part of an
+explicit roadmap or planning task.
 
 After editing planning files, agents should validate:
 
@@ -465,20 +494,23 @@ Older documents such as:
 - [README.md](/D:/Lang/SpectraLang/README.md)
 - language reference files
 
-should be updated if:
+should be updated when the user explicitly requests documentation or planning
+synchronization, or when the inconsistency is part of the requested scope:
 
 - they materially contradict the current implementation
-- they materially contradict roadmap reality
+- they materially contradict roadmap reality in a roadmap or planning task
 - they present outdated implementation status as current truth
 
-Do not automatically expand older docs during unrelated tasks.
+Do not automatically expand older docs during unrelated tasks or because a code
+change is associated with an existing roadmap item.
 Only update them when the inconsistency is relevant and significant.
 
 ---
 
 ## AI/ML Direction Rules
 
-Because SpectraLang is intended to evolve toward AI and machine learning workloads, agents must prefer planning decisions that strengthen:
+Because SpectraLang is intended to evolve toward AI and machine learning
+workloads, planning work should prefer decisions that strengthen:
 
 - tensor-first language/runtime design
 - numerical correctness
@@ -487,7 +519,9 @@ Because SpectraLang is intended to evolve toward AI and machine learning workloa
 - accelerator readiness
 - interop with existing ML ecosystems
 
-Agents should avoid roadmap drift toward generic-language polish at the expense of the AI core unless the missing feature is a direct blocker.
+These are architectural goals and context, not a requirement to follow roadmap
+ordering during ordinary implementation. Roadmap drift is evaluated only when
+roadmap mode is active.
 
 In practical terms:
 
@@ -500,7 +534,7 @@ In practical terms:
 ## API Platform Direction Rules
 
 Because SpectraLang is also intended to be a first-class language for
-building HTTP and event-driven APIs natively, agents must prefer planning
+building HTTP and event-driven APIs natively, planning work should prefer
 decisions that strengthen:
 
 - async/await as a first-class language and runtime model
@@ -516,24 +550,29 @@ routing, middleware, WebSocket, SSE, or database work that targets the
 public API surface belongs in `spectra.api` and is owned by the `web` or
 `db` owner groups, not by `runtime` or `frontend`.
 
-In practical terms:
+For roadmap or API-platform planning, the following sequencing and release
+guidance applies. It does not block an ordinary implementation requested by the
+user merely because that work is outside the current roadmap sequence:
 
-- Phase 21 (async/await) is the foundation; no API platform work begins
-  before its core is in place.
-- HTTP/1.1 is the first protocol; HTTP/2 and HTTP/3 follow once the
+- Phase 21 (async/await) is the foundation for the planned API platform.
+- HTTP/1.1 is the first planned protocol; HTTP/2 and HTTP/3 follow once the
   foundation is stable.
-- TLS, authentication, validation, and error handling are non-negotiable
-  defaults, not optional extras.
+- TLS, authentication, validation, and error handling remain production defaults
+  for API implementations.
 - Driver coverage should match the dominant production backends first;
   exotic drivers are follow-on work.
 - The `spectralang api new` / `spectralang api dev` / `spectralang api doc`
   experience is part of the public contract.
 - `R-2801` (API conformance v1) is the release-candidate gate for
-  `spectra.api` v1.0.
+  `spectra.api` v1.0 when roadmap mode is active.
 
 ---
 
 ## Completion Reporting Guidance
+
+This roadmap-specific reporting format applies only when roadmap mode is active.
+For ordinary implementation work, report the changed code and validation results
+without inventing roadmap IDs or status changes.
 
 When reporting completed work to users or maintainers, agents should:
 
@@ -553,31 +592,28 @@ Recommended concise format:
 
 Agents must not:
 
-- treat strategic planning docs as throwaway notes
+- mark work complete without the validation appropriate to the requested change
 - change item IDs casually
-- mark work complete without validation
-- leave roadmap dependencies stale
-- update backlog prose while forgetting `roadmap.toml`
+- leave roadmap dependencies stale when roadmap mode is active
+- update backlog prose while forgetting `roadmap.toml` when roadmap mode is active
 - introduce new planning terminology without aligning existing files
 
 ---
 
 ## Recommended Default Workflow
 
-For substantial implementation work:
+For ordinary implementation work (the default):
 
-1. Read the relevant roadmap items in:
-   - `roadmap/roadmap.toml`
-   - `docs/roadmap-backlog.md`
-2. Implement code changes.
+1. Read the user's request and the relevant code, tests, and local contracts.
+2. Implement the requested code or documentation changes.
 3. Run the relevant validation/tests.
-4. Update roadmap status and dependencies if needed.
-5. Update backlog notes if planning context changed.
-6. Update strategic plan only if architecture or long-term direction changed.
+4. Report the result and any remaining technical gaps.
 
-For planning-only work:
+For roadmap or planning work explicitly requested by the user:
 
-1. Update `docs/production-ai-implementation-plan.md` if strategy changed.
-2. Reflect actionable execution changes in `docs/roadmap-backlog.md`.
-3. Reflect structured task changes in `roadmap/roadmap.toml`.
-4. Validate TOML parse and cross-file consistency.
+1. Read the relevant items in `roadmap/roadmap.toml` and
+   `docs/roadmap-backlog.md`.
+2. Implement the requested code or planning changes.
+3. Update roadmap status, dependencies, backlog, or strategic plan as required by
+   the active scope.
+4. Validate TOML parsing and cross-file consistency when planning files change.

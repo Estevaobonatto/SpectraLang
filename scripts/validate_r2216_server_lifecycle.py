@@ -10,6 +10,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_HOST_CALL_COUNT = 277
+RUNTIME_REQUIRED_HOST_CALL_COUNT = 211
 
 
 def read(path: str) -> str:
@@ -103,10 +105,13 @@ def validate_implementation() -> None:
         require(name in lib, f"{name} missing from spectra-api host table")
         require(name in runtime, f"{name} missing from runtime API contract")
         require(name in midend, f"{name} missing from midend host lowering")
-    require("assert_eq!(HOST_CALLS.len(), 194)" in lib, "host-call count must be 194")
     require(
-        "assert_eq!(required_host_call_count(), 194)" in runtime,
-        "runtime host-call count must be 194",
+        f"assert_eq!(HOST_CALLS.len(), {PACKAGE_HOST_CALL_COUNT})" in lib,
+        f"package host-call count must be {PACKAGE_HOST_CALL_COUNT}",
+    )
+    require(
+        f"assert_eq!(required_host_call_count(), {RUNTIME_REQUIRED_HOST_CALL_COUNT})" in runtime,
+        f"runtime required host-call count must be {RUNTIME_REQUIRED_HOST_CALL_COUNT}",
     )
 
 

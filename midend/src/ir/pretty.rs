@@ -226,6 +226,25 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                     None => format!("hostcall {}({})", host, arg_list),
                 }
             }
+            InstructionKind::AutodiffStep {
+                result,
+                operation,
+                output,
+                upstream,
+                inputs,
+                targets,
+            } => {
+                let upstream = upstream
+                    .map(fmt_value)
+                    .unwrap_or_else(|| "seed".to_string());
+                let inputs = inputs.iter().map(|v| fmt_value(*v)).collect::<Vec<_>>().join(", ");
+                let targets = targets.iter().map(|v| fmt_value(*v)).collect::<Vec<_>>().join(", ");
+                let text = format!("autodiff.{} output={} upstream={} inputs=[{}] targets=[{}]", operation, fmt_value(*output), upstream, inputs, targets);
+                match result {
+                    Some(value) => format!("{} = {}", fmt_value(*value), text),
+                    None => text,
+                }
+            }
             InstructionKind::Phi { result, incoming } => {
                 let incoming_str = incoming
                     .iter()
@@ -286,11 +305,21 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
             InstructionKind::ConstInt { result, value } => {
                 format!("{} = const.int {}", fmt_value(*result), value)
             }
+            InstructionKind::ConstIntTyped { result, value, ty } => {
+                format!("{} = const.int<{}> {}", fmt_value(*result), fmt_type(ty), value)
+            }
             InstructionKind::ConstFloat { result, value } => {
                 format!("{} = const.float {}", fmt_value(*result), value)
             }
+            InstructionKind::ConstFloatTyped { result, value, ty } => {
+                format!("{} = const.float<{}> {}", fmt_value(*result), fmt_type(ty), value)
+            }
             InstructionKind::ConstBool { result, value } => {
                 format!("{} = const.bool {}", fmt_value(*result), value)
+            }
+            InstructionKind::ConstString { result, value } => {
+                let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+                format!("{} = const.string \"{}\"", fmt_value(*result), escaped)
             }
             InstructionKind::Cast {
                 result,
@@ -396,6 +425,8 @@ fn fmt_type(ty: &Type) -> String {
         Type::Void => "void".to_string(),
         Type::Int => "int".to_string(),
         Type::Float => "float".to_string(),
+        Type::ExactInt { signed, width } => format!("{}{}", if *signed { "i" } else { "u" }, match width { crate::ir::IntWidth::I8 => "8", crate::ir::IntWidth::I16 => "16", crate::ir::IntWidth::I32 => "32", crate::ir::IntWidth::I64 => "64", crate::ir::IntWidth::Isize | crate::ir::IntWidth::Usize => "size" }),
+        Type::ExactFloat { width } => match width { crate::ir::FloatWidth::F32 => "f32".to_string(), crate::ir::FloatWidth::F64 => "f64".to_string() },
         Type::Bool => "bool".to_string(),
         Type::String => "string".to_string(),
         Type::Char => "char".to_string(),

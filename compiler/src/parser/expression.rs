@@ -405,6 +405,12 @@ impl Parser {
         ) {
             let _as_span = self.current().span;
             self.advance(); // consume 'as'
+            let mode = if matches!(&self.current().kind, crate::token::TokenKind::Identifier(name) if name == "wrapping") {
+                self.advance();
+                crate::ast::CastMode::Wrapping
+            } else {
+                crate::ast::CastMode::Checked
+            };
             let target_type = self.parse_type_annotation()?;
             let span = crate::span::span_union(expr.span, target_type.span);
             expr = crate::ast::Expression {
@@ -412,6 +418,7 @@ impl Parser {
                 kind: crate::ast::ExpressionKind::Cast {
                     expr: Box::new(expr),
                     target_type,
+                    mode,
                 },
             };
         }

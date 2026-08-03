@@ -100,6 +100,20 @@ GATES = [
 ]
 
 
+def gates_for_binary(binary: Path) -> list[Gate]:
+    cargo_prefix = [cargo_cmd(), "run", "-q", "-p", "spectra-cli", "--"]
+    resolved = str(binary.resolve())
+    configured: list[Gate] = []
+    for gate in GATES:
+        command = gate.command
+        if command[: len(cargo_prefix)] == cargo_prefix:
+            command = [resolved, *command[len(cargo_prefix):]]
+        elif gate.name == "feature_maturity_policy":
+            command = [*command[:-1], resolved]
+        configured.append(Gate(gate.category, gate.name, command, gate.timeout_seconds))
+    return configured
+
+
 def command_text(command: list[str]) -> str:
     return " ".join(command)
 
@@ -229,11 +243,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", default="target/r2001-conformance/conformance-report.json")
     parser.add_argument("--release-candidate", default="local-working-tree")
+    parser.add_argument("--binary", default="target/debug/spectralang.exe")
     parser.add_argument("--keep-going", action="store_true", help="run every gate even after failures")
     args = parser.parse_args()
 
+    binary = (ROOT / args.binary).resolve() if not Path(args.binary).is_absolute() else Path(args.binary)
+    if not binary.exists():
+        print(f"[R-2001] ERROR: binary not found: {binary}")
+        return 2
+
     gate_results: list[dict[str, Any]] = []
-    for gate in GATES:
+    for gate in gates_for_binary(binary):
         result = run_gate(gate)
         gate_results.append(result)
         if result["status"] != "passed":

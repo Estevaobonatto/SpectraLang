@@ -1,0 +1,461 @@
+schema = "spectralang.r3007_stdlib_contract.v1"
+contract_version = "r3007/v1"
+binary_default = "target/debug/spectralang.exe"
+docs = [
+  "docs/reference/05-stdlib.md",
+  "docs/runtime/standard-library.md",
+  "docs/api/README.md",
+  "docs/api/api-conformance-v0.md",
+  "docs/api/std-api-http-types.md",
+  "docs/api/std-api-json.md",
+  "docs/api/std-api-cors.md",
+  "docs/api/std-api-form.md",
+  "docs/api/std-api-handler.md",
+  "docs/api/std-api-middleware.md",
+  "docs/api/std-api-multipart.md",
+  "docs/api/std-ml-artifacts.md",
+  "docs/api/std-ml-tokenization-embedding.md",
+  "docs/api/std-api-query.md",
+  "docs/api/std-api-routing.md",
+  "docs/api/std-api-server-lifecycle.md",
+  "docs/api/std-api-trace.md",
+  "docs/api/std-api-sqlite.md",
+  "docs/api/std-api-redis.md",
+  "docs/api/std-api-health.md",
+  "docs/concurrency-serving.md",
+]
+
+[sources]
+semantic = ["compiler/src/semantic/builtin_modules.rs"]
+runtime = ["runtime/src/stdlib/mod.rs"]
+api_runtime = ["packages/spectra-api/src"]
+lowering = ["midend/src/lowering.rs"]
+backend = ["backend/src/codegen.rs"]
+
+[contract_defaults]
+semantic_module = "compiler/src/semantic/builtin_modules.rs"
+runtime_registration = "runtime/src/stdlib/mod.rs"
+api_runtime_registration = "packages/spectra-api/src"
+lowering = "midend/src/lowering.rs"
+backend = "backend/src/codegen.rs"
+documentation = "docs"
+
+[[probe]]
+id = "std-core"
+path = "tests/validation/185_stdlib_contract_audit.spectra"
+covers = ["std.io.*", "std.math.*", "std.string.*", "std.convert.*", "std.random.*", "std.collections.*", "std.fs.*", "std.env.*", "std.option.*", "std.result.*", "std.char.*", "std.time.*", "std.range.*"]
+
+[[probe]]
+id = "api-trace"
+path = "tests/validation/193_opentelemetry_tracing.spectra"
+covers = ["std.api.trace.*"]
+
+[[probe]]
+id = "api-sqlite-driver"
+path = "tests/validation/194_sqlite_driver.spectra"
+covers = ["std.api.db.sqlite.*"]
+
+[[probe]]
+id = "api-postgres-driver"
+kind = "external"
+command = ["python", "scripts/validate_r2505_postgres.py", "--binary", "target/debug/spectralang.exe", "--fixture", "tests/validation/195_postgres_driver.spectra", "--report", "target/r2505-postgres/r3007-probe-report.json"]
+covers = ["std.api.db.postgres.*"]
+
+[[probe]]
+id = "api-redis-driver"
+kind = "external"
+command = ["python", "scripts/validate_r2507_redis.py", "--binary", "target/debug/spectralang.exe", "--fixture", "tests/validation/196_redis_driver.spectra", "--report", "target/r2507-redis/r3007-probe-report.json"]
+covers = ["std.api.db.redis.*"]
+
+[[probe]]
+id = "api-health"
+path = "tests/validation/197_health_checks.spectra"
+covers = ["std.api.health.*"]
+
+[[probe]]
+id = "tensor-kernels"
+path = "tests/validation/68_tensor_phase4_kernels.spectra"
+covers = ["std.tensor.*"]
+
+[[probe]]
+id = "ml-training"
+path = "tests/validation/72_ml_phase6_mlp_training.spectra"
+covers = ["std.ml.*"]
+
+[[probe]]
+id = "ml-tokenization-embedding-artifacts"
+path = "tests/validation/187_ml_tokenization_embedding_artifacts.spectra"
+covers = ["std.ml.tokenizer_load", "std.ml.tokenizer_encode", "std.ml.tokenizer_decode", "std.ml.embedding_load", "std.ml.embedding_lookup"]
+
+[[probe]]
+id = "ml-vector-index-production"
+path = "tests/validation/188_ml_vector_index_production.spectra"
+covers = ["std.ml.vector_index_new", "std.ml.vector_index_insert", "std.ml.vector_index_query", "std.ml.vector_index_persist", "std.ml.vector_index_load", "std.ml.vector_index_set_metadata", "std.ml.vector_index_metrics"]
+
+[[probe]]
+id = "serving-baseline"
+path = "tests/validation/78_serving_foundations.spectra"
+covers = ["std.serve.*"]
+
+[[probe]]
+id = "concurrency"
+path = "tests/validation/77_concurrency_pipeline.spectra"
+covers = ["std.concurrent.*"]
+
+[[probe]]
+id = "exact-width-numeric"
+path = "tests/validation/189_exact_width_numeric_semantics.spectra"
+covers = ["std.numeric.*"]
+
+[[probe]]
+id = "tensor-ir-device-lowering"
+kind = "external"
+command = ["python", "scripts/validate_r2904_tensor_ir.py", "--binary", "target/debug/spectralang.exe", "--fixture", "tests/validation/190_tensor_ir_device_lowering.spectra", "--report", "target/r2904-tensor-ir/report.json"]
+covers = ["std.tensor.*"]
+
+[[probe]]
+id = "api-http"
+path = "tests/validation/134_http_core_types.spectra"
+covers = ["std.api.http.*"]
+
+[[probe]]
+id = "api-router"
+path = "tests/validation/135_api_router_matching.spectra"
+covers = ["std.api.routing.*"]
+
+[[probe]]
+id = "api-handler"
+path = "tests/validation/139_api_handler_response_return.spectra"
+covers = ["std.api.handler.*"]
+
+[[probe]]
+id = "api-cors"
+path = "tests/validation/149_api_cors_middleware.spectra"
+covers = ["std.api.cors.*"]
+
+[[probe]]
+id = "api-middleware"
+path = "tests/validation/148_api_middleware_chain.spectra"
+covers = ["std.api.middleware.*"]
+
+[[probe]]
+id = "api-conformance"
+kind = "external"
+command = ["python", "scripts/validate_r2220_api_conformance_v0.py"]
+covers = ["std.api.*"]
+
+[[follow_up]]
+prefix = "std.tensor.diff"
+owner = "ml"
+roadmap = "R-3004"
+reason = "Compiler-native reverse autodiff is tracked by the explicit R-3004 probe; runtime backward remains a public compatibility API while diff uses direct reverse-kernel steps."
+
+[[probe]]
+id = "compiler-native-autodiff"
+path = "tests/validation/192_compiler_native_autodiff.spectra"
+covers = ["std.tensor.diff", "std.tensor.backward", "std.tensor.grad", "std.ml.linear", "std.ml.mse_loss"]
+
+[[follow_up]]
+prefix = "std.tensor.matrix_f"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy matrix constructor registration differs between semantic and runtime surfaces and requires stdlib contract reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.vector_f"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy vector constructor registration differs between semantic and runtime surfaces and requires stdlib contract reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.literal"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy tensor literal registrations require explicit semantic/runtime reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.literal2"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy rank-2 tensor literal registrations require explicit semantic/runtime reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.literal_f"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy float tensor literal registration requires explicit semantic/runtime reconciliation."
+
+[[follow_up]]
+prefix = "std.tensor.literal2_f"
+owner = "numerics"
+roadmap = "R-2003"
+reason = "Legacy rank-2 float tensor literal registration requires explicit semantic/runtime reconciliation."
+
+[[follow_up]]
+prefix = "std.ml"
+owner = "ml"
+roadmap = "R-3003"
+reason = "ML artifact, tokenizer, embedding, vector-index, and distributed surfaces retain Phase 30 production gaps."
+
+[[follow_up]]
+prefix = "std.serve"
+owner = "ml"
+roadmap = "R-3001"
+reason = "Serving remains an in-process deterministic baseline until external network serving is implemented."
+
+[[follow_up]]
+prefix = "std.api"
+owner = "web"
+roadmap = "R-2220"
+reason = "API lowering and conformance are owned by the dedicated API platform validators."
+
+[[follow_up]]
+prefix = "std.concurrent"
+owner = "runtime"
+roadmap = "R-2107"
+reason = "Concurrency registration discrepancies must remain tied to the async stdlib contract."
+
+[[follow_up]]
+prefix = "std.io"
+owner = "runtime"
+roadmap = "R-2003"
+reason = "IO host status and lowering discrepancies belong to the base stdlib hardening track."
+
+[[namespace]]
+prefix = "std.io"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.math"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.numeric"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2901"
+
+[[namespace]]
+prefix = "std.string"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.convert"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.random"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.collections"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.fs"
+owner = "runtime"
+classification = "production"
+roadmap = "R-1203"
+
+[[namespace]]
+prefix = "std.env"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.option"
+owner = "runtime"
+classification = "production"
+roadmap = "R-1204"
+
+[[namespace]]
+prefix = "std.result"
+owner = "runtime"
+classification = "production"
+roadmap = "R-1204"
+
+[[namespace]]
+prefix = "std.char"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.time"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2015"
+
+[[namespace]]
+prefix = "std.range"
+owner = "midend"
+classification = "production"
+roadmap = "R-2902"
+
+[[namespace]]
+prefix = "std.tensor"
+owner = "numerics"
+classification = "production"
+roadmap = "R-2904"
+reason = "Tensor operations have a compiler-owned typed Tensor IR legalization gate shared by JIT/AOT; the runtime host-call path remains an explicit execution backend."
+
+[[namespace]]
+prefix = "std.ml"
+owner = "ml"
+classification = "baseline"
+roadmap = "R-3003"
+reason = "The ML host surface contains validated CPU baselines and several production gaps tracked by Phase 30."
+
+[[namespace]]
+prefix = "std.concurrent"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2107"
+
+[[namespace]]
+prefix = "std.async"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2107"
+
+[[namespace]]
+prefix = "std.serve"
+owner = "runtime"
+classification = "simulation"
+roadmap = "R-3001"
+reason = "The current server is an in-process deterministic queue and scalar model demonstration, not a networked serving runtime."
+
+[[namespace]]
+prefix = "std.api.trace"
+owner = "runtime"
+classification = "production"
+roadmap = "R-2701"
+reason = "OTLP protobuf export, typed attributes, W3C propagation, bounded queue overflow, retries, timeouts, shutdown, concurrent HTTP isolation, filesystem spans, and real SQLite query spans are independently validated."
+
+[[namespace]]
+prefix = "std.api"
+owner = "web"
+classification = "production"
+roadmap = "R-2220"
+reason = "The std.api surface is covered by its dedicated API conformance validators; this audit verifies cross-source presence and probe coverage."
+
+[[rule]]
+prefix = "std.ml.distributed_"
+classification = "simulation"
+roadmap = "R-3002"
+reason = "Distributed training currently coordinates simulated workers in one process."
+
+[[rule]]
+prefix = "std.ml.text_embed"
+classification = "baseline"
+roadmap = "R-3005"
+reason = "text_embed currently produces deterministic hash embeddings rather than model-backed embeddings."
+
+[[rule]]
+prefix = "std.ml.tokenizer_wordpiece"
+classification = "baseline"
+roadmap = "R-3005"
+reason = "tokenizer_wordpiece accepts an inline vocabulary and is retained only as a compatibility baseline."
+
+[[rule]]
+prefix = "std.ml.tokenizer_load"
+classification = "production"
+roadmap = "R-3005"
+reason = "Loads and validates a versioned WordPiece vocabulary from the R-3003 artifact container."
+
+[[rule]]
+prefix = "std.ml.tokenizer_encode"
+classification = "production"
+roadmap = "R-3005"
+reason = "Production tokenizer handles are created by tokenizer_load; the legacy inline constructor remains separately classified as baseline."
+
+[[rule]]
+prefix = "std.ml.tokenizer_decode"
+classification = "production"
+roadmap = "R-3005"
+reason = "Production tokenizer handles provide deterministic special-token and invalid-ID behavior."
+
+[[rule]]
+prefix = "std.ml.embedding_load"
+classification = "production"
+roadmap = "R-3005"
+reason = "Loads validated real embedding weights from the R-3003 artifact container without hash fallback."
+
+[[rule]]
+prefix = "std.ml.embedding_lookup"
+classification = "production"
+roadmap = "R-3005"
+reason = "Performs lookup against a real validated embedding tensor handle."
+
+[[rule]]
+prefix = "std.ml.vector_index"
+classification = "production"
+roadmap = "R-3006"
+reason = "Uses deterministic HNSW search and persists only through the versioned R-3003 Artifact Container v1 with checksums, metadata, atomic replacement, and CLI evidence."
+
+[[rule]]
+prefix = "std.tensor.device_available"
+classification = "baseline"
+roadmap = "R-1603"
+reason = "Supported CPU/WGPU capability detection is real; reserved accelerator codes remain explicitly unsupported."
+
+[[rule]]
+prefix = "std.tensor.device_status"
+classification = "baseline"
+roadmap = "R-1603"
+reason = "Capability status reports supported CPU/WGPU availability and rejects reserved devices."
+
+[[rule]]
+prefix = "std.tensor.to_device"
+classification = "baseline"
+roadmap = "R-1603"
+reason = "Device transfer is real for CPU/WGPU only; other accelerator codes are unsupported by contract."
+
+[[rule]]
+prefix = "std.tensor.stats_"
+classification = "baseline"
+roadmap = "R-1603"
+reason = "Metrics expose the current host-call tensor execution and optional accelerator fallback behavior."
+
+[[rule]]
+prefix = "std.api.trace."
+classification = "production"
+roadmap = "R-2701"
+reason = "The R-2701 v2 collector gate independently validates OTLP payloads, typed attributes, W3C parentage, retries, permanent errors, connection drops, timeouts, bounded overflow, HTTP client propagation, concurrent isolation, filesystem spans, and SQLite spans."
+
+[[rule]]
+prefix = "std.api.db.sqlite."
+classification = "production"
+roadmap = "R-2504"
+reason = "The v2 R-2504 gate independently validates bundled SQLite CRUD, typed statements, transactions, pool consumption, cancellation, non-blocking lock waits, and HTTP-parented OTLP query spans."
+
+[[rule]]
+prefix = "std.api.db.postgres."
+classification = "incomplete"
+roadmap = "R-2505"
+reason = "PostgreSQL host calls include cancellable tasks, savepoints, COPY, and typed notifications, and a local PostgreSQL 16.14 v2 report passes; production classification waits for the checked-in CI lane to reproduce and publish that evidence."
+
+[[rule]]
+prefix = "std.api.db.redis."
+classification = "incomplete"
+roadmap = "R-2507"
+reason = "Redis host calls use the real driver, but production classification waits for Redis 7 command, TTL, pub/sub, tracing, and independent CI evidence."
+
+[[rule]]
+prefix = "std.api.health."
+classification = "production"
+roadmap = "R-2510"
+reason = "R-2510 validates startup controls and the reserved health routes through a real TCP server, including required-check recovery, timeout, SQLite SELECT 1, JSON validation and worker shutdown."

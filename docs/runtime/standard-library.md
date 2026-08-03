@@ -9,6 +9,15 @@ All host calls use the shared [`SpectraHostCallContext`](host-call-conventions.m
 status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results are encoded as
 64-bit values (`SpectraHostValue`).
 
+## Exact-width numeric ABI
+
+R-2901 adds explicit exact-width scalar representations. Host-call slots remain
+canonical 64-bit values, while the compiler/backend materialize `i8`/`i16`/
+`i32`/`i64` and `f32`/`f64` values with their declared width. Signed values are
+sign-extended and unsigned values must be zero-extended at the ABI boundary.
+The feature remains in progress until all checked narrowing and C interop
+validation gates pass.
+
 ## math namespace
 
 | Host call | Description | Arguments | Results |
@@ -94,7 +103,7 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.tensor.zeros2` / `ones2` / `full2` / `full2_f` | Allocate 2D tensors. | `rows`, `cols`, optional `value` | handle |
 | `spectra.std.tensor.uniform` / `uniform_f` / `normal_f` / `bernoulli` / `categorical` | Seeded random tensor fills. | `size`, distribution parameters | handle |
 | `spectra.std.tensor.len` / `rank` / `dim` / `rows` / `cols` | Query tensor metadata. | `handle`, optional `axis` | integer metadata |
-| `spectra.std.tensor.device` / `device_available` / `device_status` | Query tensor placement, availability, and stable capability status. `device_status` returns `0` available, `1` unavailable backend/build/host, or `2` reserved device. | `handle` or device code | device code, bool, or status code |
+| `spectra.std.tensor.device` / `device_available` / `device_status` | Query tensor placement and capability status. `device_status` returns `0` for available CPU/WGPU and `1` for an implemented but unavailable WGPU backend; reserved or unknown device codes return `HOST_STATUS_INVALID_ARGUMENT`. | `handle` or device code | device code, bool, or status code |
 | `spectra.std.tensor.to_device` / `cpu` / `sync` | Transfer to supported devices and synchronize. CPU (`0`) is supported in the default build; `wgpu` (`6`) is supported with `--features gpu` and a detected adapter. | `handle`, optional device code | handle or `0` |
 | `spectra.std.tensor.precision` / `to_precision` | Query or quantize float tensor precision. Codes: `0` f64, `1` f32, `2` f16, `3` bf16. | `handle`, optional precision code | precision code or handle |
 | `spectra.std.tensor.get` / `get_f` / `get2` / `get2_f` | Read tensor values. | `handle`, index or row/col | scalar |
@@ -165,7 +174,7 @@ functions: f64 bits encoded in `SpectraHostValue`.
 | `spectra.std.ml.embedding_lookup` / `positional_encoding` / `layer_norm` / `gelu` / `swiglu` / `attention` | Transformer runtime primitives over real tensor handles. | tensor handles and primitive params | tensor handle |
 | `spectra.std.ml.kv_cache_new` / `kv_cache_append` / `kv_cache_keys` / `kv_cache_values` / `kv_cache_len` / `logits_sample` | KV cache state and logits sampling for LLM-style inference. | cache/tensor handles and sampling params | cache handle, tensor handle, length, or sampled index |
 | `spectra.std.ml.tokenizer_wordpiece` / `tokenizer_encode` / `tokenizer_decode` / `text_embed` | Deterministic WordPiece-style tokenization and hash embeddings. | tokenizer/text/dim | tokenizer handle, tensor handle, or string |
-| `spectra.std.ml.vector_index_new` / `vector_index_insert` / `vector_index_query` / `vector_index_persist` / `vector_index_load` | Cosine vector index with JSON persistence. | index/vector/path params | index handle, result JSON, path, or count |
+| `spectra.std.ml.vector_index_new` / `vector_index_insert` / `vector_index_query` / `vector_index_persist` / `vector_index_load` / `vector_index_set_metadata` / `vector_index_metrics` | Deterministic HNSW cosine index persisted as a checked R-3003 Artifact Container v1; legacy JSON is rejected. | index/vector/path/metadata params | index handle, versioned result/metrics JSON, path, bool, or count |
 | `spectra.std.ml.rag_chunk_text` / `rag_build_prompt` / `rag_evaluate_answer` | Chunking, prompt assembly, and token-overlap F1 evaluation for RAG flows. | text/context/question/answer | JSON, prompt string, or integer permille score |
 | `spectra.std.ml.metrics_classification` / `metrics_regression` / `metrics_ranking` / `metrics_generation` / `serving_metrics` | Deterministic model-evaluation metrics for classification, regression, ranking, generation, and serving behavior. | tensor handles, text, request/error counts | JSON metric payload |
 | `spectra.std.ml.evaluation_report` | Write a versioned JSON evaluation report plus a human-readable `.txt` companion report. | path, name, metric JSON payloads | report path string |

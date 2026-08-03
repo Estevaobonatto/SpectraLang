@@ -1,0 +1,42 @@
+// Phase 31: sort-int (Spectra)
+// Bubble sort on a small int array, repeated many times.
+
+module bench_sort_int;
+
+pub fn main() -> int {
+    let iters = 50000;
+    let n = 16;
+    let total = 0;
+    let it = 0;
+    while it < iters {
+        let values = [9, 1, 5, 3, 7, 2, 8, 4, 0, 6, 11, 10, 15, 13, 14, 12];
+        let outer = 0;
+        while outer < n {
+            let inner = 0;
+            while inner < n - 1 {
+                if values[inner] > values[inner + 1] {
+                    let tmp = values[inner];
+                    values[inner] = values[inner + 1];
+                    values[inner + 1] = tmp;
+                }
+                inner = inner + 1;
+            }
+            outer = outer + 1;
+        }
+        let checksum = 0;
+        let k = 0;
+        while k < n {
+            checksum = checksum + values[k] * (k + 1);
+            k = k + 1;
+        }
+        total = total + checksum;
+        it = it + 1;
+    }
+    // Sorted values = [0,1,2,...,15]; weighted checksum = sum(k*(k+1)) for k=0..15
+    //   = sum(k^2) + sum(k) for k=0..15
+    //   = 1240 + 120 = 1360
+    if total == 1360 * iters {
+        return 0;
+    }
+    return 1;
+}

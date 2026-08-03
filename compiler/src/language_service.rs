@@ -125,6 +125,8 @@ pub fn type_to_string(ty: &Type) -> String {
     match ty {
         Type::Int => "int".to_string(),
         Type::Float => "float".to_string(),
+        Type::ExactInt { signed, width } => format!("{}{}", if *signed { "i" } else { "u" }, match width { crate::ast::IntWidth::I8 => "8", crate::ast::IntWidth::I16 => "16", crate::ast::IntWidth::I32 => "32", crate::ast::IntWidth::I64 => "64", crate::ast::IntWidth::Isize => "size", crate::ast::IntWidth::Usize => "size" }),
+        Type::ExactFloat { width } => match width { crate::ast::FloatWidth::F32 => "f32".to_string(), crate::ast::FloatWidth::F64 => "f64".to_string() },
         Type::Bool => "bool".to_string(),
         Type::String => "string".to_string(),
         Type::Char => "char".to_string(),

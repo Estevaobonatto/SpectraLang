@@ -1,0 +1,7 @@
+module exact_width_runtime_overflow;
+pub fn main() -> int {
+    let value: i8 = 127;
+    let one: i8 = 1;
+    let overflow: i8 = value + one;
+    return overflow as int;
+}

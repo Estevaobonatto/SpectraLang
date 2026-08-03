@@ -1,0 +1,33 @@
+module exact_width_numeric_semantics;
+
+import std.numeric as numeric;
+
+pub fn main() -> int {
+    let a: i8 = 120;
+    let b: i16 = 300;
+    let c: i32 = 70000;
+    let d: i64 = 9000000000;
+    let ua: u8 = 250;
+    let ub: u16 = 60000;
+    let uc: u32 = 4000000000;
+    let ud: u64 = 9000000000000000000;
+    let small: f32 = 1.25;
+    let wide: f64 = 1.0 / 3.0;
+    let exact_wide: f64 = 1.25;
+    let narrowed: f32 = exact_wide as f32;
+
+    if a as int != 120 || b as int != 300 || c as int != 70000 || d as int != 9000000000 {
+        return 1;
+    }
+    if ua as int != 250 || ub as int != 60000 || uc as int != 4000000000 || ud as int != 9000000000000000000 {
+        return 2;
+    }
+    if small as f64 != 1.25 || narrowed as f64 != 1.25 || wide <= 0.333 || wide >= 0.334 {
+        return 3;
+    }
+    let wrapped: i8 = numeric.wrapping_add_i8(a, 20 as i8);
+    if wrapped as int != -116 {
+        return 4;
+    }
+    return 0;
+}

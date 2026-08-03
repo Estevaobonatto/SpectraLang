@@ -1,11 +1,12 @@
 // IR Builder - constructs IR from AST
 
-use crate::ir::{Function, InstructionKind, Terminator, Type, Value};
+use crate::ir::{Function, InstructionKind, SourceSpan, Terminator, Type, Value};
 
 /// Builder for constructing IR
 pub struct IRBuilder {
     current_function: Option<usize>,
     current_block: Option<usize>,
+    current_span: Option<SourceSpan>,
 }
 
 impl IRBuilder {
@@ -13,6 +14,7 @@ impl IRBuilder {
         Self {
             current_function: None,
             current_block: None,
+            current_span: None,
         }
     }
 
@@ -22,6 +24,10 @@ impl IRBuilder {
 
     pub fn set_current_block(&mut self, block_id: usize) {
         self.current_block = Some(block_id);
+    }
+
+    pub fn set_source_span(&mut self, span: Option<SourceSpan>) {
+        self.current_span = span;
     }
 
     pub fn get_current_block(&self) -> Option<usize> {
@@ -46,7 +52,11 @@ impl IRBuilder {
             return Value { id: usize::MAX };
         };
         let result = func.next_value();
-        func.blocks[pos].add_instruction(make_kind(result));
+        let kind = make_kind(result);
+        func.blocks[pos].add_instruction(kind);
+        if let Some(instruction) = func.blocks[pos].instructions.last_mut() {
+            instruction.source_span = self.current_span.clone();
+        }
         result
     }
 
@@ -126,6 +136,9 @@ impl IRBuilder {
         if let Some(block_id) = self.current_block {
             if let Some(block) = func.get_block_mut(block_id) {
                 block.add_instruction(InstructionKind::Store { ptr, value });
+                if let Some(instruction) = block.instructions.last_mut() {
+                    instruction.source_span = self.current_span.clone();
+                }
             }
         }
     }
@@ -157,12 +170,24 @@ impl IRBuilder {
         self.try_emit(func, |result| InstructionKind::ConstInt { result, value })
     }
 
+    pub fn build_const_int_typed(&self, func: &mut Function, value: i64, ty: crate::ir::Type) -> Value {
+        self.try_emit(func, |result| InstructionKind::ConstIntTyped { result, value, ty })
+    }
+
     pub fn build_const_float(&self, func: &mut Function, value: f64) -> Value {
         self.try_emit(func, |result| InstructionKind::ConstFloat { result, value })
     }
 
+    pub fn build_const_float_typed(&self, func: &mut Function, value: f64, ty: crate::ir::Type) -> Value {
+        self.try_emit(func, |result| InstructionKind::ConstFloatTyped { result, value, ty })
+    }
+
     pub fn build_const_bool(&self, func: &mut Function, value: bool) -> Value {
         self.try_emit(func, |result| InstructionKind::ConstBool { result, value })
+    }
+
+    pub fn build_const_string(&self, func: &mut Function, value: String) -> Value {
+        self.try_emit(func, |result| InstructionKind::ConstString { result, value })
     }
 
     pub fn build_return(&self, func: &mut Function, value: Option<Value>) {

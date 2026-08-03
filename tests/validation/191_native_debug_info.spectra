@@ -1,0 +1,25 @@
+module native_debug_info;
+
+struct DebugPoint {
+    value: int,
+}
+
+fn helper(value: int) -> int {
+    let doubled = value * 2;
+    return doubled;
+}
+
+pub fn main() {
+    let input = 21;
+    let result = helper(input);
+    let debug_value = result;
+    let point = DebugPoint { value: debug_value };
+    let count = 0;
+    while count < 2 {
+        count = count + 1;
+    }
+    if point.value == 42 && count == 2 {
+        return;
+    }
+    return;
+}

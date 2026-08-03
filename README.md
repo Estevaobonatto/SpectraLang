@@ -2,7 +2,7 @@
 
 > A Rust-implemented language and toolchain for AI/ML workloads and first-class API services.
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Language: Rust](https://img.shields.io/badge/Language-Rust-orange.svg)](https://www.rust-lang.org)
 [![Status: Active Development](https://img.shields.io/badge/Status-Active%20Development-blue.svg)](#project-status)
 [![Platforms](https://img.shields.io/badge/Platforms-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#prerequisites)
@@ -386,12 +386,14 @@ Issues, bug reports, and documentation fixes are valuable contributions on their
 
 ## License
 
-This repository is licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for the full text.
+This repository is licensed under the **MIT License**. See [LICENSE](LICENSE) for the full text.
 
 ```
-GNU GENERAL PUBLIC LICENSE
-Version 3, 29 June 2007
+MIT License
+Copyright (c) 2026 SpectraLang Project
 ```
+
+The MIT License is a permissive open-source license: anyone may use, copy, modify, merge, publish, distribute, sublicense, and sell copies of the software, provided that the copyright notice and permission notice are preserved. The SpectraLang Project retains copyright.
 
 ---
 

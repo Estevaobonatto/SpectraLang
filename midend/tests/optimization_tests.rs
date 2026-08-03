@@ -15,6 +15,8 @@ fn test_constant_folding_add() {
             return_type: Type::Void,
             next_value_id: 0,
             next_block_id: 1,
+            source_span: None,
+            locals: vec![],
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
@@ -25,6 +27,8 @@ fn test_constant_folding_add() {
                             result: Value { id: 0 },
                             value: 5,
                         },
+
+                        source_span: None,
                     },
                     Instruction {
                         id: 1,
@@ -32,6 +36,8 @@ fn test_constant_folding_add() {
                             result: Value { id: 1 },
                             value: 3,
                         },
+
+                        source_span: None,
                     },
                     Instruction {
                         id: 2,
@@ -40,6 +46,8 @@ fn test_constant_folding_add() {
                             lhs: Value { id: 0 },
                             rhs: Value { id: 1 },
                         },
+
+                        source_span: None,
                     },
                 ],
                 terminator: Some(Terminator::Return { value: None }),
@@ -47,6 +55,7 @@ fn test_constant_folding_add() {
         }],
         globals: vec![],
         vtables: vec![],
+        source_file: None,
     };
 
     // Apply constant folding
@@ -77,6 +86,8 @@ fn test_constant_folding_mul() {
             return_type: Type::Void,
             next_value_id: 0,
             next_block_id: 1,
+            source_span: None,
+            locals: vec![],
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
@@ -87,6 +98,8 @@ fn test_constant_folding_mul() {
                             result: Value { id: 0 },
                             value: 10,
                         },
+
+                        source_span: None,
                     },
                     Instruction {
                         id: 1,
@@ -94,6 +107,8 @@ fn test_constant_folding_mul() {
                             result: Value { id: 1 },
                             value: 2,
                         },
+
+                        source_span: None,
                     },
                     Instruction {
                         id: 2,
@@ -102,6 +117,8 @@ fn test_constant_folding_mul() {
                             lhs: Value { id: 0 },
                             rhs: Value { id: 1 },
                         },
+
+                        source_span: None,
                     },
                 ],
                 terminator: Some(Terminator::Return { value: None }),
@@ -109,6 +126,7 @@ fn test_constant_folding_mul() {
         }],
         globals: vec![],
         vtables: vec![],
+        source_file: None,
     };
 
     let modified = constant_folding::run(&mut module);
@@ -136,6 +154,8 @@ fn test_dead_code_elimination_basic() {
             return_type: Type::Void,
             next_value_id: 0,
             next_block_id: 1,
+            source_span: None,
+            locals: vec![],
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
@@ -146,6 +166,8 @@ fn test_dead_code_elimination_basic() {
                             result: Value { id: 0 },
                             value: 10,
                         },
+
+                        source_span: None,
                     },
                     Instruction {
                         id: 1,
@@ -153,6 +175,8 @@ fn test_dead_code_elimination_basic() {
                             result: Value { id: 1 },
                             value: 20,
                         },
+
+                        source_span: None,
                     },
                     Instruction {
                         id: 2,
@@ -161,6 +185,8 @@ fn test_dead_code_elimination_basic() {
                             lhs: Value { id: 0 },
                             rhs: Value { id: 1 },
                         },
+
+                        source_span: None,
                     },
                     // Result is never used - all code is dead
                 ],
@@ -169,6 +195,7 @@ fn test_dead_code_elimination_basic() {
         }],
         globals: vec![],
         vtables: vec![],
+        source_file: None,
     };
 
     let initial_count = module.functions[0].blocks[0].instructions.len();
@@ -194,6 +221,8 @@ fn test_dead_code_elimination_preserves_used() {
             return_type: Type::Int,
             next_value_id: 0,
             next_block_id: 1,
+            source_span: None,
+            locals: vec![],
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
@@ -203,6 +232,8 @@ fn test_dead_code_elimination_preserves_used() {
                         result: Value { id: 0 },
                         value: 42,
                     },
+
+                    source_span: None,
                 }],
                 terminator: Some(Terminator::Return {
                     value: Some(Value { id: 0 }),
@@ -211,6 +242,7 @@ fn test_dead_code_elimination_preserves_used() {
         }],
         globals: vec![],
         vtables: vec![],
+        source_file: None,
     };
 
     let initial_count = module.functions[0].blocks[0].instructions.len();
@@ -235,6 +267,8 @@ fn test_combined_optimizations() {
             return_type: Type::Void,
             next_value_id: 0,
             next_block_id: 1,
+            source_span: None,
+            locals: vec![],
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
@@ -245,6 +279,8 @@ fn test_combined_optimizations() {
                             result: Value { id: 0 },
                             value: 5,
                         },
+
+                        source_span: None,
                     },
                     Instruction {
                         id: 1,
@@ -252,6 +288,8 @@ fn test_combined_optimizations() {
                             result: Value { id: 1 },
                             value: 3,
                         },
+
+                        source_span: None,
                     },
                     Instruction {
                         id: 2,
@@ -260,6 +298,8 @@ fn test_combined_optimizations() {
                             lhs: Value { id: 0 },
                             rhs: Value { id: 1 },
                         },
+
+                        source_span: None,
                     },
                 ],
                 terminator: Some(Terminator::Return { value: None }),
@@ -267,6 +307,7 @@ fn test_combined_optimizations() {
         }],
         globals: vec![],
         vtables: vec![],
+        source_file: None,
     };
 
     // First pass: constant folding
@@ -296,6 +337,8 @@ fn test_no_optimization_when_not_applicable() {
             return_type: Type::Int,
             next_value_id: 0,
             next_block_id: 1,
+            source_span: None,
+            locals: vec![],
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
@@ -308,6 +351,8 @@ fn test_no_optimization_when_not_applicable() {
                             lhs: Value { id: 0 }, // Function parameter
                             rhs: Value { id: 1 }, // Function parameter
                         },
+
+                        source_span: None,
                     },
                 ],
                 terminator: Some(Terminator::Return {
@@ -317,6 +362,7 @@ fn test_no_optimization_when_not_applicable() {
         }],
         globals: vec![],
         vtables: vec![],
+        source_file: None,
     };
 
     let cf_modified = constant_folding::run(&mut module);
@@ -336,6 +382,8 @@ fn test_dead_code_elimination_preserves_cast_operands() {
             return_type: Type::Char,
             next_value_id: 0,
             next_block_id: 1,
+            source_span: None,
+            locals: vec![],
             blocks: vec![BasicBlock {
                 id: 0,
                 label: "entry".to_string(),
@@ -346,6 +394,8 @@ fn test_dead_code_elimination_preserves_cast_operands() {
                             result: Value { id: 0 },
                             value: 65,
                         },
+
+                        source_span: None,
                     },
                     Instruction {
                         id: 1,
@@ -355,6 +405,8 @@ fn test_dead_code_elimination_preserves_cast_operands() {
                             from_ty: Type::Int,
                             to_ty: Type::Char,
                         },
+
+                        source_span: None,
                     },
                 ],
                 terminator: Some(Terminator::Return {
@@ -364,6 +416,7 @@ fn test_dead_code_elimination_preserves_cast_operands() {
         }],
         globals: vec![],
         vtables: vec![],
+        source_file: None,
     };
 
     let modified = dead_code_elimination::run(&mut module);
@@ -403,6 +456,8 @@ fn test_function_inlining_remaps_parameters() {
                 return_type: Type::Int,
                 next_value_id: 3,
                 next_block_id: 1,
+                source_span: None,
+                locals: vec![],
                 blocks: vec![BasicBlock {
                     id: 0,
                     label: "entry".to_string(),
@@ -413,6 +468,8 @@ fn test_function_inlining_remaps_parameters() {
                             lhs: Value { id: 0 },
                             rhs: Value { id: 1 },
                         },
+
+                        source_span: None,
                     }],
                     terminator: Some(Terminator::Return {
                         value: Some(Value { id: 2 }),
@@ -425,6 +482,8 @@ fn test_function_inlining_remaps_parameters() {
                 return_type: Type::Int,
                 next_value_id: 3,
                 next_block_id: 1,
+                source_span: None,
+                locals: vec![],
                 blocks: vec![BasicBlock {
                     id: 0,
                     label: "entry".to_string(),
@@ -435,6 +494,8 @@ fn test_function_inlining_remaps_parameters() {
                                 result: Value { id: 0 },
                                 value: 20,
                             },
+
+                            source_span: None,
                         },
                         Instruction {
                             id: 1,
@@ -442,6 +503,8 @@ fn test_function_inlining_remaps_parameters() {
                                 result: Value { id: 1 },
                                 value: 22,
                             },
+
+                            source_span: None,
                         },
                         Instruction {
                             id: 2,
@@ -450,6 +513,8 @@ fn test_function_inlining_remaps_parameters() {
                                 function: "add_pair".to_string(),
                                 args: vec![Value { id: 0 }, Value { id: 1 }],
                             },
+
+                            source_span: None,
                         },
                     ],
                     terminator: Some(Terminator::Return {
@@ -460,6 +525,7 @@ fn test_function_inlining_remaps_parameters() {
         ],
         globals: vec![],
         vtables: vec![],
+        source_file: None,
     };
 
     let modified = function_inlining::run(&mut module);
@@ -517,6 +583,8 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                 return_type: Type::Int,
                 next_value_id: 5,
                 next_block_id: 1,
+                source_span: None,
+                locals: vec![],
                 blocks: vec![BasicBlock {
                     id: 0,
                     label: "entry".to_string(),
@@ -527,6 +595,8 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                                 result: Value { id: 2 },
                                 ty: Type::Int,
                             },
+
+                            source_span: None,
                         },
                         Instruction {
                             id: 1,
@@ -535,6 +605,8 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                                 lhs: Value { id: 0 },
                                 rhs: Value { id: 1 },
                             },
+
+                            source_span: None,
                         },
                         Instruction {
                             id: 2,
@@ -542,6 +614,8 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                                 ptr: Value { id: 2 },
                                 value: Value { id: 3 },
                             },
+
+                            source_span: None,
                         },
                         Instruction {
                             id: 3,
@@ -550,6 +624,8 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                                 ptr: Value { id: 2 },
                                 ty: Type::Int,
                             },
+
+                            source_span: None,
                         },
                     ],
                     terminator: Some(Terminator::Return {
@@ -563,6 +639,8 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                 return_type: Type::Int,
                 next_value_id: 3,
                 next_block_id: 1,
+                source_span: None,
+                locals: vec![],
                 blocks: vec![BasicBlock {
                     id: 0,
                     label: "entry".to_string(),
@@ -573,6 +651,8 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                                 result: Value { id: 0 },
                                 value: 20,
                             },
+
+                            source_span: None,
                         },
                         Instruction {
                             id: 1,
@@ -580,6 +660,8 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                                 result: Value { id: 1 },
                                 value: 22,
                             },
+
+                            source_span: None,
                         },
                         Instruction {
                             id: 2,
@@ -588,6 +670,8 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                                 function: "store_sum".to_string(),
                                 args: vec![Value { id: 0 }, Value { id: 1 }],
                             },
+
+                            source_span: None,
                         },
                     ],
                     terminator: Some(Terminator::Return {
@@ -598,6 +682,7 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
         ],
         globals: vec![],
         vtables: vec![],
+        source_file: None,
     };
 
     let modified = function_inlining::run(&mut module);

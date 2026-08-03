@@ -13,4 +13,6 @@ cranelift-jit = "0.130"
 cranelift-object = "0.130"
 cranelift-native = "0.130"
 target-lexicon = "0.12"
+gimli = "0.33"
+object = "0.38"
 spectra-runtime = { path = "../runtime" }

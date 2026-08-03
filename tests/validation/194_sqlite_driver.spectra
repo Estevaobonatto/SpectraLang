@@ -1,0 +1,72 @@
+module sqlite_driver;
+
+import {
+    SqliteConnection,
+    SqliteStatement,
+    open,
+    close,
+    prepare,
+    bind_int,
+    bind_float,
+    bind_text,
+    bind_blob,
+    bind_null,
+    step,
+    column_count,
+    column_type,
+    column_int,
+    column_float,
+    column_text,
+    reset,
+    finalize,
+    begin,
+    commit,
+    rollback,
+} from std.api.db.sqlite;
+
+pub fn main() -> int {
+    let database: SqliteConnection = open("target/r2504-sqlite-fixture.sqlite");
+
+    let schema: SqliteStatement = prepare(database, "CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY, name TEXT, score REAL, payload BLOB, note TEXT)");
+    if step(schema) != 2 { return 12; }
+    if finalize(schema) != true { return 13; }
+    let cleanup: SqliteStatement = prepare(database, "DELETE FROM items");
+    if step(cleanup) != 2 { return 14; }
+    if finalize(cleanup) != true { return 15; }
+
+    if begin(database) != true { return 14; }
+    let insert: SqliteStatement = prepare(database, "INSERT INTO items(id,name,score,payload,note) VALUES(?1,?2,?3,?4,?5)");
+    if bind_int(insert, 0, 1) != true { return 16; }
+    if bind_text(insert, 1, "sqlite") != true { return 17; }
+    if bind_float(insert, 2, 1.5) != true { return 18; }
+    if bind_blob(insert, 3, "abc") != true { return 19; }
+    if bind_null(insert, 4) != true { return 20; }
+    if step(insert) != 2 { return 21; }
+    if reset(insert) != true { return 22; }
+    if finalize(insert) != true { return 23; }
+    if commit(database) != true { return 24; }
+
+    let query: SqliteStatement = prepare(database, "SELECT id,name,score FROM items WHERE id=?1");
+    if bind_int(query, 0, 1) != true { return 26; }
+    if step(query) != 1 { return 27; }
+    if column_count(query) != 3 { return 28; }
+    if column_type(query, 0) != 1 { return 29; }
+    if column_int(query, 0) != 1 { return 30; }
+    if column_type(query, 1) != 3 { return 31; }
+    if column_text(query, 1) != "sqlite" { return 32; }
+    if column_type(query, 2) != 2 { return 33; }
+    if column_float(query, 2) != 1.5 { return 34; }
+    if step(query) != 2 { return 35; }
+    if finalize(query) != true { return 36; }
+
+    if begin(database) != true { return 37; }
+    let rollback_statement: SqliteStatement = prepare(database, "INSERT INTO items(id,name) VALUES(?1,?2)");
+    if bind_int(rollback_statement, 0, 2) != true { return 38; }
+    if bind_text(rollback_statement, 1, "rolled-back") != true { return 39; }
+    if step(rollback_statement) != 2 { return 40; }
+    if finalize(rollback_statement) != true { return 41; }
+    if rollback(database) != true { return 42; }
+
+    if close(database) != true { return 43; }
+    return 0;
+}

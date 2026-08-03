@@ -286,6 +286,7 @@ fn inline_call(
                 result: slot,
                 ty: candidate.function.return_type.clone(),
             },
+            source_span: None,
         });
     }
 
@@ -319,6 +320,7 @@ fn inline_call(
                         ptr: slot,
                         value: map_value(*value, &value_map),
                     },
+                    source_span: None,
                 });
             }
         }
@@ -335,6 +337,7 @@ fn inline_call(
                 ptr: slot,
                 ty: candidate.function.return_type.clone(),
             },
+            source_span: None,
         });
     }
     continuation_instructions.extend(tail);
@@ -359,6 +362,7 @@ fn clone_instruction(instruction: &Instruction, values: &HashMap<usize, Value>) 
     Instruction {
         id: instruction.id,
         kind: remap_instruction(&instruction.kind, values),
+        source_span: instruction.source_span.clone(),
     }
 }
 

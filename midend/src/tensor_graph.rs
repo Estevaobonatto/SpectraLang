@@ -116,9 +116,26 @@ pub struct TensorGraphError {
 pub enum TensorGraphErrorKind {
     Cycle,
     ShapeMismatch,
+    DtypeMismatch,
     DeviceMismatch,
+    InvalidLayout,
+    FallbackNotAllowed,
     UnsupportedOperator,
     InvalidDependency,
+}
+
+impl TensorGraphErrorKind {
+    pub fn diagnostic_code(&self) -> &'static str {
+        match self {
+            Self::UnsupportedOperator => "E2907",
+            Self::ShapeMismatch => "E2908",
+            Self::DtypeMismatch => "E2909",
+            Self::DeviceMismatch => "E2910",
+            Self::InvalidLayout => "E2911",
+            Self::FallbackNotAllowed => "E2912",
+            Self::InvalidDependency | Self::Cycle => "E2907",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +154,26 @@ pub struct TensorGraphOptimizationReport {
     pub reusable_edges: usize,
     pub tolerance_abs: String,
     pub tolerance_rel: String,
+}
+
+/// Backend-facing legalization evidence for the first-class tensor graph.
+/// Runtime handles remain the ABI boundary, while this report records the
+/// compiler decisions made before dispatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TensorGraphLoweringResult {
+    pub graph: TensorGraph,
+    pub report: TensorGraphLoweringReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TensorGraphLoweringReport {
+    pub backend: TensorDevice,
+    pub ir_nodes: usize,
+    pub legalized_nodes: usize,
+    pub external_fallback_nodes: usize,
+    pub fusion_groups: usize,
+    pub planned_buffers: usize,
+    pub peak_live_buffers: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,13 +201,82 @@ impl TensorGraph {
     pub fn validate(&self) -> Result<(), Vec<TensorGraphError>> {
         let mut errors = Vec::new();
         for function in &self.functions {
-            function.validate_into(&mut errors);
+            function.validate_into(&mut errors, true);
         }
         if errors.is_empty() {
             Ok(())
         } else {
             Err(errors)
         }
+    }
+
+    /// Validate, optimize, and legalize the graph for a concrete execution
+    /// backend. Unknown tensor-returning host calls are retained as explicit
+    /// compatibility fallbacks; they are counted in the report instead of
+    /// being silently mistaken for compiler-native tensor operations.
+    pub fn lower_for_backend(
+        &self,
+        backend: TensorDevice,
+    ) -> Result<TensorGraphLoweringResult, Vec<TensorGraphError>> {
+        let mut errors = Vec::new();
+        for function in &self.functions {
+            function.validate_into(&mut errors, false);
+        }
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+
+        let mut optimization = TensorGraphOptimizationReport {
+            original_nodes: self.functions.iter().map(|f| f.nodes.len()).sum(),
+            optimized_nodes: 0,
+            fused_groups: 0,
+            fused_elementwise_ops: 0,
+            fused_reductions: 0,
+            reusable_edges: 0,
+            tolerance_abs: "1e-9".to_string(),
+            tolerance_rel: "1e-9".to_string(),
+        };
+        let functions = self
+            .functions
+            .iter()
+            .map(|function| function.optimize_into(&mut optimization))
+            .collect::<Vec<_>>();
+        let optimized = TensorGraph {
+            module: self.module.clone(),
+            functions,
+        };
+        optimization.optimized_nodes = optimized.functions.iter().map(|f| f.nodes.len()).sum();
+
+        let external_fallback_nodes = optimized
+            .functions
+            .iter()
+            .flat_map(|function| function.nodes.iter())
+            .filter(|node| matches!(node.op, TensorGraphOp::UnknownHost { .. }))
+            .count();
+        let planned_buffers = optimized
+            .functions
+            .iter()
+            .map(TensorGraphFunction::planned_buffers)
+            .sum();
+        let peak_live_buffers = optimized
+            .functions
+            .iter()
+            .map(TensorGraphFunction::peak_live_buffers)
+            .max()
+            .unwrap_or(0);
+
+        Ok(TensorGraphLoweringResult {
+            graph: optimized,
+            report: TensorGraphLoweringReport {
+                backend,
+                ir_nodes: optimization.original_nodes,
+                legalized_nodes: optimization.optimized_nodes,
+                external_fallback_nodes,
+                fusion_groups: optimization.fused_groups,
+                planned_buffers,
+                peak_live_buffers,
+            },
+        })
     }
 
     pub fn stable_dump(&self) -> String {
@@ -326,12 +432,34 @@ impl TensorGraphFunction {
 
     pub fn validate(&self) -> Result<(), Vec<TensorGraphError>> {
         let mut errors = Vec::new();
-        self.validate_into(&mut errors);
+        self.validate_into(&mut errors, true);
         if errors.is_empty() {
             Ok(())
         } else {
             Err(errors)
         }
+    }
+
+    fn planned_buffers(&self) -> usize {
+        self.nodes
+            .iter()
+            .filter(|node| node.value.is_some())
+            .count()
+    }
+
+    fn peak_live_buffers(&self) -> usize {
+        let mut live = 0usize;
+        let mut peak = 0usize;
+        for node in &self.nodes {
+            if node.value.is_some() {
+                live += 1;
+                peak = peak.max(live);
+            }
+            if node.inputs.len() > 1 {
+                live = live.saturating_sub(node.inputs.len() - 1);
+            }
+        }
+        peak
     }
 
     fn optimize_into(&self, report: &mut TensorGraphOptimizationReport) -> Self {
@@ -627,7 +755,7 @@ impl TensorGraphFunction {
             .collect()
     }
 
-    fn validate_into(&self, errors: &mut Vec<TensorGraphError>) {
+    fn validate_into(&self, errors: &mut Vec<TensorGraphError>, reject_external: bool) {
         let ids = self
             .nodes
             .iter()
@@ -650,7 +778,7 @@ impl TensorGraphFunction {
                     ));
                 }
             }
-            self.validate_node_contract(node, &by_id, errors);
+            self.validate_node_contract(node, &by_id, errors, reject_external);
         }
 
         let mut visiting = HashSet::new();
@@ -673,6 +801,7 @@ impl TensorGraphFunction {
         node: &TensorGraphNode,
         by_id: &BTreeMap<usize, &TensorGraphNode>,
         errors: &mut Vec<TensorGraphError>,
+        reject_external: bool,
     ) {
         match &node.op {
             TensorGraphOp::Matmul => {
@@ -709,6 +838,7 @@ impl TensorGraphFunction {
                         ));
                     }
                     validate_same_device(&self.name, node, left, right, errors);
+                    validate_same_dtype(&self.name, node, left, right, errors);
                 }
             }
             TensorGraphOp::Conv2d => {
@@ -717,18 +847,20 @@ impl TensorGraphFunction {
                     node.inputs.get(1).and_then(|id| by_id.get(id)).copied(),
                 ) {
                     validate_same_device(&self.name, node, input, kernel, errors);
+                    validate_same_dtype(&self.name, node, input, kernel, errors);
                 }
             }
-            TensorGraphOp::UnknownHost { host } => {
+            TensorGraphOp::UnknownHost { host } if reject_external => {
                 errors.push(TensorGraphError::new(
                     &self.name,
                     Some(node.id),
-                    TensorGraphErrorKind::UnsupportedOperator,
-                    format!("unsupported tensor host operator '{host}'"),
+                    TensorGraphErrorKind::FallbackNotAllowed,
+                    format!("external tensor fallback is not allowed for '{host}'"),
                 ));
             }
             _ => {}
         }
+
     }
 }
 
@@ -952,11 +1084,15 @@ impl TensorShape {
         match (self, other) {
             (TensorShape::Unknown, _) | (_, TensorShape::Unknown) => true,
             (TensorShape::Ranked(left), TensorShape::Ranked(right)) => {
-                left.len() == right.len()
-                    && left
-                        .iter()
-                        .zip(right)
-                        .all(|(l, r)| l.is_none() || r.is_none() || l == r)
+                let rank = left.len().max(right.len());
+                (0..rank).all(|offset| {
+                    let l = left.iter().rev().nth(offset).copied().flatten();
+                    let r = right.iter().rev().nth(offset).copied().flatten();
+                    match (l, r) {
+                        (Some(l), Some(r)) => l == r || l == 1 || r == 1,
+                        _ => true,
+                    }
+                })
             }
         }
     }
@@ -1267,6 +1403,31 @@ fn validate_same_device(
                 node.op.stable_name(),
                 left.output.device.stable_name(),
                 right.output.device.stable_name()
+            ),
+        ));
+    }
+}
+
+fn validate_same_dtype(
+    function: &str,
+    node: &TensorGraphNode,
+    left: &TensorGraphNode,
+    right: &TensorGraphNode,
+    errors: &mut Vec<TensorGraphError>,
+) {
+    if left.output.dtype != TensorDType::Unknown
+        && right.output.dtype != TensorDType::Unknown
+        && left.output.dtype != right.output.dtype
+    {
+        errors.push(TensorGraphError::new(
+            function,
+            Some(node.id),
+            TensorGraphErrorKind::DtypeMismatch,
+            format!(
+                "{} expects operands with the same dtype, got {} and {}",
+                node.op.stable_name(),
+                left.output.dtype.stable_name(),
+                right.output.dtype.stable_name()
             ),
         ));
     }

@@ -8,6 +8,8 @@ use spectra_runtime::ffi::{
     lookup_host_function, SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
     HOST_STATUS_SUCCESS,
 };
+use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
+use spectra_runtime::metrics::{self, MetricsRegistry};
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
@@ -171,6 +173,8 @@ pub struct HttpServer {
     shutdown: Arc<AtomicBool>,
     stats: Arc<Mutex<ServerStats>>,
     join: Option<JoinHandle<()>>,
+    health: Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
+    metrics: Arc<Mutex<MetricsRegistry>>,
 }
 
 impl HttpServer {
@@ -182,16 +186,36 @@ impl HttpServer {
         let stats = Arc::new(Mutex::new(ServerStats::default()));
         let loop_shutdown = Arc::clone(&shutdown);
         let loop_stats = Arc::clone(&stats);
+        let health = Arc::new(Mutex::new(spectra_runtime::health::global()));
+        let loop_health = Arc::clone(&health);
+        let metrics = Arc::new(Mutex::new(metrics::global()));
+        register_http_metrics(&metrics.lock().unwrap_or_else(|e| e.into_inner()));
+        let loop_metrics = Arc::clone(&metrics);
         let join = thread::Builder::new()
             .name("spectra-api-http1-server".to_string())
-            .spawn(move || run_accept_loop(listener, config, handler, loop_shutdown, loop_stats))?;
+            .spawn(move || run_accept_loop(listener, config, handler, loop_shutdown, loop_stats, loop_health, loop_metrics))?;
 
         Ok(Self {
             local_addr,
             shutdown,
             stats,
             join: Some(join),
+            health,
+            metrics,
         })
+    }
+
+    /// Replaces the registry used by the reserved health routes.
+    pub fn with_health_registry(self, registry: spectra_runtime::health::HealthRegistry) -> Self {
+        *self.health.lock().unwrap_or_else(|e| e.into_inner()) = registry;
+        self
+    }
+
+    /// Replaces the Prometheus registry used by this server.
+    pub fn with_metrics_registry(self, registry: MetricsRegistry) -> Self {
+        register_http_metrics(&registry);
+        *self.metrics.lock().unwrap_or_else(|e| e.into_inner()) = registry;
+        self
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -255,12 +279,14 @@ fn run_accept_loop(
     handler: Handler,
     shutdown: Arc<AtomicBool>,
     stats: Arc<Mutex<ServerStats>>,
+    health: Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
+    metrics: Arc<Mutex<MetricsRegistry>>,
 ) {
     let mut connections = Vec::<Connection>::new();
     let parser_config = config.parser_config();
 
     while !shutdown.load(Ordering::SeqCst) {
-        accept_ready_connections(&listener, &config, &parser_config, &stats, &mut connections);
+        accept_ready_connections(&listener, &config, &parser_config, &stats, &mut connections, &metrics);
         service_connections(
             &config,
             &handler,
@@ -268,13 +294,15 @@ fn run_accept_loop(
             &shutdown,
             &mut connections,
             false,
+            &health,
+            &metrics,
         );
         thread::sleep(config.poll_interval);
     }
 
     let drain_deadline = Instant::now() + config.shutdown_grace_period;
     while !connections.is_empty() && Instant::now() < drain_deadline {
-        service_connections(&config, &handler, &stats, &shutdown, &mut connections, true);
+        service_connections(&config, &handler, &stats, &shutdown, &mut connections, true, &health, &metrics);
         if !connections.is_empty() {
             thread::sleep(config.poll_interval);
         }
@@ -286,12 +314,71 @@ fn run_accept_loop(
     }
 }
 
+fn reserved_health_response(
+    request: &ParsedRequest,
+    health: &Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
+) -> Option<ServerResponse> {
+    let path = request.target.split('?').next().unwrap_or(request.target.as_str());
+    if !matches!(path, "/healthz" | "/readyz" | "/startupz") { return None; }
+    let span = tracing::span_start("health.request", SpanKind::Server).ok();
+    if request.method != "GET" {
+        let mut response = ServerResponse::text(405, "method not allowed");
+        response.headers.push(Header { name: "Allow".into(), value: "GET".into() });
+        if let Some(id) = span { let _ = tracing::span_set_status(id, SpanStatus::Error); let _ = tracing::span_end(id); }
+        return Some(response);
+    }
+    let registry = health.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let endpoint = path.trim_start_matches('/');
+    let status = match endpoint { "healthz" => 200, "startupz" if registry.startup() == spectra_runtime::health::HealthState::Healthy => 200, "readyz" if registry.readiness() != spectra_runtime::health::HealthState::Unavailable => 200, _ => 503 };
+    let mut response = ServerResponse::bytes(status, registry.json(endpoint).into_bytes());
+    response.headers.push(Header { name: "Content-Type".into(), value: "application/json".into() });
+    if let Some(id) = span { let _ = tracing::span_set_attribute(id, "health.endpoint", endpoint); let _ = tracing::span_set_attribute_int(id, "http.response.status_code", status as i64); let _ = tracing::span_set_status(id, if status == 200 { SpanStatus::Ok } else { SpanStatus::Error }); let _ = tracing::span_end(id); }
+    Some(response)
+}
+
+fn reserved_metrics_response(
+    request: &ParsedRequest,
+    metrics: &Arc<Mutex<MetricsRegistry>>,
+) -> Option<ServerResponse> {
+    let path = request.target.split('?').next().unwrap_or(request.target.as_str());
+    if path != "/metrics" { return None; }
+    if request.method != "GET" {
+        let mut response = ServerResponse::text(405, "method not allowed");
+        response.headers.push(Header { name: "Allow".into(), value: "GET".into() });
+        return Some(response);
+    }
+    let registry = metrics.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let mut response = ServerResponse::bytes(200, registry.render_prometheus().into_bytes());
+    response.headers.push(Header { name: "Content-Type".into(), value: "text/plain; version=0.0.4; charset=utf-8".into() });
+    Some(response)
+}
+
+fn register_http_metrics(registry: &MetricsRegistry) {
+    let _ = registry.register_counter("spectra_http_requests_total", "Total HTTP requests", &["method", "status"]);
+    let _ = registry.register_histogram("spectra_http_request_duration_seconds", "HTTP request duration in seconds", &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0], &["method"]);
+    let _ = registry.register_counter("spectra_http_errors_total", "Total HTTP error responses", &["class"]);
+    let _ = registry.register_gauge("spectra_http_active_connections", "Active HTTP connections", &[]);
+    let _ = registry.register_counter("spectra_http_accepted_connections_total", "Accepted HTTP connections", &[]);
+    let _ = registry.register_counter("spectra_http_timeouts_total", "HTTP connection timeouts", &[]);
+}
+
+fn metric_counter(registry: &Arc<Mutex<MetricsRegistry>>, name: &str, labels: &[(&str, &str)], value: f64) {
+    let _ = registry.lock().unwrap_or_else(|e| e.into_inner()).counter_inc(name, labels, value);
+}
+fn metric_gauge(registry: &Arc<Mutex<MetricsRegistry>>, name: &str, value: f64, labels: &[(&str, &str)]) {
+    let _ = registry.lock().unwrap_or_else(|e| e.into_inner()).gauge_set(name, labels, value);
+}
+fn metric_histogram(registry: &Arc<Mutex<MetricsRegistry>>, name: &str, labels: &[(&str, &str)], value: f64) {
+    let _ = registry.lock().unwrap_or_else(|e| e.into_inner()).histogram_observe(name, labels, value);
+}
+
 fn accept_ready_connections(
     listener: &TcpListener,
     config: &ServerConfig,
     parser_config: &ParserConfig,
     stats: &Arc<Mutex<ServerStats>>,
     connections: &mut Vec<Connection>,
+    metrics: &Arc<Mutex<MetricsRegistry>>,
 ) {
     loop {
         match listener.accept() {
@@ -309,6 +396,8 @@ fn accept_ready_connections(
                         stats.accepted_connections += 1;
                         stats.active_connections = connections.len();
                         stats.peak_connections = stats.peak_connections.max(connections.len());
+                        metric_gauge(metrics, "spectra_http_active_connections", connections.len() as f64, &[]);
+                        metric_counter(metrics, "spectra_http_accepted_connections_total", &[], 1.0);
                     }
                     Err(_) => {
                         let mut stats = stats.lock().unwrap_or_else(|e| e.into_inner());
@@ -329,10 +418,12 @@ fn service_connections(
     shutdown: &Arc<AtomicBool>,
     connections: &mut Vec<Connection>,
     draining: bool,
+    health: &Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
+    metrics: &Arc<Mutex<MetricsRegistry>>,
 ) {
     let mut idx = 0usize;
     while idx < connections.len() {
-        let action = service_connection(config, handler, stats, &mut connections[idx], draining);
+        let action = service_connection(config, handler, stats, &mut connections[idx], draining, health, metrics);
         if action == ConnectionAction::Close {
             let connection = connections.swap_remove(idx);
             let graceful = draining || shutdown.load(Ordering::SeqCst);
@@ -350,6 +441,7 @@ fn service_connections(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .active_connections = connections.len();
+    metric_gauge(metrics, "spectra_http_active_connections", connections.len() as f64, &[]);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -364,6 +456,8 @@ fn service_connection(
     stats: &Arc<Mutex<ServerStats>>,
     connection: &mut Connection,
     draining: bool,
+    health: &Arc<Mutex<spectra_runtime::health::HealthRegistry>>,
+    metrics: &Arc<Mutex<MetricsRegistry>>,
 ) -> ConnectionAction {
     if write_pending(connection).is_err() {
         return ConnectionAction::Close;
@@ -377,6 +471,7 @@ fn service_connection(
         && now.duration_since(connection.last_activity) > config.read_timeout
     {
         record_timeout(stats);
+        metric_counter(metrics, "spectra_http_timeouts_total", &[], 1.0);
         queue_error_response(connection, 408, "request timeout");
         return if connection.has_pending_write() {
             ConnectionAction::Keep
@@ -388,6 +483,7 @@ fn service_connection(
         && now.duration_since(connection.last_activity) > config.idle_timeout
     {
         record_timeout(stats);
+        metric_counter(metrics, "spectra_http_timeouts_total", &[], 1.0);
         return ConnectionAction::Close;
     }
     if connection.parser.buffered_len() == 0
@@ -413,9 +509,51 @@ fn service_connection(
     loop {
         match connection.parser.parse_next_request() {
             Ok(Some(request)) => {
+                let request_started = Instant::now();
                 let close = !request.keep_alive;
                 let method = request.method.clone();
-                let response = handler(request);
+                let extracted_parent = request
+                    .headers
+                    .iter()
+                    .find(|header| header.name.eq_ignore_ascii_case("traceparent"))
+                    .and_then(|header| tracing::extract(&header.value).ok());
+                let trace_span = tracing::span_start_with_parent(
+                    "http.server",
+                    SpanKind::Server,
+                    extracted_parent,
+                )
+                .ok();
+                if let Some(id) = trace_span {
+                    let _ = tracing::span_set_attribute(id, "http.request.method", &method);
+                    let _ = tracing::span_set_attribute(id, "url.path", &request.target);
+                }
+                let response = reserved_metrics_response(&request, metrics)
+                    .or_else(|| reserved_health_response(&request, health))
+                    .unwrap_or_else(|| handler(request));
+                metric_counter(metrics, "spectra_http_requests_total", &[("method", method.as_str()), ("status", &response.status_code.to_string())], 1.0);
+                metric_histogram(metrics, "spectra_http_request_duration_seconds", &[("method", method.as_str())], request_started.elapsed().as_secs_f64());
+                if response.status_code >= 400 { metric_counter(metrics, "spectra_http_errors_total", &[("class", if response.status_code >= 500 { "5xx" } else { "4xx" })], 1.0); }
+                if let Some(id) = trace_span {
+                    let _ = tracing::span_set_attribute_int(
+                        id,
+                        "http.response.status_code",
+                        response.status_code as i64,
+                    );
+                    let _ = tracing::span_set_attribute_int(
+                        id,
+                        "http.response.body.size",
+                        response.body.bytes().len() as i64,
+                    );
+                    let _ = tracing::span_set_status(
+                        id,
+                        if response.status_code < 500 {
+                            SpanStatus::Ok
+                        } else {
+                            SpanStatus::Error
+                        },
+                    );
+                    let _ = tracing::span_end(id);
+                }
                 queue_response(connection, response, method == "HEAD", close);
                 stats
                     .lock()
@@ -436,9 +574,11 @@ fn service_connection(
                         .unwrap_or_else(|e| e.into_inner())
                         .body_limit_violations += 1;
                     queue_error_response(connection, 413, "payload too large");
+                    metric_counter(metrics, "spectra_http_errors_total", &[("class", "4xx")], 1.0);
                 } else {
                     stats.lock().unwrap_or_else(|e| e.into_inner()).parse_errors += 1;
                     queue_error_response(connection, 400, "bad request");
+                    metric_counter(metrics, "spectra_http_errors_total", &[("class", "4xx")], 1.0);
                 }
                 break;
             }
