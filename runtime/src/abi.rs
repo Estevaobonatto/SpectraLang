@@ -6,6 +6,9 @@
 //! [`crate::ffi`].
 #![doc(hidden)]
 
+use std::ptr;
+use std::sync::atomic::{AtomicPtr, AtomicU64};
+
 /// Scalar types used by the Cranelift-facing runtime ABI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[doc(hidden)]
@@ -29,6 +32,15 @@ const I64: &[AbiScalar] = &[AbiScalar::I64];
 const I64_I64: &[AbiScalar] = &[AbiScalar::I64, AbiScalar::I64];
 const I64_I64_I64: &[AbiScalar] = &[AbiScalar::I64, AbiScalar::I64, AbiScalar::I64];
 const HOST_INVOKE_PARAMS: &[AbiScalar] = &[
+    AbiScalar::I64,
+    AbiScalar::I64,
+    AbiScalar::I64,
+    AbiScalar::I64,
+    AbiScalar::I64,
+    AbiScalar::I64,
+];
+const HOST_INVOKE_CACHED_PARAMS: &[AbiScalar] = &[
+    AbiScalar::I64,
     AbiScalar::I64,
     AbiScalar::I64,
     AbiScalar::I64,
@@ -94,10 +106,14 @@ pub enum RuntimeImport {
     ChannelRecv,
     ChannelClose,
     ChannelLen,
+    /// Generic host dispatch using a module-owned registry cache slot.
+    HostInvokeCached,
+    /// Generic host batch dispatch using cache slots embedded in descriptors.
+    HostInvokeCachedBatch,
 }
 
 impl RuntimeImport {
-    pub const COUNT: usize = 40;
+    pub const COUNT: usize = 42;
 
     pub const ALL: &'static [Self] = &[
         Self::ManualAlloc,
@@ -140,6 +156,8 @@ impl RuntimeImport {
         Self::ChannelRecv,
         Self::ChannelClose,
         Self::ChannelLen,
+        Self::HostInvokeCached,
+        Self::HostInvokeCachedBatch,
     ];
 
     pub const fn index(self) -> usize {
@@ -188,6 +206,8 @@ impl RuntimeImport {
             Self::ChannelRecv => "spectra_rt_channel_recv_fast",
             Self::ChannelClose => "spectra_rt_channel_close_fast",
             Self::ChannelLen => "spectra_rt_channel_len_fast",
+            Self::HostInvokeCached => "spectra_rt_host_invoke_cached",
+            Self::HostInvokeCachedBatch => "spectra_rt_host_invoke_cached_batch",
         }
     }
 
@@ -200,6 +220,8 @@ impl RuntimeImport {
             Self::ManualEscape => (I64_I64, EMPTY),
             Self::HostInvoke => (HOST_INVOKE_PARAMS, I32),
             Self::HostInvokeBatch => (I64_I64, I32),
+            Self::HostInvokeCached => (HOST_INVOKE_CACHED_PARAMS, I32),
+            Self::HostInvokeCachedBatch => (I64_I64, I32),
             Self::ConcurrentSpawn => (I64, I64),
             Self::ConcurrentJoin => (I64, I64),
             Self::ConcurrentSpawnBatch => (I64_I64, I64),
@@ -285,7 +307,40 @@ impl RuntimeImport {
             Self::ChannelRecv => ffi::spectra_rt_channel_recv_fast as *const u8,
             Self::ChannelClose => ffi::spectra_rt_channel_close_fast as *const u8,
             Self::ChannelLen => ffi::spectra_rt_channel_len_fast as *const u8,
+            Self::HostInvokeCached => ffi::spectra_rt_host_invoke_cached as *const u8,
+            Self::HostInvokeCachedBatch => ffi::spectra_rt_host_invoke_cached_batch as *const u8,
         }
+    }
+}
+
+/// Per-host-name cache storage embedded by generated JIT/AOT code.
+///
+/// The type is an internal toolchain ABI. The runtime owns its layout and
+/// publishes the function pointer before publishing the generation, so a
+/// reader that observes a matching generation also observes the pointer for
+/// that generation. A zero pointer represents a cached `NOT_FOUND` result.
+#[repr(C)]
+#[doc(hidden)]
+pub struct SpectraHostCallCache {
+    pub(crate) generation: AtomicU64,
+    pub(crate) function: AtomicPtr<()>,
+}
+
+impl SpectraHostCallCache {
+    /// Creates an empty cache slot. Generated code keeps the slot alive for
+    /// the entire lifetime of the compiled module.
+    #[doc(hidden)]
+    pub const fn new() -> Self {
+        Self {
+            generation: AtomicU64::new(0),
+            function: AtomicPtr::new(ptr::null_mut()),
+        }
+    }
+}
+
+impl Default for SpectraHostCallCache {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -516,6 +571,22 @@ mod tests {
             assert_ne!(import.address(), std::ptr::null());
             assert_eq!(RuntimeImport::ALL[import.index()], *import);
         }
+        assert_eq!(RuntimeImport::HostInvokeCached.signature().params.len(), 7);
+        assert_eq!(
+            RuntimeImport::HostInvokeCachedBatch
+                .signature()
+                .params
+                .len(),
+            2
+        );
+        assert_eq!(
+            std::mem::size_of::<SpectraHostCallCache>(),
+            2 * std::mem::size_of::<usize>()
+        );
+        assert_eq!(
+            std::mem::align_of::<SpectraHostCallCache>(),
+            std::mem::align_of::<usize>()
+        );
     }
 
     #[test]

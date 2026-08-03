@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SpectraLang — revisão arquitetural de performance</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", () => mermaid.initialize({ startOnLoad: true, theme: "dark", securityLevel: "loose" }));</script>
+  <style>
+    body { background: #0b1020; color: #dbe4f0; }
+    .panel { background: linear-gradient(145deg, rgba(20,31,54,.96), rgba(13,19,35,.96)); border: 1px solid rgba(148,163,184,.18); }
+    .muted { color: #9fb0c7; }
+    .accent { color: #67e8f9; }
+    .good { color: #86efac; }
+    .warn { color: #fcd34d; }
+    .risk { color: #fda4af; }
+    code { color: #bae6fd; background: rgba(15,23,42,.8); padding: .1rem .3rem; border-radius: .25rem; }
+    a { color: #67e8f9; text-decoration: underline; text-underline-offset: 3px; }
+    .mermaid { background: rgba(2,6,23,.28); border-radius: .75rem; padding: .5rem; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <main class="mx-auto max-w-7xl px-5 py-10">
+    <header class="mb-8">
+      <div class="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[.18em] muted">
+        <span class="rounded-full border border-cyan-400/30 px-3 py-1 accent">Architecture review</span>
+        <span>02 ago 2026</span>
+        <span>branch Refactor-performance-fixes</span>
+        <span>HEAD 70f28f8</span>
+      </div>
+      <h1 class="mt-4 text-4xl font-semibold tracking-tight text-white md:text-5xl">SpectraLang: estrutura da linguagem e oportunidades de performance</h1>
+      <p class="mt-4 max-w-4xl text-lg muted">Atualização do review arquitetural após a Fase 1 — Normalização do seam HostCall/ABI. O código agora tem catálogo ABI compartilhado e lowering JIT/AOT comum; a Fase 2 abaixo define a otimização aditiva do dispatch genérico sem alterar a linguagem ou o contrato público.</p>
+    </header>
+
+    <section class="mb-8 grid gap-4 md:grid-cols-3">
+      <div class="panel rounded-2xl p-5">
+        <div class="text-xs uppercase tracking-widest muted">Veredito</div>
+        <div class="mt-2 text-2xl font-semibold text-white">Fase 1 estrutural concluída; o dispatch ainda é o próximo seam</div>
+        <p class="mt-3 text-sm muted">A duplicação JIT/AOT foi removida, mas o caminho genérico ainda faz resolução por nome, lock do registry e criação de contexto a cada chamada.</p>
+      </div>
+      <div class="panel rounded-2xl p-5">
+        <div class="text-xs uppercase tracking-widest muted">Melhor primeiro alvo</div>
+        <div class="mt-2 text-2xl font-semibold good">Fase 2: cache de dispatch com geração</div>
+        <p class="mt-3 text-sm muted">Resolver cada nome uma vez por slot de módulo, invalidar atomicamente em mutações e manter o fallback genérico para nomes desconhecidos.</p>
+      </div>
+      <div class="panel rounded-2xl p-5">
+        <div class="text-xs uppercase tracking-widest muted">Limite da evidência</div>
+        <div class="mt-2 text-2xl font-semibold warn">R-3102 continua causalmente aberto</div>
+        <p class="mt-3 text-sm muted">A evidência atual é benchmark + IR; a captura Linux com <code>perf</code>, flamegraph ou Callgrind ainda depende de WSL2 funcional.</p>
+      </div>
+    </section>
+
+    <section class="panel mb-8 rounded-2xl p-6">
+      <h2 class="text-2xl font-semibold text-white">Arquitetura observada</h2>
+      <div class="mt-5 mermaid">
+        flowchart LR
+          S["Source"] --> L["Lexer<br/>Vec de caracteres + tokens"]
+          L --> P["Parser / AST<br/>ModuleLoader cache"]
+          P --> SE["Semantic<br/>símbolos + ModuleRegistry"]
+          SE --> LO["Lowering<br/>AST -> SSA IR"]
+          LO --> OP["Passes + verification"]
+          OP --> CG["Cranelift JIT/AOT"]
+          CG --> ABI["runtime::abi catalog"]
+          ABI --> FFI["FFI generic / cached / fast"]
+          FFI --> RT["stdlib + registries"]
+          RT --> MEM["memory / reactor / async / tensor"]
+          CG -. "TensorGraph validado" .-> T["Tensor runtime"]
+          ABI -. "RuntimeBindings" .-> CG
+      </div>
+      <div class="mt-5 grid gap-3 text-sm md:grid-cols-2">
+        <div class="rounded-xl bg-slate-950/50 p-4"><span class="accent font-semibold">estado</span><br><span class="muted">A Fase 1 criou <code>runtime/src/abi.rs</code>, <code>backend/src/hostcall_abi.rs</code> e o ADR-0012 como fonte única de símbolos, assinaturas, aridades e classificação.</span></div>
+        <div class="rounded-xl bg-slate-950/50 p-4"><span class="accent font-semibold">seam</span><br><span class="muted">O próximo custo está em <code>runtime/src/ffi.rs</code>: o backend ainda chama o dispatcher nominal para cada host call; a Fase 2 adicionará um caminho cacheado, sem remover o símbolo legado.</span></div>
+      </div>
+    </section>
+
+    <section class="mb-8">
+      <h2 class="mb-4 text-2xl font-semibold text-white">Evidência que separa fato de hipótese</h2>
+      <div class="grid gap-4 lg:grid-cols-4">
+        <div class="panel rounded-xl p-4"><div class="text-3xl font-semibold accent">17</div><div class="text-sm text-white">testes do compiler</div><div class="mt-1 text-xs muted">todos passaram</div></div>
+        <div class="panel rounded-xl p-4"><div class="text-3xl font-semibold accent">11 + 29</div><div class="text-sm text-white">midend + backend</div><div class="mt-1 text-xs muted">todos passaram</div></div>
+        <div class="panel rounded-xl p-4"><div class="text-3xl font-semibold accent">100</div><div class="text-sm text-white">testes do runtime</div><div class="mt-1 text-xs muted">todos passaram</div></div>
+        <div class="panel rounded-xl p-4"><div class="text-3xl font-semibold accent">157</div><div class="text-sm text-white">testes Rust centrais</div><div class="mt-1 text-xs muted">17 compiler + 11 midend + 29 backend + 100 runtime</div></div>
+      </div>
+      <div class="mt-4 rounded-xl border border-amber-300/25 bg-amber-300/5 p-4 text-sm">
+        <span class="warn font-semibold">Importante:</span>
+        <span class="muted"> os gaps históricos continuam sendo alvos, não atribuições causais. O artefato atual de R-3105 registra <code>0,605770x</code> candidato/controle e baseline intacto, mas está <strong>BLOCKED</strong>: o fixture JIT/AOT passa, enquanto os reports de release têm ruído/paridade fora da janela e <code>tensor-create</code> steady-state regrediu 5,217%.</span>
+      </div>
+    </section>
+
+    <section class="space-y-6">
+      <article class="panel rounded-2xl p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div><div class="text-xs uppercase tracking-widest accent">Candidato 01 · Strong recommendation</div><h2 class="mt-2 text-2xl font-semibold text-white">Aprofundar o seam de host-call / ABI lowering</h2></div>
+          <span class="rounded-full bg-green-400/10 px-3 py-1 text-sm good">prioridade 1</span>
+        </div>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <div>
+            <h3 class="font-semibold text-white">Files</h3>
+            <p class="mt-2 text-sm muted"><a href="../../runtime/src/abi.rs">runtime/src/abi.rs</a>; <a href="../../backend/src/hostcall_abi.rs">backend/src/hostcall_abi.rs</a>; <a href="../../backend/src/codegen.rs">backend/src/codegen.rs</a>; <a href="../../backend/src/aot.rs">backend/src/aot.rs</a>; <a href="../../runtime/src/ffi.rs">runtime/src/ffi.rs</a>; <a href="../adr/0012-hostcall-abi-lowering.md">ADR-0012</a>.</p>
+            <h3 class="mt-4 font-semibold text-white">Problem</h3>
+            <p class="mt-2 text-sm muted">Antes da Fase 1, <code>CodeGenerator</code> e <code>AotCodeGenerator</code> mantinham declarações e classificação paralelas. A Fase 1 corrigiu esse acoplamento com <code>RuntimeImport</code>, <code>FastHostCall</code>, <code>RuntimeBindings</code> e <code>HostCallLoweringContext</code>. O custo residual está em <code>runtime/src/ffi.rs</code>: cada generic call ainda faz lookup no <code>HostRegistry</code>, lock, criação de <code>SpectraHostCallContext</code> e uma fronteira de <code>catch_unwind</code>; o batch repete a resolução por descriptor.</p>
+            <h3 class="mt-4 font-semibold text-white">Solution direction</h3>
+            <p class="mt-2 text-sm muted">Manter o catálogo da Fase 1 como owner e adicionar um caminho interno cacheado: cada nome compilado recebe um slot estável por módulo; o runtime publica a função e uma geração atômica; <code>register</code>, <code>unregister</code> e <code>clear</code> invalidam a geração. O fallback genérico, visibilidade imediata do registry, ordem, status, callback e <code>catch_unwind</code> continuam observáveis.</p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-white">Before / after</h3>
+            <div class="mt-2 mermaid">
+              flowchart LR
+                IR["HostCall no IR"] --> C["runtime::abi catalog"]
+                C --> B["RuntimeBindings + lowering context"]
+                B --> J["JIT: name + cache slot"]
+                B --> A["AOT: .rodata name + writable slot"]
+                J --> F["cached generic / fast ABI"]
+                A --> F
+                F --> R["registry + generation"]
+                R --> I["one resolver per slot/generation"]
+            </div>
+            <h3 class="mt-4 font-semibold text-white">Benefits</h3>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm muted">
+              <li><code>locality</code>: a regra ABI segue em um catálogo único.</li>
+              <li><code>leverage</code>: JIT, AOT, generic individual e batch consomem o mesmo slot.</li>
+              <li>custo: hits quentes não entram no <code>Mutex</code>; miss ou mutação resolve uma vez por geração.</li>
+              <li>segurança: o batch usa uma única fronteira de panic para a sequência; o caminho individual mantém sua fronteira.</li>
+              <li>testes: paridade JIT/AOT, fallback, falha ordenada, panic e registro dinâmico continuam explícitos.</li>
+            </ul>
+            <p class="mt-4 text-sm warn"><strong>Deletion test:</strong> remover o batching ou um fast path deve alterar apenas custo, nunca nomes, status, ordem, callbacks ou resultados.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel rounded-2xl border border-cyan-300/30 p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div><div class="text-xs uppercase tracking-widest accent">Fase 2 · plano de implementação</div><h2 class="mt-2 text-2xl font-semibold text-white">Dispatch genérico cacheado com semântica dinâmica preservada</h2></div>
+          <span class="rounded-full bg-cyan-400/10 px-3 py-1 text-sm accent">próxima entrega</span>
+        </div>
+        <p class="mt-4 max-w-5xl text-sm muted">Escopo escolhido: continuação do seam HostCall/ABI, e não a Phase 2 histórica de sistema de tipos. A Fase 2 será aditiva e reversível: o símbolo legado <code>spectra_rt_host_invoke</code> e o batch legado permanecem; somente o lowering genérico JIT/AOT passa a consumir o caminho cacheado depois que os gates do runtime estiverem verdes.</p>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <div>
+            <h3 class="font-semibold text-white">Contrato interno decidido</h3>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm muted">
+              <li><code>runtime::abi::RuntimeImport</code> ganha os imports <code>HostInvokeCached</code> e <code>HostInvokeCachedBatch</code>, com símbolos nativos novos e assinaturas iguais em JIT/AOT.</li>
+              <li><code>SpectraHostCallCache</code> é <code>#[repr(C)]</code>, oculto da documentação, com ponteiro de função e geração atômicos; o backend nunca lê seu layout sem o runtime.</li>
+              <li><code>SpectraHostCachedBatchCall</code> carrega cache, nome, argumentos e resultados; <code>SpectraHostBatchCall</code> antigo não muda.</li>
+              <li>Mutação do registry incrementa uma geração global. Cache hit não trava; miss, replace, unregister ou clear re-resolvem sob o lock e publicam a nova geração.</li>
+            </ul>
+          </div>
+          <div>
+            <h3 class="font-semibold text-white">Fluxo de execução</h3>
+            <ol class="mt-2 list-decimal space-y-1 pl-5 text-sm muted">
+              <li>Backend pré-interna cada nome genérico em um <code>HostCallSiteRecord</code> único por módulo.</li>
+              <li>JIT mantém o slot em storage vivo do <code>CodeGenerator</code>; AOT emite nome <code>.rodata</code> e slot gravável relocável.</li>
+              <li>Host call individual passa o slot ao cached invoke; batch passa um slot por descriptor.</li>
+              <li>O runtime resolve somente no primeiro uso de uma geração; nomes desconhecidos continuam retornando <code>NOT_FOUND</code> e passam a funcionar se forem registrados depois.</li>
+              <li>Fast ABI, aridade errada, dependência de resultado, ordem, limite de 8 chamadas e orçamento de 4096 bytes seguem as regras da Fase 1.</li>
+            </ol>
+          </div>
+        </div>
+        <div class="mt-5 rounded-xl bg-slate-950/50 p-4">
+          <h3 class="font-semibold text-white">Sequência em commits isoláveis</h3>
+          <ol class="mt-2 grid gap-x-6 gap-y-2 text-sm muted md:grid-cols-2">
+            <li><strong class="text-white">1. Baseline:</strong> congelar HEAD, stats, lowering/codegen, JIT/AOT, fixture 191 e benchmark dedicado; não tocar no baseline versionado.</li>
+            <li><strong class="text-white">2. Runtime:</strong> cache, geração, cached invoke/batch e testes de replace, unregister, clear, desconhecido, panic, ordem e concorrência.</li>
+            <li><strong class="text-white">3. ABI/backend:</strong> estender catálogo, bindings agrupados, records JIT/AOT e dados graváveis AOT; provar paridade de símbolos e assinaturas.</li>
+            <li><strong class="text-white">4. Lowering:</strong> trocar generic individual/batch para os imports cacheados, sem alterar <code>FastHostCall</code>, planner ou <code>HostCallBatchStats</code>.</li>
+            <li><strong class="text-white">5. Gates:</strong> adicionar fixture de cache quente/mutação e executar os 21 cenários, smoke JIT/AOT, suites Rust, CLI e benchmark com 5 grupos.</li>
+            <li><strong class="text-white">6. Documentação:</strong> ADR-0013 e arquitetura atualizados somente após evidência; sem promover ganho causal enquanto R-3102 estiver aberto.</li>
+          </ol>
+        </div>
+        <div class="mt-5 grid gap-4 md:grid-cols-3 text-sm">
+          <div class="rounded-xl border border-green-300/20 bg-green-300/5 p-4"><strong class="good">Preservar</strong><br><span class="muted">nomes, status, callbacks, <code>catch_unwind</code>, registro dinâmico, resultados e baseline.</span></div>
+          <div class="rounded-xl border border-yellow-300/20 bg-yellow-300/5 p-4"><strong class="warn">Medir</strong><br><span class="muted">cache hit/miss, lock acquisitions, panic boundary, lowering/codegen e candidate/control AOT.</span></div>
+          <div class="rounded-xl border border-red-300/20 bg-red-300/5 p-4"><strong class="risk">Fora da Fase 2</strong><br><span class="muted">novos fast paths, mudança da linguagem, remoção das APIs legadas e otimização dos locks de tensor/stdlib.</span></div>
+        </div>
+      </article>
+
+      <article class="panel rounded-2xl p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div><div class="text-xs uppercase tracking-widest accent">Candidato 02 · Strong recommendation</div><h2 class="mt-2 text-2xl font-semibold text-white">Separar storage de tensor, handles e observabilidade</h2></div>
+          <span class="rounded-full bg-green-400/10 px-3 py-1 text-sm good">prioridade 2</span>
+        </div>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <div>
+            <h3 class="font-semibold text-white">Files</h3>
+            <p class="mt-2 text-sm muted"><a href="../../runtime/src/stdlib/mod.rs">runtime/src/stdlib/mod.rs:3599</a> (<code>TensorRegistry</code>) e <a href="../../runtime/src/stdlib/mod.rs">:4041</a> (<code>with_tensor_registry</code>).</p>
+            <h3 class="mt-4 font-semibold text-white">Problem</h3>
+            <p class="mt-2 text-sm muted">Um único lock guarda tensors, pool, métricas, lifetime records, sites de alocação e, opcionalmente, arena de device. Operações atravessam esse lock, clonam objetos, materializam views e convertem buffers entre <code>i64</code> e <code>f64</code>. Correção e telemetria compartilham o mesmo caminho quente.</p>
+            <h3 class="mt-4 font-semibold text-white">Solution direction</h3>
+            <p class="mt-2 text-sm muted">Aprofundar um módulo de storage com slots estáveis, reuse por shape/layout/dtype e views sem materialização. Mover métricas e allocation sites para um sidecar opcional ou amostrado. Preservar handles, shape, device, lifetime e erros existentes.</p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-white">Before / after</h3>
+            <div class="mt-2 mermaid">
+              flowchart LR
+                O["tensor op"] --> L["Mutex TensorRegistry"]
+                L --> C["clone / materialize"]
+                C --> K["kernel"]
+                K --> L
+                O2["tensor op"] --> H["handle + storage module"]
+                H --> V["view / pooled buffer"]
+                V --> K2["kernel"]
+                H -.-> M["telemetry sidecar"]
+            </div>
+            <h3 class="mt-4 font-semibold text-white">Benefits</h3>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm muted">
+              <li><code>locality</code>: ownership, layout e reuse ficam juntos.</li>
+              <li><code>leverage</code>: elementwise, reduce, matmul e autodiff reutilizam a mesma política.</li>
+              <li>testes: comparar bytes, contagem de alocações, valores e semântica de views.</li>
+            </ul>
+            <p class="mt-4 text-sm warn"><strong>Deletion test:</strong> retirar métricas de lifetime não pode mudar o resultado de nenhuma operação tensorial.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel rounded-2xl p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div><div class="text-xs uppercase tracking-widest accent">Candidato 03 · Strong recommendation</div><h2 class="mt-2 text-2xl font-semibold text-white">Transformar compilação incremental em artefato de módulo profundo</h2></div>
+          <span class="rounded-full bg-green-400/10 px-3 py-1 text-sm good">prioridade 3</span>
+        </div>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <div>
+            <h3 class="font-semibold text-white">Files</h3>
+            <p class="mt-2 text-sm muted"><a href="../../compiler/src/lexer/mod.rs">compiler/src/lexer/mod.rs:20</a>; <a href="../../compiler/src/parser/workspace.rs">compiler/src/parser/workspace.rs:62</a>; <a href="../../compiler/src/pipeline.rs">compiler/src/pipeline.rs:125</a> e <a href="../../compiler/src/semantic/mod.rs">compiler/src/semantic/mod.rs:345</a>.</p>
+            <h3 class="mt-4 font-semibold text-white">Problem</h3>
+            <p class="mt-2 text-sm muted">O lexer materializa <code>Vec&lt;(usize, char)&gt;</code> para cada source. O cache calcula hash do source, ordena features e, apesar de armazenar <code>Arc&lt;Module&gt;</code>, devolve clone profundo do AST em cada hit. Semantic mantém muitos <code>HashMap&lt;String, ...&gt;</code> e um <code>Arc&lt;RwLock&lt;ModuleRegistry&gt;&gt;</code>.</p>
+            <h3 class="mt-4 font-semibold text-white">Solution direction</h3>
+            <p class="mt-2 text-sm muted">Aprofundar um artefato imutável de módulo: spans e nomes internados, parse compartilhado com copy-on-write, identidade de conteúdo reutilizável e summary semântico para invalidar somente dependentes. Diagnósticos e feature flags permanecem parte do contrato.</p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-white">Before / after</h3>
+            <div class="mt-2 mermaid">
+              flowchart LR
+                S["source"] --> C["hash + char Vec"]
+                C --> A["AST owned"]
+                A --> E["semantic maps"]
+                E --> B["backend"]
+                S2["source"] --> P["module artifact"]
+                P --> N["interned names + spans"]
+                P --> R["reusable semantic summary"]
+                N --> B2["backend"]
+                R --> B2
+            </div>
+            <h3 class="mt-4 font-semibold text-white">Benefits</h3>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm muted">
+              <li><code>locality</code>: invalidation e ownership de cache ficam no módulo.</li>
+              <li><code>leverage</code>: REPL, LSP, CLI e builds multi-file ganham o mesmo caminho.</li>
+              <li>testes: spans, diagnostics, imports, feature invalidation e equivalência do AST.</li>
+            </ul>
+            <p class="mt-4 text-sm warn"><strong>Deletion test:</strong> remover a instrumentação de cache não pode alterar binding, diagnostics ou ordem de exports.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel rounded-2xl p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div><div class="text-xs uppercase tracking-widest accent">Candidato 04 · Worth exploring</div><h2 class="mt-2 text-2xl font-semibold text-white">Reduzir churn de IR e tornar o pipeline de passes realmente profundo</h2></div>
+          <span class="rounded-full bg-yellow-300/10 px-3 py-1 text-sm warn">prioridade 4</span>
+        </div>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <div>
+            <h3 class="font-semibold text-white">Files</h3>
+            <p class="mt-2 text-sm muted"><a href="../../midend/src/ir.rs">midend/src/ir.rs:29</a> e <a href="../../midend/src/ir.rs">:452</a>; <a href="../../midend/src/lowering.rs">midend/src/lowering.rs:1171</a> e <a href="../../midend/src/lowering.rs">:1256</a>; <a href="../../midend/src/passes/mod.rs">midend/src/passes/mod.rs:20</a>; <a href="../../tools/spectra-cli/src/compiler_integration.rs">tools/spectra-cli/src/compiler_integration.rs:383</a>.</p>
+            <h3 class="mt-4 font-semibold text-white">Problem</h3>
+            <p class="mt-2 text-sm muted">IR usa <code>Vec</code> com buscas lineares de function/block. Monomorphization clona AST e especializações; inlining copia functions e remapeia valores; verification e passes repetem scans. Existe <code>PassManager</code>, mas a CLI orquestra passes manualmente. Isso pesa compile time, memória e code size antes de afetar runtime.</p>
+            <h3 class="mt-4 font-semibold text-white">Solution direction</h3>
+            <p class="mt-2 text-sm muted">Aprofundar o owner do IR com índices estáveis, análises reutilizáveis e budgets de inlining. Cachear especializações por tipos concretos e evitar cópias de templates. Usar o pass manager como execução única e observável, sem remover passes por suposição.</p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-white">Before / after</h3>
+            <div class="mt-2 mermaid">
+              flowchart LR
+                F["IR Function Vec"] --> S["scan / clone"]
+                S --> P1["pass 1"]
+                P1 --> P2["pass 2"]
+                P2 --> P3["verify"]
+                I["indexed IR owner"] --> A["shared analyses"]
+                A --> Q["budgeted pass pipeline"]
+                Q --> V["single verification contract"]
+            </div>
+            <h3 class="mt-4 font-semibold text-white">Benefits</h3>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm muted">
+              <li><code>locality</code>: IDs, CFG e análises são responsabilidade do IR.</li>
+              <li><code>leverage</code>: qualquer otimização nova reutiliza def-use/dominance.</li>
+              <li>testes: equivalência SSA, specialization limit, output e snapshots O0/O3.</li>
+            </ul>
+            <p class="mt-4 text-sm warn"><strong>Deletion test:</strong> apagar uma otimização deve reduzir apenas performance/code size; sem mudança de resultado, diagnostics ou ABI.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel rounded-2xl p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div><div class="text-xs uppercase tracking-widest accent">Candidato 05 · Worth exploring</div><h2 class="mt-2 text-2xl font-semibold text-white">Aprofundar o reactor e retirar um OS thread por timer</h2></div>
+          <span class="rounded-full bg-yellow-300/10 px-3 py-1 text-sm warn">prioridade 5</span>
+        </div>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <div>
+            <h3 class="font-semibold text-white">Files</h3>
+            <p class="mt-2 text-sm muted"><a href="../../runtime/src/reactor/mod.rs">runtime/src/reactor/mod.rs:303</a>; <a href="../../runtime/src/stdlib/mod.rs">runtime/src/stdlib/mod.rs:17124</a>, <a href="../../runtime/src/stdlib/mod.rs">:18073</a> e <a href="../../runtime/src/stdlib/mod.rs">:18475</a>.</p>
+            <h3 class="mt-4 font-semibold text-white">Problem</h3>
+            <p class="mt-2 text-sm muted"><code>register_timer</code> cria <code>thread::spawn</code> para cada timer, embora já exista reactor com fila e backend OS. Paralelamente, <code>AsyncTaskRegistry</code> reúne tasks, scopes, cancel handles, streams e sockets sob um grande <code>Mutex</code>. O resultado é custo de criação e serialização no caminho assíncrono.</p>
+            <h3 class="mt-4 font-semibold text-white">Solution direction</h3>
+            <p class="mt-2 text-sm muted">Aprofundar o scheduler de deadlines para alimentar a mesma fila do reactor, preservando generation/cancel semantics. Separar lifecycle de task de recursos I/O somente depois de medir workloads com timers, awaits e alta concorrência.</p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-white">Before / after</h3>
+            <div class="mt-2 mermaid">
+              flowchart LR
+                T["timer"] --> TH["OS thread"]
+                TH --> Q["reactor queue"]
+                T2["timer"] --> D["deadline queue"]
+                D --> DR["single driver / poll timeout"]
+                DR --> Q2["reactor queue"]
+                A["task registry Mutex"] --> Q
+                A2["task state + I/O ownership"] --> Q2
+            </div>
+            <h3 class="mt-4 font-semibold text-white">Benefits</h3>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm muted">
+              <li><code>locality</code>: deadlines, wakeups e cancellation no mesmo módulo.</li>
+              <li><code>leverage</code>: timer, timeout e sleep compartilham uma política.</li>
+              <li>testes: generation, cancelamento, fairness, ordering e no-thread-leak.</li>
+            </ul>
+            <p class="mt-4 text-sm risk"><strong>Cuidado:</strong> R-3121 mostrou que lock-free não é automaticamente mais rápido: no async-echo single-threaded, ficou 1,15–78x pior. Medir primeiro.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel rounded-2xl p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div><div class="text-xs uppercase tracking-widest accent">Candidato 06 · Worth exploring</div><h2 class="mt-2 text-2xl font-semibold text-white">Reorganizar handles e registries para reduzir locks compostos</h2></div>
+          <span class="rounded-full bg-yellow-300/10 px-3 py-1 text-sm warn">prioridade 6</span>
+        </div>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <div>
+            <h3 class="font-semibold text-white">Files</h3>
+            <p class="mt-2 text-sm muted"><a href="../../runtime/src/stdlib/mod.rs">runtime/src/stdlib/mod.rs:16720</a> e <a href="../../runtime/src/stdlib/mod.rs">:16798</a> (<code>MapRegistry</code>); <a href="../../runtime/src/stdlib/mod.rs">:20218</a> e <a href="../../runtime/src/stdlib/mod.rs">:20377</a> (<code>ConcurrentRegistry</code>).</p>
+            <h3 class="mt-4 font-semibold text-white">Problem</h3>
+            <p class="mt-2 text-sm muted">Operações de map primeiro travam o registry global para clonar <code>Arc&lt;Mutex&lt;StdMap&gt;&gt;</code> e depois travam o map. Async e concurrent também centralizam muitos estados em um lock global. Isso dá isolamento semântico, mas baixa <code>locality</code> física e aumenta o custo por operação.</p>
+            <h3 class="mt-4 font-semibold text-white">Solution direction</h3>
+            <p class="mt-2 text-sm muted">Aprofundar a política de handles em slots estáveis/generacionais e separar ownership por domínio. Escolher lock, shard ou acesso direto com base no workload; não trocar por lock-free por princípio. Manter handles inválidos, reset, free, cancel e concorrência observáveis.</p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-white">Before / after</h3>
+            <div class="mt-2 mermaid">
+              flowchart LR
+                H["handle"] --> R["global registry lock"]
+                R --> A["Arc clone"]
+                A --> M["per-object Mutex"]
+                H2["handle"] --> S["domain slot table"]
+                S --> O["object ownership policy"]
+                O --> K["one synchronization decision"]
+            </div>
+            <h3 class="mt-4 font-semibold text-white">Benefits</h3>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm muted">
+              <li><code>locality</code>: estado e sincronização deixam de estar em dois níveis.</li>
+              <li><code>leverage</code>: map, channels, tasks e buffers podem compartilhar a disciplina de handle.</li>
+              <li>testes: stale handles, reset, free, cross-thread access e invariants.</li>
+            </ul>
+            <p class="mt-4 text-sm warn"><strong>Deletion test:</strong> apagar o pool de slots não pode mudar a identidade lógica, os erros ou a vida útil pública dos handles.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel rounded-2xl p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div><div class="text-xs uppercase tracking-widest accent">Candidato 07 · Worth exploring</div><h2 class="mt-2 text-2xl font-semibold text-white">Desacoplar adapters de API/DB para melhorar build e distribuição</h2></div>
+          <span class="rounded-full bg-yellow-300/10 px-3 py-1 text-sm warn">prioridade 7</span>
+        </div>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <div>
+            <h3 class="font-semibold text-white">Files</h3>
+            <p class="mt-2 text-sm muted"><a href="../../packages/spectra-api/Cargo.toml">packages/spectra-api/Cargo.toml</a>; <a href="../../packages/spectra-db/Cargo.toml">packages/spectra-db/Cargo.toml</a>; <a href="../../tools/spectra-cli/Cargo.toml">tools/spectra-cli/Cargo.toml</a>.</p>
+            <h3 class="mt-4 font-semibold text-white">Problem</h3>
+            <p class="mt-2 text-sm muted">O CLI depende diretamente de API e DB, enquanto <code>spectra-db</code> compila SQLite bundled, PostgreSQL, native-tls e Redis no mesmo crate. Mesmo que o programa não use um driver, o grafo de build e o tamanho da distribuição carregam adapters externos.</p>
+            <h3 class="mt-4 font-semibold text-white">Solution direction</h3>
+            <p class="mt-2 text-sm muted">Criar módulos/adapters opcionais com features que preservem o conjunto default atual. Medir build limpo, build incremental, tempo do CLI e tamanho do binário antes de mudar defaults. Não transformar ausência de driver em erro silencioso.</p>
+          </div>
+          <div>
+            <h3 class="font-semibold text-white">Before / after</h3>
+            <div class="mt-2 mermaid">
+              flowchart LR
+                CLI["spectra-cli"] --> API["spectra-api"]
+                CLI --> DB["spectra-db all drivers"]
+                DB --> SQ["SQLite"]
+                DB --> PG["PostgreSQL"]
+                DB --> RD["Redis"]
+                CLI2["spectra-cli"] --> CORE["core package"]
+                CORE --> AD["selected adapters"]
+                AD --> SQ2["SQLite"]
+                AD --> PG2["PostgreSQL"]
+                AD --> RD2["Redis"]
+            </div>
+            <h3 class="mt-4 font-semibold text-white">Benefits</h3>
+            <ul class="mt-2 list-disc space-y-1 pl-5 text-sm muted">
+              <li><code>locality</code>: cada driver possui seu adapter e suas dependências.</li>
+              <li><code>leverage</code>: CI, users CPU-only e distribuição mínima evitam custo desnecessário.</li>
+              <li>testes: matrix explícita de features, API contract e compatibilidade do default.</li>
+            </ul>
+            <p class="mt-4 text-sm warn"><strong>Deletion test:</strong> retirar um driver opcional deve falhar explicitamente apenas quando ele for selecionado.</p>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel mt-8 rounded-2xl p-6">
+      <h2 class="text-2xl font-semibold text-white">Problemas transversais que não devem virar refactor cego</h2>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-xl bg-slate-950/50 p-4"><h3 class="font-semibold text-white">stdlib monolítico</h3><p class="mt-2 text-sm muted"><a href="../../runtime/src/stdlib/mod.rs">runtime/src/stdlib/mod.rs</a> tem 26.395 linhas e 549 chamadas de registro de host function. É um <code>module</code> <code>shallow</code> em ownership, embora concentre comportamento válido. Primeiro extrair seams por domínio e registrar testes; só depois mover storage.</p></div>
+        <div class="rounded-xl bg-slate-950/50 p-4"><h3 class="font-semibold text-white">GC / memory</h3><p class="mt-2 text-sm muted"><a href="../../runtime/src/memory/mod.rs">runtime/src/memory/mod.rs</a> combina collector, locks e estruturas dinâmicas. É oportunidade de médio prazo, mas sem evidência de que domina os cenários atuais; não deve preceder host calls/tensor/compile artifacts.</p></div>
+        <div class="rounded-xl bg-slate-950/50 p-4"><h3 class="font-semibold text-white">TensorGraph</h3><p class="mt-2 text-sm muted">A legalização do TensorGraph aparece como validação/dump no pipeline antes da otimização, enquanto o <code>ir_module</code> continua sendo entregue ao codegen. Confirmar se a intenção é diagnóstico ou transformação aplicada; evitar pagar duas representações sem uso.</p></div>
+        <div class="rounded-xl bg-slate-950/50 p-4"><h3 class="font-semibold text-white">String residual</h3><p class="mt-2 text-sm muted">O caminho de <code>StringBuilder</code> ainda faz cópia no finish. Só aprofundar ownership após R-3102 confirmar que a cópia domina o current head; a Fase 2 não mistura esse risco com dispatch.</p></div>
+      </div>
+    </section>
+
+    <section class="panel mt-8 rounded-2xl p-6">
+      <h2 class="text-2xl font-semibold text-white">Próximos passos recomendados</h2>
+      <ol class="mt-5 space-y-4 text-sm">
+        <li class="flex gap-4"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-400/15 accent">1</span><div><strong class="text-white">Fechar a atribuição causal.</strong><br><span class="muted">Desbloquear R-3102 com Linux/WSL2 e capturar flamegraph/perf/Callgrind para string, tensor, hostcall, matmul e loops. Até lá, chamar tudo de hipótese benchmark+IR.</span></div></li>
+        <li class="flex gap-4"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-400/15 accent">2</span><div><strong class="text-white">Implementar a Fase 2 HostCall/ABI.</strong><br><span class="muted">Adicionar slots/generation no runtime, imports cacheados no catálogo e lowering JIT/AOT compartilhado; manter APIs legadas, fallback, batch policy e baseline.</span></div></li>
+        <li class="flex gap-4"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-400/15 accent">3</span><div><strong class="text-white">Fechar R-3102 antes de atribuir ganho.</strong><br><span class="muted">Desbloquear Linux/WSL2 e capturar flamegraph/perf/Callgrind. Até lá, chamar a comparação de benchmark + instrumentação, nunca de causal.</span></div></li>
+        <li class="flex gap-4"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-400/15 accent">4</span><div><strong class="text-white">Só então atacar tensor storage.</strong><br><span class="muted">Instrumentar lock hold time, materializações, cópias i64/f64, pool hit/miss e bytes; não trocar locks por lock-free sem workload que justifique.</span></div></li>
+        <li class="flex gap-4"><span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-400/15 accent">5</span><div><strong class="text-white">Consolidar com ADR + deletion test.</strong><br><span class="muted">Cada refactor deve registrar contrato preservado, hipótese, métrica e rollback; só declarar complete quando implementação e evidência passarem juntas.</span></div></li>
+      </ol>
+    </section>
+
+    <footer class="mt-8 border-t border-slate-700/50 pt-5 text-sm muted">
+      <p><strong class="text-white">Estado verificado em 02/08/2026:</strong> HEAD <code>70f28f8</code>; `cargo test -p spectra-runtime --lib` (100), `spectra-backend --lib` (29), `spectra-midend --lib` (11), `spectra-compiler --lib` (17), `cargo check -p spectra-cli` e `python -m unittest scripts.test_phase31_profile scripts.test_phase31_gates` (27) passaram. O CLI mantém um warning de dead code já existente. O artefato R-3105 atual é <strong>BLOCKED</strong>, com fixture JIT/AOT correta, baseline byte a byte intacto e sem alegação causal; R-3102 permanece <code>in_progress</code>.</p>
+    </footer>
+  </main>
+</body>
+</html>

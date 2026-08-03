@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::{mem, ptr, slice, str};
 
+use crate::abi::SpectraHostCallCache;
 use crate::initialize;
 
 // ── Program argument store ───────────────────────────────────────────────────
@@ -267,6 +269,69 @@ fn host_registry() -> &'static Mutex<HostRegistry> {
     REGISTRY.get_or_init(|| Mutex::new(HostRegistry::new()))
 }
 
+/// Monotonic invalidation token for all generated host-call cache slots.
+///
+/// The registry remains protected by its existing mutex. The generation is
+/// deliberately separate so cache hits only perform atomic loads and never
+/// need to acquire that mutex. It starts at one so zero can remain the
+/// uninitialised generation in a cache slot.
+fn host_registry_generation() -> &'static AtomicU64 {
+    static GENERATION: AtomicU64 = AtomicU64::new(1);
+    &GENERATION
+}
+
+fn advance_host_registry_generation() {
+    // Registry mutations are rare compared with dispatch. A wrapping token is
+    // practically unreachable, and keeping the operation lock-free avoids
+    // introducing another synchronization primitive on the mutation path.
+    host_registry_generation().fetch_add(1, Ordering::AcqRel);
+}
+
+fn publish_host_cache(cache: &SpectraHostCallCache, generation: u64, function: *const ()) {
+    // Publish the pointer first and the generation second. Readers acquire the
+    // generation before consuming the pointer, which makes a matching cache
+    // entry observe the complete publication.
+    cache.function.store(function as *mut (), Ordering::Release);
+    cache.generation.store(generation, Ordering::Release);
+}
+
+fn resolve_cached_host(cache: &SpectraHostCallCache, name: &str) -> *const () {
+    let generation = host_registry_generation().load(Ordering::Acquire);
+    let cached_generation = cache.generation.load(Ordering::Acquire);
+    if cached_generation == generation {
+        let function = cache.function.load(Ordering::Acquire);
+        // Recheck the global token after loading the pointer. A mutation that
+        // completed while the two loads were in flight must force the slow
+        // path rather than allowing a completed mutation to leave a stale hit.
+        if host_registry_generation().load(Ordering::Acquire) == generation {
+            return function as *const ();
+        }
+    }
+
+    let registry = host_registry();
+    let guard = registry.lock().unwrap_or_else(|e| e.into_inner());
+    let function = guard.lookup(name);
+    let generation = host_registry_generation().load(Ordering::Acquire);
+    drop(guard);
+    publish_host_cache(cache, generation, function);
+    function
+}
+
+/// Resolves one descriptor against a generation already sampled for the
+/// current batch. A batch is a single ordered dispatch operation, so sharing
+/// that generation avoids rereading the global token for every descriptor
+/// while still taking the normal locked miss path when a slot is stale.
+fn resolve_cached_host_for_batch(
+    cache: &SpectraHostCallCache,
+    name: &str,
+    generation: u64,
+) -> *const () {
+    if cache.generation.load(Ordering::Acquire) == generation {
+        return cache.function.load(Ordering::Acquire) as *const ();
+    }
+    resolve_cached_host(cache, name)
+}
+
 /// Borrows a UTF-8 host name from generated code without materializing a
 /// `String`. The caller must ensure the pointed-to bytes remain valid for the
 /// duration of the returned borrow. JIT name storage is owned by the code
@@ -298,18 +363,29 @@ pub struct SpectraHostBatchCall {
     pub result_len: usize,
 }
 
-fn invoke_registered_host(
-    name: &str,
+/// Descriptor consumed by the cache-aware internal hostcall batch
+/// dispatcher. The cache pointer is owned by generated JIT/AOT module data;
+/// the remaining fields intentionally match [`SpectraHostBatchCall`].
+#[repr(C)]
+#[derive(Clone, Copy)]
+#[doc(hidden)]
+pub struct SpectraHostCachedBatchCall {
+    pub cache_ptr: *const SpectraHostCallCache,
+    pub name_ptr: *const u8,
+    pub name_len: usize,
+    pub args_ptr: *const SpectraHostValue,
+    pub arg_len: usize,
+    pub results_ptr: *mut SpectraHostValue,
+    pub result_len: usize,
+}
+
+fn invoke_host_function(
+    func_ptr: *const (),
     args_ptr: *const SpectraHostValue,
     arg_len: usize,
     results_ptr: *mut SpectraHostValue,
     result_len: usize,
 ) -> i32 {
-    let registry = host_registry();
-    let guard = registry.lock().unwrap_or_else(|e| e.into_inner());
-    let func_ptr = guard.lookup(name);
-    drop(guard);
-
     if func_ptr.is_null() {
         return HOST_STATUS_NOT_FOUND;
     }
@@ -329,18 +405,61 @@ fn invoke_registered_host(
     }
 }
 
+fn invoke_host_function_unchecked(
+    func_ptr: *const (),
+    args_ptr: *const SpectraHostValue,
+    arg_len: usize,
+    results_ptr: *mut SpectraHostValue,
+    result_len: usize,
+) -> i32 {
+    if func_ptr.is_null() {
+        return HOST_STATUS_NOT_FOUND;
+    }
+
+    let func: HostFunction = unsafe { mem::transmute(func_ptr) };
+    let mut ctx = SpectraHostCallContext {
+        args: args_ptr,
+        arg_len,
+        results: results_ptr,
+        result_len,
+        invoke_fn: Some(spectra_rt_invoke_closure),
+    };
+    func(&mut ctx as *mut _)
+}
+
+fn invoke_registered_host(
+    name: &str,
+    args_ptr: *const SpectraHostValue,
+    arg_len: usize,
+    results_ptr: *mut SpectraHostValue,
+    result_len: usize,
+) -> i32 {
+    let registry = host_registry();
+    let guard = registry.lock().unwrap_or_else(|e| e.into_inner());
+    let func_ptr = guard.lookup(name);
+    drop(guard);
+
+    invoke_host_function(func_ptr, args_ptr, arg_len, results_ptr, result_len)
+}
+
 /// Registers a host function accessible to JITed code.
 pub fn register_host_function(name: &str, func: HostFunction) -> bool {
     let registry = host_registry();
     let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
-    guard.insert(name, func as *const ())
+    let inserted = guard.insert(name, func as *const ());
+    advance_host_registry_generation();
+    inserted
 }
 
 /// Removes a previously registered host function.
 pub fn unregister_host_function(name: &str) -> bool {
     let registry = host_registry();
     let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
-    guard.remove(name)
+    let removed = guard.remove(name);
+    if removed {
+        advance_host_registry_generation();
+    }
+    removed
 }
 
 /// Returns the host function pointer associated with the provided name.
@@ -360,6 +479,7 @@ pub fn clear_host_functions() {
     let registry = host_registry();
     let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     guard.clear();
+    advance_host_registry_generation();
 }
 
 /// Registers the built-in standard library host calls.
@@ -950,7 +1070,9 @@ pub extern "C" fn spectra_rt_host_register(
 
     let registry = host_registry();
     let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
-    guard.insert(name, fn_ptr)
+    let inserted = guard.insert(name, fn_ptr);
+    advance_host_registry_generation();
+    inserted
 }
 
 /// Unregisters a previously registered host function.
@@ -966,7 +1088,11 @@ pub extern "C" fn spectra_rt_host_unregister(name_ptr: *const u8, name_len: usiz
 
     let registry = host_registry();
     let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
-    guard.remove(name)
+    let removed = guard.remove(name);
+    if removed {
+        advance_host_registry_generation();
+    }
+    removed
 }
 
 /// Looks up a host function by name, returning `NULL` if not found or invalid.
@@ -1008,6 +1134,38 @@ pub extern "C" fn spectra_rt_host_invoke(
     };
 
     invoke_registered_host(name, args_ptr, arg_len, results_ptr, result_len)
+}
+
+/// Looks up a host function through a module-owned cache slot and invokes it.
+///
+/// Cache hits validate the registry generation and load the function pointer
+/// atomically. A miss falls back to the existing registry lock and publishes
+/// the result for subsequent calls. The individual call retains its own panic
+/// boundary and the public context layout is unchanged.
+#[no_mangle]
+pub extern "C" fn spectra_rt_host_invoke_cached(
+    cache_ptr: *const SpectraHostCallCache,
+    name_ptr: *const u8,
+    name_len: usize,
+    args_ptr: *const SpectraHostValue,
+    arg_len: usize,
+    results_ptr: *mut SpectraHostValue,
+    result_len: usize,
+) -> i32 {
+    if cache_ptr.is_null() || name_len == 0 || name_ptr.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (arg_len > 0 && args_ptr.is_null()) || (result_len > 0 && results_ptr.is_null()) {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    let Some(name) = (unsafe { read_host_name(name_ptr, name_len) }) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+
+    let function = resolve_cached_host(unsafe { &*cache_ptr }, name);
+    invoke_host_function(function, args_ptr, arg_len, results_ptr, result_len)
 }
 
 /// Invokes a bounded sequence of generic hostcalls in source order.
@@ -1052,6 +1210,55 @@ pub extern "C" fn spectra_rt_host_invoke_batch(
     }
 
     HOST_STATUS_SUCCESS
+}
+
+/// Invokes a bounded sequence of cache-aware generic hostcalls in source
+/// order. Unlike the legacy batch entry point, this new path wraps the whole
+/// sequence in one panic boundary. It stops at the first non-success status
+/// or panic and leaves all following descriptors unobserved.
+#[no_mangle]
+pub extern "C" fn spectra_rt_host_invoke_cached_batch(
+    calls_ptr: *const SpectraHostCachedBatchCall,
+    call_len: usize,
+) -> i32 {
+    if call_len == 0 || calls_ptr.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    let calls = unsafe { slice::from_raw_parts(calls_ptr, call_len) };
+    let batch_generation = host_registry_generation().load(Ordering::Acquire);
+    match catch_unwind(AssertUnwindSafe(|| {
+        for call in calls {
+            if call.cache_ptr.is_null() || call.name_len == 0 || call.name_ptr.is_null() {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+            if (call.arg_len > 0 && call.args_ptr.is_null())
+                || (call.result_len > 0 && call.results_ptr.is_null())
+            {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            }
+
+            let Some(name) = (unsafe { read_host_name(call.name_ptr, call.name_len) }) else {
+                return HOST_STATUS_INVALID_ARGUMENT;
+            };
+            let function =
+                resolve_cached_host_for_batch(unsafe { &*call.cache_ptr }, name, batch_generation);
+            let status = invoke_host_function_unchecked(
+                function,
+                call.args_ptr,
+                call.arg_len,
+                call.results_ptr,
+                call.result_len,
+            );
+            if status != HOST_STATUS_SUCCESS {
+                return status;
+            }
+        }
+        HOST_STATUS_SUCCESS
+    })) {
+        Ok(status) => status,
+        Err(_) => HOST_STATUS_INTERNAL_ERROR,
+    }
 }
 
 /// Checks runtime debug invariants for host registry and manual allocation state.
@@ -1136,6 +1343,7 @@ pub extern "C" fn spectra_rt_host_clear() {
     let registry = host_registry();
     let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
     guard.clear();
+    advance_host_registry_generation();
 }
 
 /// One-shot startup for AOT executables: initialises the runtime and registers
@@ -1568,6 +1776,253 @@ mod tests {
             HOST_STATUS_INVALID_ARGUMENT
         );
     }
+
+    #[test]
+    fn cached_host_invoke_observes_registration_replacement_and_clear() {
+        let _lock = test_guard();
+        spectra_rt_host_clear();
+
+        let cache = SpectraHostCallCache::new();
+        let name = b"spectra.test.cached_add";
+        let args = [20, 22];
+        let mut results = [0];
+
+        assert_eq!(
+            spectra_rt_host_invoke_cached(
+                &cache,
+                name.as_ptr(),
+                name.len(),
+                args.as_ptr(),
+                args.len(),
+                results.as_mut_ptr(),
+                results.len(),
+            ),
+            HOST_STATUS_NOT_FOUND
+        );
+
+        assert!(spectra_rt_host_register(
+            name.as_ptr(),
+            name.len(),
+            host_context_add as *const ()
+        ));
+        assert_eq!(
+            spectra_rt_host_invoke_cached(
+                &cache,
+                name.as_ptr(),
+                name.len(),
+                args.as_ptr(),
+                args.len(),
+                results.as_mut_ptr(),
+                results.len(),
+            ),
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(results[0], 42);
+
+        assert!(!spectra_rt_host_register(
+            name.as_ptr(),
+            name.len(),
+            host_context_fail as *const ()
+        ));
+        assert_eq!(
+            spectra_rt_host_invoke_cached(
+                &cache,
+                name.as_ptr(),
+                name.len(),
+                args.as_ptr(),
+                args.len(),
+                results.as_mut_ptr(),
+                results.len(),
+            ),
+            HOST_STATUS_INTERNAL_ERROR
+        );
+
+        assert!(spectra_rt_host_unregister(name.as_ptr(), name.len()));
+        assert_eq!(
+            spectra_rt_host_invoke_cached(
+                &cache,
+                name.as_ptr(),
+                name.len(),
+                args.as_ptr(),
+                args.len(),
+                results.as_mut_ptr(),
+                results.len(),
+            ),
+            HOST_STATUS_NOT_FOUND
+        );
+
+        assert!(spectra_rt_host_register(
+            name.as_ptr(),
+            name.len(),
+            host_context_add as *const ()
+        ));
+        spectra_rt_host_clear();
+        assert_eq!(
+            spectra_rt_host_invoke_cached(
+                &cache,
+                name.as_ptr(),
+                name.len(),
+                args.as_ptr(),
+                args.len(),
+                results.as_mut_ptr(),
+                results.len(),
+            ),
+            HOST_STATUS_NOT_FOUND
+        );
+    }
+
+    #[test]
+    fn cached_host_invoke_revalidates_after_concurrent_registry_mutation() {
+        let _lock = test_guard();
+        spectra_rt_host_clear();
+
+        static NAME: &[u8] = b"spectra.test.cached_concurrent";
+        let cache = SpectraHostCallCache::new();
+        let args = [20, 22];
+        let mut result = [0];
+        assert!(spectra_rt_host_register(
+            NAME.as_ptr(),
+            NAME.len(),
+            host_context_add as *const ()
+        ));
+        assert_eq!(
+            spectra_rt_host_invoke_cached(
+                &cache,
+                NAME.as_ptr(),
+                NAME.len(),
+                args.as_ptr(),
+                args.len(),
+                result.as_mut_ptr(),
+                result.len(),
+            ),
+            HOST_STATUS_SUCCESS
+        );
+
+        let mutation = std::thread::spawn(|| {
+            assert!(!spectra_rt_host_register(
+                NAME.as_ptr(),
+                NAME.len(),
+                host_context_fail as *const ()
+            ));
+        });
+        mutation.join().expect("registry mutation thread panicked");
+
+        assert_eq!(
+            spectra_rt_host_invoke_cached(
+                &cache,
+                NAME.as_ptr(),
+                NAME.len(),
+                args.as_ptr(),
+                args.len(),
+                result.as_mut_ptr(),
+                result.len(),
+            ),
+            HOST_STATUS_INTERNAL_ERROR
+        );
+
+        spectra_rt_host_clear();
+    }
+
+    #[test]
+    fn cached_host_invoke_batch_preserves_order_and_stops_at_first_error() {
+        let _lock = test_guard();
+        spectra_rt_host_clear();
+
+        let add_name = b"spectra.test.cached_batch_add";
+        let add_cache = SpectraHostCallCache::new();
+        let fail_cache = SpectraHostCallCache::new();
+        assert!(spectra_rt_host_register(
+            add_name.as_ptr(),
+            add_name.len(),
+            host_context_add as *const ()
+        ));
+        assert!(spectra_rt_host_register(
+            b"spectra.test.cached_batch_fail".as_ptr(),
+            b"spectra.test.cached_batch_fail".len(),
+            host_context_fail as *const ()
+        ));
+
+        let args_one = [20, 22];
+        let args_two = [3, 4];
+        let mut result_one = [0];
+        let mut result_two = [0];
+        let calls = [
+            SpectraHostCachedBatchCall {
+                cache_ptr: &add_cache,
+                name_ptr: add_name.as_ptr(),
+                name_len: add_name.len(),
+                args_ptr: args_one.as_ptr(),
+                arg_len: args_one.len(),
+                results_ptr: result_one.as_mut_ptr(),
+                result_len: result_one.len(),
+            },
+            SpectraHostCachedBatchCall {
+                cache_ptr: &add_cache,
+                name_ptr: add_name.as_ptr(),
+                name_len: add_name.len(),
+                args_ptr: args_two.as_ptr(),
+                arg_len: args_two.len(),
+                results_ptr: result_two.as_mut_ptr(),
+                result_len: result_two.len(),
+            },
+        ];
+
+        assert_eq!(
+            spectra_rt_host_invoke_cached_batch(calls.as_ptr(), calls.len()),
+            HOST_STATUS_SUCCESS
+        );
+        assert_eq!(result_one[0], 42);
+        assert_eq!(result_two[0], 7);
+
+        let mut after_failure = [99];
+        let failure_name = b"spectra.test.cached_batch_fail";
+        let failure_calls = [
+            SpectraHostCachedBatchCall {
+                cache_ptr: &fail_cache,
+                name_ptr: failure_name.as_ptr(),
+                name_len: failure_name.len(),
+                args_ptr: std::ptr::null(),
+                arg_len: 0,
+                results_ptr: std::ptr::null_mut(),
+                result_len: 0,
+            },
+            SpectraHostCachedBatchCall {
+                cache_ptr: &add_cache,
+                name_ptr: add_name.as_ptr(),
+                name_len: add_name.len(),
+                args_ptr: args_one.as_ptr(),
+                arg_len: args_one.len(),
+                results_ptr: after_failure.as_mut_ptr(),
+                result_len: after_failure.len(),
+            },
+        ];
+        assert_eq!(
+            spectra_rt_host_invoke_cached_batch(failure_calls.as_ptr(), failure_calls.len()),
+            HOST_STATUS_INTERNAL_ERROR
+        );
+        assert_eq!(after_failure[0], 99);
+
+        spectra_rt_host_clear();
+    }
+
+    #[test]
+    fn cached_host_invoke_rejects_invalid_descriptor() {
+        let _lock = test_guard();
+        let calls = [SpectraHostCachedBatchCall {
+            cache_ptr: std::ptr::null(),
+            name_ptr: std::ptr::null(),
+            name_len: 1,
+            args_ptr: std::ptr::null(),
+            arg_len: 0,
+            results_ptr: std::ptr::null_mut(),
+            result_len: 0,
+        }];
+
+        assert_eq!(
+            spectra_rt_host_invoke_cached_batch(calls.as_ptr(), calls.len()),
+            HOST_STATUS_INVALID_ARGUMENT
+        );
+    }
 }
 
 // ── Fast-path symbol retention ────────────────────────────────────────────────
@@ -1641,8 +2096,18 @@ pub fn keep_fast_symbols() {
     let _ = spectra_rt_string_char_at_fast(0, 0);
 
     // Generic dispatch symbols are also resolved by generated JIT/AOT code;
-    // reference them here so release linkers keep the internal batch entry
-    // point in the executable image.
+    // reference them here so release linkers keep both legacy and cache-aware
+    // internal entry points in the executable image.
     let _ = spectra_rt_host_invoke(ptr::null(), 0, ptr::null(), 0, ptr::null_mut(), 0);
     let _ = spectra_rt_host_invoke_batch(ptr::null(), 0);
+    let _ = spectra_rt_host_invoke_cached(
+        ptr::null(),
+        ptr::null(),
+        0,
+        ptr::null(),
+        0,
+        ptr::null_mut(),
+        0,
+    );
+    let _ = spectra_rt_host_invoke_cached_batch(ptr::null(), 0);
 }

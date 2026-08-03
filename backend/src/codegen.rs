@@ -13,11 +13,12 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::{BackendCodegenError, BackendResult};
 use crate::hostcall_abi::{
-    declare_runtime_bindings, register_jit_runtime_symbols, HostCallLoweringContext,
-    RuntimeBindings,
+    declare_runtime_bindings, intern_jit_host_call_site, register_jit_runtime_symbols,
+    HostCallLoweringContext, HostCallSiteRecord, RuntimeBindings,
 };
 use spectra_runtime::abi::{
     classify_host_call, resolve_host_call, FastHostCall, HostCallClass, RuntimeImport,
+    SpectraHostCallCache,
 };
 
 /// Dense SSA value lookup used by both JIT and AOT lowering.
@@ -88,29 +89,6 @@ pub(crate) struct StringLiteralRecord {
     pub(crate) data_id: Option<DataId>,
 }
 
-pub(crate) fn intern_host_name(
-    host_name_data: &mut HashMap<String, HostNameRecord>,
-    host_name_storage: &mut Vec<Box<[u8]>>,
-    name: &str,
-) -> HostNameRecord {
-    if let Some(record) = host_name_data.get(name) {
-        return *record;
-    }
-
-    let boxed = name.as_bytes().to_vec().into_boxed_slice();
-    let ptr = boxed.as_ptr() as u64;
-    let len = boxed.len();
-    host_name_storage.push(boxed);
-
-    let record = HostNameRecord {
-        ptr,
-        len,
-        data_id: None,
-    };
-    host_name_data.insert(name.to_string(), record);
-    record
-}
-
 /// Resolves a string literal to a stable pointer + length (R-3126).
 ///
 /// In JIT mode (when the entry is not already interned) this allocates a
@@ -168,8 +146,9 @@ pub struct CodeGenerator {
     /// slot (matches `IRType::Array{Int, N+1}` and the `*8` indexing
     /// in `emit_stack_string_char_at_inline`).
     string_literal_storage: Vec<Box<[i64]>>,
-    host_name_data: HashMap<String, HostNameRecord>,
+    host_call_sites: HashMap<String, HostCallSiteRecord>,
     host_name_storage: Vec<Box<[u8]>>,
+    host_call_cache_storage: Vec<Box<SpectraHostCallCache>>,
     hostcall_batch_stats: HostCallBatchStats,
 }
 
@@ -266,8 +245,9 @@ impl CodeGenerator {
             runtime_bindings,
             string_literal_data: HashMap::new(),
             string_literal_storage: Vec::new(),
-            host_name_data: HashMap::new(),
+            host_call_sites: HashMap::new(),
             host_name_storage: Vec::new(),
+            host_call_cache_storage: Vec::new(),
             hostcall_batch_stats: HostCallBatchStats::default(),
         }
     }
@@ -317,7 +297,12 @@ impl CodeGenerator {
         names.sort_unstable();
         names.dedup();
         for name in names {
-            intern_host_name(&mut self.host_name_data, &mut self.host_name_storage, &name);
+            intern_jit_host_call_site(
+                &mut self.host_call_sites,
+                &mut self.host_name_storage,
+                &mut self.host_call_cache_storage,
+                &name,
+            );
         }
     }
 
@@ -470,7 +455,7 @@ impl CodeGenerator {
         let blocks = ir_func.blocks.clone();
         let mut hostcall = HostCallLoweringContext {
             bindings: &self.runtime_bindings,
-            host_name_data: &self.host_name_data,
+            host_call_sites: &self.host_call_sites,
             string_literal_data: &mut self.string_literal_data,
             string_literal_storage: &mut self.string_literal_storage,
             batch_stats: &mut self.hostcall_batch_stats,
@@ -1038,7 +1023,9 @@ impl CodeGenerator {
 
     const R3105_MAX_BATCH_CALLS: usize = 8;
     const R3105_MAX_BATCH_STACK_BYTES: usize = 4096;
-    const R3105_BATCH_DESCRIPTOR_BYTES: usize = 6 * std::mem::size_of::<i64>();
+    /// Cache-aware descriptors carry one additional pointer. The public
+    /// batch statistics intentionally continue to report only arena sizes.
+    const R3105_BATCH_DESCRIPTOR_BYTES: usize = 7 * std::mem::size_of::<i64>();
 
     fn hostcall_batch_scalar_type(ty: Type) -> bool {
         ty == types::I8
@@ -1070,7 +1057,7 @@ impl CodeGenerator {
         start: usize,
         value_map: &DenseValueMap,
         builder: &FunctionBuilder,
-        host_name_data: &HashMap<String, HostNameRecord>,
+        host_call_sites: &HashMap<String, HostCallSiteRecord>,
     ) -> usize {
         let Some(InstructionKind::HostCall { host, .. }) =
             instructions.get(start).map(|instruction| &instruction.kind)
@@ -1098,7 +1085,7 @@ impl CodeGenerator {
                 break;
             };
             let fast_hostcall = matches!(classify_host_call(host), HostCallClass::Fast(_));
-            let known_hostcall = host_name_data.contains_key(host);
+            let known_hostcall = host_call_sites.contains_key(host);
             let scalar_result = Self::hostcall_batch_result_type(result_type.as_ref());
             let dependent_argument = args.iter().any(|arg| produced_results.contains(&arg.id));
             let unsupported_argument = args.iter().any(|arg| {
@@ -1182,6 +1169,19 @@ impl CodeGenerator {
         }
     }
 
+    fn host_cache_pointer<M: Module>(
+        module: &mut M,
+        builder: &mut FunctionBuilder,
+        record: HostCallSiteRecord,
+    ) -> Value {
+        if let Some(data_id) = record.cache_data_id {
+            let gv = module.declare_data_in_func(data_id, builder.func);
+            builder.ins().global_value(types::I64, gv)
+        } else {
+            builder.ins().iconst(types::I64, record.cache_ptr as i64)
+        }
+    }
+
     fn convert_host_result_value(
         builder: &mut FunctionBuilder,
         raw_value: Value,
@@ -1220,8 +1220,8 @@ impl CodeGenerator {
 
     fn generate_hostcall_batch<M: Module>(
         module: &mut M,
-        host_name_data: &HashMap<String, HostNameRecord>,
-        host_invoke_batch_func: FuncId,
+        host_call_sites: &HashMap<String, HostCallSiteRecord>,
+        host_invoke_cached_batch_func: FuncId,
         builder: &mut FunctionBuilder,
         instructions: &[Instruction],
         value_map: &mut DenseValueMap,
@@ -1309,15 +1309,16 @@ impl CodeGenerator {
             else {
                 unreachable!("hostcall batch was prevalidated");
             };
-            let record = *host_name_data.get(host).ok_or_else(|| {
+            let record = *host_call_sites.get(host).ok_or_else(|| {
                 BackendCodegenError::cranelift(format!(
                     "host call name '{}' was not pre-interned",
                     host
                 ))
             })?;
             let descriptor_offset = (index * Self::R3105_BATCH_DESCRIPTOR_BYTES) as i32;
-            let name_ptr = Self::host_name_pointer(module, builder, record);
-            let name_len = builder.ins().iconst(types::I64, record.len as i64);
+            let cache_ptr = Self::host_cache_pointer(module, builder, record);
+            let name_ptr = Self::host_name_pointer(module, builder, record.name);
+            let name_len = builder.ins().iconst(types::I64, record.name.len as i64);
             let args_ptr = if args.is_empty() {
                 builder.ins().iconst(types::I64, 0)
             } else {
@@ -1346,39 +1347,45 @@ impl CodeGenerator {
             }
             builder.ins().store(
                 MemFlags::new(),
-                name_ptr,
+                cache_ptr,
                 descriptor_base,
                 descriptor_offset,
             );
             builder.ins().store(
                 MemFlags::new(),
-                name_len,
+                name_ptr,
                 descriptor_base,
                 descriptor_offset + 8,
             );
             builder.ins().store(
                 MemFlags::new(),
-                args_ptr,
+                name_len,
                 descriptor_base,
                 descriptor_offset + 16,
             );
             builder.ins().store(
                 MemFlags::new(),
-                arg_len,
+                args_ptr,
                 descriptor_base,
                 descriptor_offset + 24,
             );
             builder.ins().store(
                 MemFlags::new(),
-                results_ptr,
+                arg_len,
                 descriptor_base,
                 descriptor_offset + 32,
             );
             builder.ins().store(
                 MemFlags::new(),
-                result_len,
+                results_ptr,
                 descriptor_base,
                 descriptor_offset + 40,
+            );
+            builder.ins().store(
+                MemFlags::new(),
+                result_len,
+                descriptor_base,
+                descriptor_offset + 48,
             );
 
             argument_offset += (args.len() as i32) * 8;
@@ -1387,7 +1394,7 @@ impl CodeGenerator {
             }
         }
 
-        let func_ref = module.declare_func_in_func(host_invoke_batch_func, builder.func);
+        let func_ref = module.declare_func_in_func(host_invoke_cached_batch_func, builder.func);
         let call_count_value = builder.ins().iconst(types::I64, call_count as i64);
         let call = builder
             .ins()
@@ -1476,13 +1483,13 @@ impl CodeGenerator {
                 instruction_index,
                 value_map,
                 builder,
-                hostcall.host_name_data,
+                hostcall.host_call_sites,
             );
             if batch_end > instruction_index {
                 Self::generate_hostcall_batch(
                     module,
-                    hostcall.host_name_data,
-                    hostcall.bindings.get(RuntimeImport::HostInvokeBatch),
+                    hostcall.host_call_sites,
+                    hostcall.bindings.get(RuntimeImport::HostInvokeCachedBatch),
                     builder,
                     &ir_block.instructions[instruction_index..batch_end],
                     value_map,
@@ -1562,7 +1569,6 @@ impl CodeGenerator {
     ) -> BackendResult<()> {
         let string_literal_data = &mut hostcall.string_literal_data;
         let string_literal_storage = &mut hostcall.string_literal_storage;
-        let host_name_data = hostcall.host_name_data;
 
         // Helper to get value from map
         let get_value = |v: &IRValue| -> BackendResult<Value> {
@@ -2540,24 +2546,15 @@ impl CodeGenerator {
                     return Ok(());
                 }
 
-                let record = host_name_data.get(host).copied().ok_or_else(|| {
+                let record = hostcall.host_call_site(host).ok_or_else(|| {
                     BackendCodegenError::cranelift(format!(
                         "host call name '{}' was not pre-interned",
                         host
                     ))
                 })?;
-                let name_ptr = if let Some(data_id) = record.data_id {
-                    // AOT mode: the name lives in a .rodata section; get its address
-                    // via a GlobalValue so the linker patches it correctly.
-                    let gv = module.declare_data_in_func(data_id, builder.func);
-                    builder.ins().global_value(types::I64, gv)
-                } else {
-                    // JIT mode: the name is a heap-allocated byte slice that lives
-                    // for the duration of the code generator — safe to embed as an
-                    // immediate pointer.
-                    builder.ins().iconst(types::I64, record.ptr as i64)
-                };
-                let name_len = builder.ins().iconst(types::I64, record.len as i64);
+                let cache_ptr = Self::host_cache_pointer(module, builder, record);
+                let name_ptr = Self::host_name_pointer(module, builder, record.name);
+                let name_len = builder.ins().iconst(types::I64, record.name.len as i64);
 
                 let (args_ptr, args_count, args_allocation) = if args.is_empty() {
                     (
@@ -2624,12 +2621,13 @@ impl CodeGenerator {
                 };
 
                 let func_ref = module.declare_func_in_func(
-                    hostcall.runtime_func(RuntimeImport::HostInvoke),
+                    hostcall.runtime_func(RuntimeImport::HostInvokeCached),
                     builder.func,
                 );
                 let call = builder.ins().call(
                     func_ref,
                     &[
+                        cache_ptr,
                         name_ptr,
                         name_len,
                         args_ptr,
@@ -3580,10 +3578,18 @@ mod tests {
         module.add_function(function);
 
         codegen.pre_intern_host_names(&module);
-        assert_eq!(codegen.host_name_data.len(), 1);
+        assert_eq!(codegen.host_call_sites.len(), 1);
         assert!(codegen
-            .host_name_data
+            .host_call_sites
             .contains_key("spectra.std.test.duplicate"));
+        let record = codegen
+            .host_call_sites
+            .get("spectra.std.test.duplicate")
+            .copied()
+            .expect("deduplicated host-call record");
+        assert_ne!(record.cache_ptr, 0);
+        assert!(record.cache_data_id.is_none());
+        assert_eq!(codegen.host_call_cache_storage.len(), 1);
     }
 
     #[test]

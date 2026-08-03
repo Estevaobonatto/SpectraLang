@@ -5,11 +5,57 @@
 
 use cranelift::prelude::{types, AbiParam, Signature};
 use cranelift_jit::JITBuilder;
-use cranelift_module::{FuncId, Linkage, Module, ModuleError};
-use spectra_runtime::abi::{AbiScalar, FastHostCall, RuntimeImport};
+use cranelift_module::{DataId, FuncId, Linkage, Module, ModuleError};
+use spectra_runtime::abi::{AbiScalar, FastHostCall, RuntimeImport, SpectraHostCallCache};
 use std::collections::HashMap;
 
 use crate::codegen::{HostCallBatchStats, HostNameRecord, StringLiteralRecord};
+
+/// One stable generated call-site record per distinct host name.
+///
+/// The name record identifies the bytes passed on a cache miss. The cache
+/// pointer is used by JIT code; AOT code uses `cache_data_id` to address the
+/// equivalent writable data object in the emitted object file.
+#[derive(Clone, Copy)]
+pub(crate) struct HostCallSiteRecord {
+    pub(crate) name: HostNameRecord,
+    pub(crate) cache_ptr: u64,
+    pub(crate) cache_data_id: Option<DataId>,
+}
+
+/// Interns a JIT host-call name and allocates exactly one cache slot for it.
+/// Both allocations are owned by the code generator and therefore outlive
+/// every generated function that embeds their addresses.
+pub(crate) fn intern_jit_host_call_site(
+    host_call_sites: &mut HashMap<String, HostCallSiteRecord>,
+    host_name_storage: &mut Vec<Box<[u8]>>,
+    host_call_cache_storage: &mut Vec<Box<SpectraHostCallCache>>,
+    name: &str,
+) -> HostCallSiteRecord {
+    if let Some(record) = host_call_sites.get(name) {
+        return *record;
+    }
+
+    let name_bytes = name.as_bytes().to_vec().into_boxed_slice();
+    let name_record = HostNameRecord {
+        ptr: name_bytes.as_ptr() as u64,
+        len: name_bytes.len(),
+        data_id: None,
+    };
+    host_name_storage.push(name_bytes);
+
+    let cache = Box::new(SpectraHostCallCache::new());
+    let cache_ptr = (&*cache as *const SpectraHostCallCache) as u64;
+    host_call_cache_storage.push(cache);
+
+    let record = HostCallSiteRecord {
+        name: name_record,
+        cache_ptr,
+        cache_data_id: None,
+    };
+    host_call_sites.insert(name.to_string(), record);
+    record
+}
 
 /// All runtime imports declared in one JIT or AOT module.
 pub(crate) struct RuntimeBindings {
@@ -25,7 +71,7 @@ impl RuntimeBindings {
 /// Mutable state shared by the host-call lowering helpers.
 pub(crate) struct HostCallLoweringContext<'a> {
     pub(crate) bindings: &'a RuntimeBindings,
-    pub(crate) host_name_data: &'a HashMap<String, HostNameRecord>,
+    pub(crate) host_call_sites: &'a HashMap<String, HostCallSiteRecord>,
     pub(crate) string_literal_data: &'a mut HashMap<String, StringLiteralRecord>,
     pub(crate) string_literal_storage: &'a mut Vec<Box<[i64]>>,
     pub(crate) batch_stats: &'a mut HostCallBatchStats,
@@ -38,6 +84,10 @@ impl HostCallLoweringContext<'_> {
 
     pub(crate) fn fast_func(&self, host_call: FastHostCall) -> FuncId {
         self.runtime_func(host_call.runtime_import())
+    }
+
+    pub(crate) fn host_call_site(&self, name: &str) -> Option<HostCallSiteRecord> {
+        self.host_call_sites.get(name).copied()
     }
 }
 

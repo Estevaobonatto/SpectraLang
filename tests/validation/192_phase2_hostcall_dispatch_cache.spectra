@@ -1,0 +1,30 @@
+module phase2_hostcall_dispatch_cache;
+
+import std.math as math;
+
+fn cached_round(value: int) -> int {
+    // These generic calls share stable cache slots across every invocation of
+    // the compiled function. The result dependency also keeps the existing
+    // conservative batch policy observable in the generated code.
+    let absolute = math.abs(value);
+    let bounded = math.max(absolute, 10);
+    let capped = math.min(bounded, 12);
+    return capped;
+}
+
+pub fn main() -> int {
+    let total = 0;
+    let i = 0;
+    while i < 256 {
+        total = total + cached_round(i - 128);
+        i = i + 1;
+    }
+
+    // |i - 128| is below 10 for 19 values and otherwise is capped at 12.
+    // The expected total makes the dispatch path observable without adding a
+    // new language or runtime API surface.
+    if total != 3028 {
+        return 1;
+    }
+    return 0;
+}

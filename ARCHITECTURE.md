@@ -339,11 +339,21 @@ nativo, assinatura Cranelift, aridade e endereço JIT.
 
 O lowering classifica um nome uma vez em `FastHostCall`. A aridade é validada
 antes da interceptação: nome conhecido com aridade incorreta e nome desconhecido
-seguem o `spectra_rt_host_invoke` genérico. Fast paths nunca são enviados ao
-batch genérico; dependências entre resultados, o limite de oito chamadas e o
-orçamento de 4096 bytes permanecem política do backend. O runtime continua
-owner do registry, do contexto, de `catch_unwind` e do dispatch dinâmico; a
-remoção de lookup/lock/`catch_unwind` repetidos fica para uma fase posterior.
+seguem o caminho genérico cacheado `spectra_rt_host_invoke_cached`. Fast paths
+nunca são enviados ao batch genérico; dependências entre resultados, o limite
+de oito chamadas e o orçamento de 4096 bytes permanecem política do backend.
+O cache é um slot `SpectraHostCallCache` por nome, mantido vivo pelo JIT ou
+emitido como dado local gravável no AOT. Hits validam a geração global com
+atomics e não adquirem o lock do registry; misses e invalidações consultam o
+registry pelo caminho existente. Registro, substituição, remoção e `clear`
+continuam imediatamente visíveis a código já compilado. O batch cacheado usa
+um descriptor de sete palavras e uma única fronteira de `catch_unwind`, mas
+os imports legados permanecem disponíveis sem alteração de contrato.
+
+O runtime continua owner do registry, do contexto, dos status, da publicação
+atômica e do dispatch dinâmico. As alocações atuais de argumentos/resultados
+permanecem fora desta fase. A atribuição causal de performance continua
+dependente da evidência oficial Linux de R-3102.
 
 ### 2.9 Fase 8 — Runtime e Execução
 
@@ -351,7 +361,7 @@ remoção de lookup/lock/`catch_unwind` repetidos fica para uma fase posterior.
 
 O runtime é inicializado uma única vez por processo (`OnceLock<RuntimeState>`):
 - **Memória**: `HybridMemory` combina alocação manual (via `spectra_rt_manual_alloc`) com um garbage collector traçado.
-- **Host calls**: Funções da stdlib (I/O, math, collections) são registradas como callbacks invocáveis pelo nome via `spectra_rt_host_invoke`.
+- **Host calls**: Funções da stdlib (I/O, math, collections) são registradas como callbacks invocáveis pelo nome via os entry points genérico legado ou cacheado.
 - **Args**: `set_program_args` configura `std.env.env_arg` / `std.env.env_args_count`.
 - **Execution**: Após JIT, o resultado de `main()` (se houver) é propagado como exit code do processo.
 

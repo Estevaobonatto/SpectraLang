@@ -1,0 +1,79 @@
+{
+  "schema": "spectra.phase2.hostcall_dispatch_cache_evidence.v1",
+  "generated_at": "2026-08-02",
+  "git_revision": "70f28f8c3d4d5568d028fbfb2c2ad02bfd676ac0",
+  "control_revision": "70f28f8c3d4d5568d028fbfb2c2ad02bfd676ac0",
+  "classification": "benchmark_and_ir_hypothesis",
+  "profiling_causal_claim": false,
+  "baseline_sha256": "452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b",
+  "benchmark": {
+    "script": "scripts/benchmark_r3105_hostcalls.py",
+    "source": "benchmarks/cross-lang/hostcall-batch/spectra/bench.spectra",
+    "candidate_profile": "release",
+    "measurement_policy": {
+      "warmup_runs": 3,
+      "timed_runs": 20,
+      "independent_runs": 5,
+      "aggregation": "median_of_group_medians",
+      "runtime_measurement": "precompiled_aot_executable"
+    },
+    "candidate_source_tree_fingerprint": "54bf0eadf9176703960f95bdce842eb46625dbc2b9739015ec4f981ae21ff715",
+    "control_source_tree_fingerprint": "e53290757f7b31c747f8166267919bbd06036d0aa1f4f577836b8ccb3de6bbae",
+    "candidate_binary_sha256": "1d8b4aefde76efaa89c08ee34d585fdb5752c196bef31720f13f81fbc6cc268e",
+    "control_binary_sha256": "4a71a0de3e85d2d16ff3cc740af9b5c1081d48afb3fead6c6b78b56b0a2b4a4c",
+    "candidate_group_medians_ns": [
+      15690250,
+      13585450,
+      15240350,
+      18022400,
+      15140550
+    ],
+    "control_group_medians_ns": [
+      19236200,
+      14221550,
+      16501550,
+      18515750,
+      16573950
+    ],
+    "candidate_median_ns": 15240350,
+    "control_median_ns": 16573950,
+    "candidate_to_control_ratio": 0.9195363808868737,
+    "required_max_ratio": 0.9,
+    "speedup_gate_passed": false,
+    "candidate_batch_stats": {
+      "batched_sites": 1,
+      "batched_hostcalls": 3,
+      "fallback_hostcalls": 0,
+      "argument_arena_bytes": 40,
+      "result_arena_bytes": 24
+    },
+    "control_batch_stats": {
+      "batched_sites": 1,
+      "batched_hostcalls": 3,
+      "fallback_hostcalls": 0,
+      "argument_arena_bytes": 40,
+      "result_arena_bytes": 24
+    },
+    "correctness_passed": true,
+    "control_correctness_passed": true
+  },
+  "functional_validation": {
+    "fixture": "tests/validation/192_phase2_hostcall_dispatch_cache.spectra",
+    "jit_passed": true,
+    "aot_passed": true,
+    "phase31_code_validation_21_of_21": true,
+    "compatibility_fixtures": [
+      "tests/validation/191_phase31_hostcall_batch_contract.spectra",
+      "tests/validation/180_phase31_string_builder.spectra",
+      "tests/validation/185_async_echo_batch_contract.spectra"
+    ],
+    "compatibility_fixture_smoke_passed": true
+  },
+  "status": "blocked_performance_gate",
+  "notes": [
+    "The Windows candidate/control measurement did not meet the required <= 0.90x certification threshold.",
+    "The candidate and control preserved identical batching statistics and functional results.",
+    "No causal performance claim is made; official Linux profiling remains the R-3102 gate.",
+    "The historical Phase 31 baseline artifact was not modified."
+  ]
+}
