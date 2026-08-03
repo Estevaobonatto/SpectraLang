@@ -1007,7 +1007,7 @@ Make the language productive enough for daily engineering.
 - `spectralang run` emits an `error[runtime]` diagnostic with the source location and stack frame `0: main()` when a program exits with a non-zero status.
 - `spectralang compile --emit-object` and `--emit-exe` write a sibling `.spectra-debug.json` source map containing the artifact path, source path, entrypoint span, exported native symbol, and supported debugger workflow.
 - `scripts/validate_debugger_stack_traces.py` validates runtime stack output and AOT debug map emission.
-- R-2903 owns native debug emission. Windows AOT debug builds attach compiler-owned CodeView records and request linker-produced PDBs; Unix builds generate DWARF v4 DIEs and line programs through `gimli` and attach them to the native object when a Unix target/toolchain is available. The CLI now receives function/local metadata from the IR and Cranelift value labels are collected from the register allocator; source-text scanning is not an authoritative debug source. The `.spectra-debug.json` file remains supplementary metadata and is never accepted as a replacement for the native artifact. Structural parsing is mandatory in the Phase 29 gate; interactive debugger smoke must execute when a usable debugger is available and is not satisfied by tool discovery alone. R-2903 remains incomplete until allocator locations are consumed by final native records and a Linux lane validates DWARF.
+- R-2903 owns native debug emission. Windows AOT debug builds attach compiler-owned CodeView records and request linker-produced PDBs; Unix builds generate DWARF v4 DIEs and line programs through `gimli` and attach them to the native object when a Unix target/toolchain is available. The CLI now receives function/local metadata from the IR and Cranelift value labels are collected from the register allocator; source-text scanning is not an authoritative debug source. The `.spectra-debug.json` file remains supplementary metadata and is never accepted as a replacement for the native artifact. Structural parsing is mandatory in the Phase 29 gate; interactive debugger smoke must execute when a usable debugger is available and is not satisfied by tool discovery alone. The aggregate `run_tests.ps1` records the known allocator-location gap as `INFO:DEFERRED` when structural checks pass, while the direct validator remains fail-closed. R-2903 remains incomplete until allocator locations are consumed by final native records and a Linux lane validates DWARF.
 
 ## 10.3 Profiler and Benchmark Tooling
 
@@ -1334,7 +1334,7 @@ Completed:
 - Static shape checks cover declared tensor compatibility, elementwise tensor operations, `tensor.matmul`, `tensor.reshape`, and `ml.linear`.
 - `diff { ... }` is available as the language-level differentiable block expression and lowers to compiler-visible R-3004 reverse steps dispatched directly to runtime kernels; the public `std.tensor.backward` path remains compatibility-only.
 - Unsupported qualified stdlib operations inside `diff { ... }` fail with stable diagnostic `E1406`.
-- Gradient validation covers tensor math, helper calls, control flow, and `std.ml` layer/loss integration.
+- Gradient validation covers direct tensor math, control-flow around differentiable blocks, and `std.ml` layer/loss integration. Interprocedural differentiation of user-defined helper calls remains a future extension outside the current Phase 14 completion gate.
 
 Future extensions outside the Phase 14 completion gate:
 
@@ -1784,8 +1784,9 @@ baselines.
   `std.api.*`, `spectra.api.*` host calls, `packages/spectra-api`,
   HTTP/1.1-first delivery, `rustls`, and Phase 21 async dependencies)
 - `R-2202` `spectra-api` Rust crate and host call registration (complete;
-  `packages/spectra-api` links against `spectra-runtime`, registers 194
-  `spectra.api.*` host calls through the runtime host-call registry, exposes
+  `packages/spectra-api` links against `spectra-runtime`, registers 277 public
+  `spectra.api.*` host calls through the runtime host-call registry, satisfies
+  the runtime's 211-name required namespace, exposes
   `spectra_api_register_host_calls`, and is validated by
   `scripts/validate_r2202_spectra_api_hostcalls.py`)
 - `R-2203` `std.api.*` semantic and tooling surface (complete; virtual

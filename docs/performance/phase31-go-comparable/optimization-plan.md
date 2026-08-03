@@ -44,8 +44,9 @@ current release binary and Git revision. The five tracked snapshots are
 refreshed. Baseline SHA-256 remains
 `452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b` before and
 after validation. The evidence remains classified
-`benchmark_and_ir_hypothesis`; R-3102 is still `in_progress`, while R-3104 and
-R-3105 are complete under their independent promotion gates.
+`benchmark_and_ir_hypothesis`; R-3102 is still `in_progress`, R-3104 is
+complete, and R-3105 remains `in_progress` because its current-head
+recertification is blocked by stale/inconclusive release evidence.
 
 ## Current evidence inputs
 
@@ -87,8 +88,9 @@ joins, 10,002 executed tasks, `max_pending_tasks=10`, zero task failures, and
 balanced batch accounting. The deterministic classification is
 `runtime_batch_path` (hypothesis only; no causal profiler claim). The user
 accepted this focused criterion; the immutable baseline and historical R-3131
-and R-3132 evidence remain preserved. R-3104 and R-3105 are now complete; this
-does not authorize R-3106 or later work.
+and R-3132 evidence remain preserved. R-3104 is complete, while R-3105 remains
+open until its current-head evidence is recertified; this does not authorize
+R-3106 or later work.
 
 ## R-3104 runtime-oriented closure (2026-08-02)
 
@@ -106,33 +108,32 @@ within `1.202162x` and 10% dispersion, and the baseline SHA-256 is unchanged.
 The evidence remains `benchmark_and_ir_hypothesis`; no causal profiling claim
 was made and R-3102 stays `in_progress`.
 
-## R-3105 allocation-free hostcall dispatch (2026-08-02)
+## R-3105 allocation-free hostcall dispatch (in_progress; 2026-08-02)
 
-R-3105 is **complete** at revision
-`2830c5fefa8b25d62c837d6e6b2fa77fd36aa8bf`. Runtime host-name parsing now
+The implementation is present, but R-3105 is **in_progress** pending a
+current-head performance certification. Runtime host-name parsing now
 borrows UTF-8 data, and the internal batch dispatcher preserves registration,
 callback, status, and failure-order semantics. JIT and AOT plan only bounded
 groups of up to eight independent generic hostcalls; Fast ABI, dependencies,
 and uncertain cases use the existing individual lowering. Descriptors,
 arguments, and results use bounded Cranelift stack slots.
 
-The dedicated AOT benchmark uses five independent groups with three warmups and
-twenty samples. The candidate/control median ratio is `0.474774x`, a measured
-`52.5%` reduction against the clean-HEAD control, with one batched site,
-three grouped hostcalls, zero fallback calls in the hot fixture, and
-`40`/`24` bytes of argument/result arenas. The 21-scenario Spectra + Go + Rust
-release reports are functionally and semantically compatible, both strict
-gates pass, the six R-3104 AOT scenarios remain within `1.25x` Go and 5%
-regression limits, and the JIT/AOT contract fixture returns successfully.
-Java remains excluded, the evidence is still
-`benchmark_and_ir_hypothesis`, and the baseline SHA-256 is unchanged.
+The historical dedicated AOT benchmark used five independent groups with
+three warmups and twenty samples and measured `0.474774x`; that result is
+preserved but is not current-head certification. The current evidence file is
+`BLOCKED` because the available release artifacts do not match HEAD and include
+inconclusive samples plus a `tensor-create` candidate/control regression above
+5%. The JIT/AOT contract fixture still returns successfully, Java remains
+excluded, the evidence is still `benchmark_and_ir_hypothesis`, and the baseline
+SHA-256 is unchanged. Re-run the candidate/control benchmark and strict release
+matrix on the current HEAD before changing the status to `complete`.
 
 ## Prioritized implementation matrix
 
 | ID | Cenário(s) afetado(s) | Evidência atual | Hipótese de gargalo (confiança) | Intervenção planejada | Métrica primária | Ganho esperado | Risco de rejeição | Critério de rollback | Dependências | Comando de validação |
 |---|---|---|---|---|---|---|---|---|---|---|
 | R-3104 | `cpu-loop-sum`, `cpu-fibs`, `cpu-hashmap`, `tensor-create`, `tensor-elementwise`, `tensor-matmul` | Medianas AOT controle/candidato + reports e IR O0/O3; lookup/codegen aparece no IR, sem atribuição causal | Mapa esparso, internamento tardio e análise repetida de `alloca` podem dominar lowering (média) | Preservar `DenseValueMap`, pré-computar `HostNameRecord`, fazer varredura linear de usos, promover somente escalares com `store` dominando `load`, separar JIT/AOT | runtime AOT Spectra/Go e drift contra baseline; codegen por cenário como guardrail | Spectra ≤1,25x Go nos seis cenários, sem regressão >5%; ganho geométrico não é exigido | Mudança de ordem/ABI, `use_var` antes de `def_var`, picos em módulos grandes | Reverter se qualquer cenário correto falhar, runtime exceder +5% contra baseline/controle, codegen individual exceder +5%, ou o IR mudar sem ganho | R-3103 | `cargo test -p spectra-backend`; benchmark AOT controle/candidato com 5 grupos; `phase31_run_all.py`; strict cross-lang |
-| R-3105 | `benchmarks/cross-lang/hostcall-batch`, `ml-mlp-step`, `tensor-elementwise`, `async-pipeline` | `evidence-r3105-hostcall-batching.{json,md}`, batch stats e dois reports release atuais | Lookup `String` e dispatch genérico repetidos na fronteira hostcall; batching conservador é hipótese mensurável, não profiling causal | Lookup emprestado, `spectra_rt_host_invoke_batch`, grupos independentes de até oito hostcalls e fallback individual | mediana AOT do microbenchmark candidato/controle; 21 cenários e seis AOT como guardrails | `0,474774x` candidato/controle (`52,5%` mais rápido) no fixture dedicado | Reordenação de efeitos, lifetime de buffers, falha JIT/AOT ou desacordo de status | Reverter se ratio >`0,90x`, qualquer cenário falhar, drift >5%, async-echo sair da janela, ou baseline mudar | R-3103, R-3104 | `benchmark_r3105_hostcalls.py`; `validate_r3105_hostcall_batching.py`; `phase31_run_all.py`; strict cross-lang |
+| R-3105 | `benchmarks/cross-lang/hostcall-batch`, `ml-mlp-step`, `tensor-elementwise`, `async-pipeline` | Evidência histórica `evidence-r3105-hostcall-batching.{json,md}` e evidência atual `BLOCKED`; batch stats e reports precisam ser regenerados no HEAD | Lookup `String` e dispatch genérico repetidos na fronteira hostcall; batching conservador é hipótese mensurável, não profiling causal | Lookup emprestado, `spectra_rt_host_invoke_batch`, grupos independentes de até oito hostcalls e fallback individual | mediana AOT do microbenchmark candidato/controle; 21 cenários e seis AOT como guardrails | Histórico `0,474774x`; nenhum ganho atual é certificado enquanto o gate estiver bloqueado | Reordenação de efeitos, lifetime de buffers, falha JIT/AOT ou desacordo de status | Reverter se ratio >`0,90x`, qualquer cenário falhar, drift >5%, async-echo sair da janela, ou baseline mudar | R-3103, R-3104 | `benchmark_r3105_hostcalls.py`; `validate_r3105_hostcall_batching.py`; `phase31_run_all.py`; strict cross-lang |
 | R-3106 | Loops CPU e criação de tensores | Contagem de `alloca` O0/O3 por cenário e lifetime visível no IR | Slots temporários não são reutilizados entre iterações (média-baixa) | Hoist de allocas invariantes, fusão de slots e reuse por lifetime não sobreposto | allocas/função e bytes alocados | 1.05–1.10x onde allocas dominam | Alias/lifetime incorreto e regressão numérica | Reverter se allocas não reduzirem ou sanitizer/fixtures falharem | R-3103, R-1502 | `cargo test -p spectra-midend`; snapshots O0/O3; strict cross-lang |
 | R-3107 | `tensor-create` e passos de materialização | Evidência concluída em `181_phase31_buffer_pool.spectra`, pool hit/miss e gate tensor; apontar para `roadmap.toml` | Pool tipado elimina zero-fill/intermediários (alta; já validada) | Manter buffer reuse type/lifetime-safe; só ampliar cobertura se novo benchmark exigir | allocations, bytes e mediana `tensor-create` | Resultado já aceito: redução de alocação e gap release invertido | Reuso de shape/dtype/layout incompatível | Reverter qualquer mudança que altere contagem ativa, bytes ou tolerância R-1503 | R-1502 | `cargo test -p spectra-runtime`; `spectralang run tests/validation/181_phase31_buffer_pool.spectra`; Phase 31 gate |
 | R-3108 | `cpu-string-build` | Regressão `180_phase31_string_builder.spectra` e medição aceita de string builder; snapshot textual versionado | Materialização repetida de strings cria cópias no ABI (alta; já validada) | Preservar builder/ABI otimizado e medir novas mudanças contra o artefato aceito | ns/iter e bytes/cópias por string | Resultado já aceito: melhoria medida sem regressão R-109 | Quebra de string cross-module ou ownership | Reverter se R-109 ou o cenário de string regredir >5% | R-109 | `cargo test -p spectra-runtime`; `spectralang run tests/validation/180_phase31_string_builder.spectra`; strict |

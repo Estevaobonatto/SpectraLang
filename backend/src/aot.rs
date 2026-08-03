@@ -683,7 +683,7 @@ mod tests {
         for _ in 0..2 {
             block.add_instruction(InstructionKind::HostCall {
                 result: None,
-                host: "spectra.std.test.duplicate".to_string(),
+                host: "spectra.test.duplicate".to_string(),
                 args: vec![],
                 result_type: None,
             });
@@ -696,20 +696,20 @@ mod tests {
         assert_eq!(codegen.host_call_sites.len(), 1);
         assert!(codegen
             .host_call_sites
-            .contains_key("spectra.std.test.duplicate"));
+            .contains_key("spectra.test.duplicate"));
         assert!(codegen
             .host_call_sites
-            .get("spectra.std.test.duplicate")
+            .get("spectra.test.duplicate")
             .and_then(|record| record.name.data_id)
             .is_some());
         assert!(codegen
             .host_call_sites
-            .get("spectra.std.test.duplicate")
+            .get("spectra.test.duplicate")
             .and_then(|record| record.cache_data_id)
             .is_some());
         let cache_data_id = codegen
             .host_call_sites
-            .get("spectra.std.test.duplicate")
+            .get("spectra.test.duplicate")
             .and_then(|record| record.cache_data_id)
             .expect("AOT cache data record");
         assert!(

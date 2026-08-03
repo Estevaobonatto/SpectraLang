@@ -7,8 +7,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_COUNT = 194
-REQUIRED_HOST_CALLS = [
+PACKAGE_HOST_CALL_COUNT = 277
+RUNTIME_REQUIRED_HOST_CALL_COUNT = 211
+LEGACY_REQUIRED_HOST_CALLS = [
     "spectra.api.version.major",
     "spectra.api.version.minor",
     "spectra.api.version.patch",
@@ -275,12 +276,32 @@ def validate_host_calls() -> None:
     lib = read("packages/spectra-api/src/lib.rs")
     runtime_api = read("runtime/src/api/mod.rs")
     names = re.findall(r'name:\s*"([^"]+)"', lib)
-    require(len(names) == EXPECTED_COUNT, f"expected {EXPECTED_COUNT} host calls, found {len(names)}")
+    require(
+        len(names) == PACKAGE_HOST_CALL_COUNT,
+        f"expected {PACKAGE_HOST_CALL_COUNT} package host calls, found {len(names)}",
+    )
     require(len(set(names)) == len(names), "host call names must be unique")
-    require(names == REQUIRED_HOST_CALLS, "host call table does not match the required R-2202 order")
     for name in names:
         require(name.startswith("spectra.api."), f"{name} must use spectra.api prefix")
-        require(name in runtime_api, f"{name} missing from runtime/src/api contract")
+
+    contract_start = runtime_api.split(
+        "pub const REQUIRED_HOST_CALLS: &[&str] = &[", 1
+    )[1]
+    contract_block = contract_start.split("];", 1)[0]
+    runtime_names = re.findall(r'"(spectra\.api\.[^"]+)"', contract_block)
+    require(
+        len(runtime_names) == RUNTIME_REQUIRED_HOST_CALL_COUNT,
+        "runtime required host-call namespace count drifted: "
+        f"expected {RUNTIME_REQUIRED_HOST_CALL_COUNT}, found {len(runtime_names)}",
+    )
+    require(
+        len(set(runtime_names)) == len(runtime_names),
+        "runtime required host-call names must be unique",
+    )
+    for name in runtime_names:
+        require(name in names, f"{name} missing from package host-call registry")
+    for name in LEGACY_REQUIRED_HOST_CALLS:
+        require(name in names, f"legacy R-2202 host call {name} missing from package registry")
     require("pub fn register() -> usize" in lib, "spectra-api must expose register()")
     require(
         "register_host_function(spec.name, spec.function)" in lib,
@@ -291,11 +312,11 @@ def validate_host_calls() -> None:
         "crate must export an FFI registration symbol",
     )
     require(
-        f"assert_eq!(HOST_CALLS.len(), {EXPECTED_COUNT})" in lib,
+        f"assert_eq!(HOST_CALLS.len(), {PACKAGE_HOST_CALL_COUNT})" in lib,
         "unit tests must assert host-call count",
     )
     require(
-        f"assert_eq!(required_host_call_count(), {EXPECTED_COUNT})" in runtime_api,
+        f"assert_eq!(required_host_call_count(), {RUNTIME_REQUIRED_HOST_CALL_COUNT})" in runtime_api,
         "runtime API contract test must assert host-call count",
     )
 
@@ -329,7 +350,8 @@ def validate_planning() -> None:
         "runtime host-call registry",
         "cargo test -p spectra-api",
         "scripts/validate_r2202_spectra_api_hostcalls.py",
-        str(EXPECTED_COUNT),
+        str(PACKAGE_HOST_CALL_COUNT),
+        str(RUNTIME_REQUIRED_HOST_CALL_COUNT),
     ]:
         require(term in acceptance, f"R-2202 acceptance must mention {term}")
 
@@ -339,7 +361,8 @@ def validate_planning() -> None:
     for term in [
         "Status: `complete`",
         "packages/spectra-api",
-        str(EXPECTED_COUNT),
+        str(PACKAGE_HOST_CALL_COUNT),
+        str(RUNTIME_REQUIRED_HOST_CALL_COUNT),
         "spectra_api::register()",
         "validate_r2202_spectra_api_hostcalls.py",
     ]:

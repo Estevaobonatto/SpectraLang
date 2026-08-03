@@ -2,7 +2,8 @@
 
 Updated: 2026-08-02
 Roadmap items: `R-3101`, `R-3103`, `R-3108`, `R-3130`, `R-3131`, `R-3132`, and
-`R-3133`, `R-3104`, and `R-3105` are complete. Remaining item statuses are tracked authoritatively in
+`R-3133` and `R-3104` are complete; `R-3105` remains in progress pending
+current-head performance recertification. Remaining item statuses are tracked authoritatively in
 `roadmap/roadmap.toml`.
 
 ## What Was Built
@@ -33,7 +34,8 @@ Roadmap items: `R-3101`, `R-3103`, `R-3108`, `R-3130`, `R-3131`, `R-3132`, and
 - O0/O3 IR for all 21 scenarios is covered by `target/phase31/r3103-ir/manifest.json`, and the five review snapshots are versioned under `ir/r3103/`.
 - The evidence is `benchmark_and_ir_hypothesis` only; `R-3102` remains the separate causal Linux profiling workstream in progress.
 - Tier 1: R-3108 (string concat), R-3107 (tensor buffer reuse).
-- Tier 2: R-3104 and R-3105 complete; R-3106 remains the next backend/midend item.
+- Tier 2: R-3104 complete; R-3105 remains in progress pending current-head
+  evidence; R-3106 remains the next backend/midend item after that gate.
 - Tier 3: R-3110, R-3111, R-3112 (SIMD + matmul + conv).
 - Tier 4: R-3113, R-3114 (async).
 - Tier 5: R-3115, R-3116, R-3117 (compiler + cranelift tuning).
@@ -59,7 +61,7 @@ Roadmap items: `R-3101`, `R-3103`, `R-3108`, `R-3130`, `R-3131`, `R-3132`, and
    published as `passed` in `evidence-r3104-codegen.{json,md}`; R-3104 is
    complete and the immutable baseline is unchanged.
 
-### R-3105 Hostcall batching (complete)
+### R-3105 Hostcall batching (in_progress)
 
 - `runtime/src/ffi.rs` now borrows host names and exposes the internal bounded
   `spectra_rt_host_invoke_batch` dispatcher, preserving order and stopping at
@@ -69,14 +71,15 @@ Roadmap items: `R-3101`, `R-3103`, `R-3108`, `R-3130`, `R-3131`, `R-3132`, and
   hostcalls per basic block, stack-owned descriptor/argument/result arenas, and
   individual fallback for Fast ABI or uncertain cases. The contract fixture
   passes through both JIT and AOT.
-- The dedicated clean-control AOT benchmark uses 5 groups × 3 warmups × 20
-  samples. Candidate/control is `0.474774x` (`52.5%` faster), with one batched
-  site, three grouped calls, zero fallback calls in the hot fixture, and
-  `40`/`24` bytes of argument/result arenas.
-- The current 21-scenario Spectra + Go + Rust reports pass strict validation,
-  the six R-3104 AOT scenarios remain within their gates, Java is excluded,
-  and `baseline.json` remains byte-for-byte unchanged. Evidence is published
-  in `evidence-r3105-hostcall-batching.{json,md}`.
+- The historical clean-control AOT benchmark used 5 groups × 3 warmups × 20
+  samples and measured `0.474774x` (`52.5%` faster), with one batched site,
+  three grouped calls, zero fallback calls in the hot fixture, and `40`/`24`
+  bytes of argument/result arenas.
+- The current evidence is `BLOCKED`: available release artifacts do not match
+  HEAD and include inconclusive samples plus a `tensor-create` regression above
+  5%. The JIT/AOT contract remains green and `baseline.json` remains
+  byte-for-byte unchanged. Regenerate the candidate/control and strict reports
+  on the current HEAD before closing R-3105.
 
 ## Historical Measured Baseline
 
@@ -110,7 +113,7 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
 1. R-3108 (string builder API, host function ready, language surface needs the typed `str.builder_*` API)
 2. R-3107 (tensor buffer pool)
 3. R-3104 (dense value map, complete)
-4. R-3105 (hostcall batching, complete)
+4. R-3105 (hostcall batching, in progress pending current-head certification)
 5. R-3106 (alloca hoisting; next open P0)
 6. R-3110 (SIMD elementwise)
 7. R-3111 (tiled matmul)
@@ -136,10 +139,10 @@ The largest absolute gaps are `cpu-string-build` (R-3108), `tensor-create`
   `699db7945243343ed962ffc78c3037fd2eb69adc`; it records the clean-control
   codegen comparison, paired AOT steady-state, current IR manifest, and
   unchanged baseline.
-- R-3105 closure evidence is `evidence-r3105-hostcall-batching.{json,md}` at
-  revision `2830c5fefa8b25d62c837d6e6b2fa77fd36aa8bf`; it records the dedicated
-  clean-control speedup, batch counters, two release reports, six-scenario AOT
-  guardrail, JIT/AOT fixture, and unchanged baseline.
+- R-3105 historical closure evidence is preserved in
+  `evidence-r3105-hostcall-batching.{json,md}`; current evidence is blocked
+  until the candidate/control benchmark and strict release reports are
+  regenerated against the current HEAD.
 - `python scripts/phase31_run_all.py --code-validation ...` plus the matching
   validator is the repository correctness gate and completes in about 40 s.
 - `python scripts/validate_phase31_cross_lang.py --strict --max-drift 5` —
@@ -180,8 +183,8 @@ scripts/phase31_apply_baseline.py
   planning + suite + gate + R-3108. The findings doc is the input R-3103
   consumed; R-3102 will produce a deeper profile-driven supplement when
   invoked.
-- **R-3104** and **R-3105** are complete under their focused gates. R-3106 and
-  R-3109..R-3116 still require their own focused gates;
+- **R-3104** is complete; **R-3105** remains in progress under its blocked
+  current-head focused gate. R-3106 and R-3109..R-3116 still require their own focused gates;
   existing complete items such as R-3107, R-3108, R-3117, and R-3118 are
   preserved.
 

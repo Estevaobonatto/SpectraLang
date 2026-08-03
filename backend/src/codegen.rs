@@ -3569,7 +3569,7 @@ mod tests {
         for _ in 0..2 {
             block.add_instruction(InstructionKind::HostCall {
                 result: None,
-                host: "spectra.std.test.duplicate".to_string(),
+                host: "spectra.test.duplicate".to_string(),
                 args: vec![],
                 result_type: None,
             });
@@ -3581,10 +3581,10 @@ mod tests {
         assert_eq!(codegen.host_call_sites.len(), 1);
         assert!(codegen
             .host_call_sites
-            .contains_key("spectra.std.test.duplicate"));
+            .contains_key("spectra.test.duplicate"));
         let record = codegen
             .host_call_sites
-            .get("spectra.std.test.duplicate")
+            .get("spectra.test.duplicate")
             .copied()
             .expect("deduplicated host-call record");
         assert_ne!(record.cache_ptr, 0);

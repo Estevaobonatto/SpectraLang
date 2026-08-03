@@ -655,6 +655,7 @@ impl SpectraCompiler {
     }
 
     /// Compile a source file to a native object file. Returns the raw object bytes.
+    #[allow(dead_code)]
     pub fn compile_to_object_bytes(
         &mut self,
         source: &str,
@@ -719,6 +720,7 @@ impl SpectraCompiler {
     /// executable entry point (`main` shim + `spectra_rt_startup_with_args`).
     /// The resulting bytes must be linked with `libspectra_runtime.a` to produce
     /// a standalone executable.
+    #[allow(dead_code)]
     pub fn compile_to_executable_object_bytes(
         &mut self,
         source: &str,

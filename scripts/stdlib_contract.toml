@@ -57,12 +57,14 @@ covers = ["std.api.db.sqlite.*"]
 
 [[probe]]
 id = "api-postgres-driver"
-path = "tests/validation/195_postgres_driver.spectra"
+kind = "external"
+command = ["python", "scripts/validate_r2505_postgres.py", "--binary", "target/debug/spectralang.exe", "--fixture", "tests/validation/195_postgres_driver.spectra", "--report", "target/r2505-postgres/r3007-probe-report.json"]
 covers = ["std.api.db.postgres.*"]
 
 [[probe]]
 id = "api-redis-driver"
-path = "tests/validation/196_redis_driver.spectra"
+kind = "external"
+command = ["python", "scripts/validate_r2507_redis.py", "--binary", "target/debug/spectralang.exe", "--fixture", "tests/validation/196_redis_driver.spectra", "--report", "target/r2507-redis/r3007-probe-report.json"]
 covers = ["std.api.db.redis.*"]
 
 [[probe]]

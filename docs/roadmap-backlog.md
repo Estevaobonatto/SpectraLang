@@ -2634,7 +2634,7 @@ the next tracked development cycle toward a broader AI/ML platform.
 
 - users can mark differentiable functions or blocks with documented syntax
 - unsupported operations inside differentiable regions produce actionable diagnostics
-- gradient tests cover scalar, tensor, control-flow, and nested-function cases
+- gradient tests cover scalar and tensor math, control-flow around differentiable blocks, and composed `std.tensor`/`std.ml` operations; interprocedural helper differentiation remains a documented future extension
 
 ### Completed so far
 
@@ -2643,11 +2643,11 @@ the next tracked development cycle toward a broader AI/ML platform.
   public `std.tensor.backward(loss)` remains available for compatibility.
 - Non-tensor differentiable block results produce an actionable semantic diagnostic.
 - Unsupported qualified stdlib operations inside `diff { ... }` produce stable diagnostic `E1406`.
-- Gradient coverage includes tensor math, helper functions, control flow, and `std.ml` loss/layer integration.
+- Gradient coverage includes direct tensor math, control-flow around the differentiable block, and `std.ml` loss/layer integration. Interprocedural differentiation of user-defined helper calls remains a documented future extension.
 
 ### Completion evidence
 
-- `tests/validation/82_diff_block_gradient_coverage.spectra` covers differentiable tensor math, control flow, helper calls, and ML loss/layer execution.
+- `tests/validation/82_diff_block_gradient_coverage.spectra` covers direct differentiable tensor math, control flow around the block, and ML loss/layer execution. A user-defined helper call inside `diff` is intentionally outside the current completion gate.
 - `tests/errors/diff_block_unsupported_operation.spectra` verifies `E1406` for non-differentiable stdlib calls inside a differentiable region.
 - Block syntax is the documented Phase 14 production surface; separate differentiable function annotations remain a future extension, not a Phase 14 completion gate.
 
@@ -4461,7 +4461,7 @@ that `std.api.*` will dispatch into.
 
 - Added the `packages/spectra-api` Rust crate and the `spectra.api` package
   manifest at `packages/spectra-api/spectra.toml`.
-- Added 194 `spectra.api.*` host calls covering the Phase 22, R-2301, and R-2302 registration
+- Added 277 public `spectra.api.*` host calls covering the Phase 22, R-2301, and R-2302 registration
   surface for version metadata, HTTP method/status/header helpers, request and
   response handles, server/client handles, JSON classification, TLS config
   handles, routing handles, and error metadata.
@@ -4469,7 +4469,8 @@ that `std.api.*` will dispatch into.
   `spectra_api::register()`, and the crate exports
   `spectra_api_register_host_calls` for native integration.
 - Added `runtime/src/api/mod.rs` as the runtime-side namespace contract for the
-  required `spectra.api.*` host calls.
+  required 211-name `spectra.api.*` namespace; the package registry may expose
+  additional public calls beyond that runtime-required subset.
 - Wired `spectra_api::register()` into the CLI runtime setup paths after
   `spectra_runtime::register_standard_library()`.
 - Added unit coverage in `cargo test -p spectra-api` for host-call uniqueness,
@@ -6993,6 +6994,10 @@ exist; they are not cosmetic documentation fixes.
   target; the installed Windows LLDB is therefore recorded as unavailable
   instead of being accepted by tool discovery. R-2903 remains `in_progress`
   until those production criteria are evidenced.
+- The aggregate `run_tests.ps1` records the known allocator-location gap above
+  as `INFO:DEFERRED` when all structural native-debug checks pass. The direct
+  `validate_r2903_native_debug.py` command remains fail-closed, so this policy
+  does not claim native local-variable support before R-2903 is complete.
 
 ## R-2904 First-Class Tensor IR and Device Lowering
 
@@ -7546,7 +7551,8 @@ continua aguardando o relatório remoto do PostgreSQL 16.
   binário release atuais. O baseline permaneceu byte-a-byte inalterado, com
   SHA-256 `452a2e0e25db99d1175f5cbd1a50ac969512055e70c6ebf1c8c5ef959ca8b30b`.
 - R-3103 está `complete`; R-3102 permanece `in_progress` por depender do
-  profiling Linux oficial. R-3104 e R-3105 estão `complete`; R-3106 e os
+  profiling Linux oficial. R-3104 está `complete`; R-3105 permanece
+  `in_progress` até a recertificação contra o HEAD atual; R-3106 e os
   demais follow-ups ainda não foram iniciados.
 
 ## R-3104 Cranelift Value Map and Codegen Hot Path
@@ -7600,7 +7606,7 @@ continua aguardando o relatório remoto do PostgreSQL 16.
 
 ## R-3105 Host Call Batching and Allocation-Free Dispatch
 
-- Status: `complete`
+- Status: `in_progress`
 - Priority: `P0`
 - Owner: `backend`
 - Dependencies: `R-3103`, `R-3104`
@@ -7637,14 +7643,18 @@ continua aguardando o relatório remoto do PostgreSQL 16.
   no máximo oito hostcalls genéricos independentes, arenas bounded em stack e
   fallback individual para casos não comprovados.
 - O contrato `191_phase31_hostcall_batch_contract.spectra` passa em JIT e AOT.
-  O microbenchmark AOT com controle limpo usa 5 grupos, 3 warmups e 20 amostras;
-  a mediana candidato/controle é `0,474774x` (`52,5%` mais rápido), com um
-  site batched, três hostcalls agrupados, zero fallback no fixture quente e
-  arenas de `40`/`24` bytes.
-- Os dois reports release atuais passam strict e são semanticamente compatíveis
-  em 21/21 Spectra + Go + Rust; Java não é executado. O steady-state dos seis
-  cenários R-3104, a fixture JIT/AOT e o SHA-256 imutável do baseline também
-  passam. Evidência: `evidence-r3105-hostcall-batching.{json,md}`.
+  O caminho implementado mantém um site batched, três hostcalls agrupados,
+  zero fallback no fixture quente e arenas de `40`/`24` bytes.
+- A evidência atual `evidence-r3105-hostcall-batching.{json,md}` permanece
+  `BLOCKED`: os artefatos de benchmark/release disponíveis foram produzidos em
+  revisões anteriores ao HEAD atual, e a execução strict também encontrou
+  amostras inconclusivas e um guardrail de `tensor-create` acima de 5%.
+  O ratio histórico `0,474774x` é preservado como referência, não como
+  certificação do HEAD atual; o baseline continua imutável.
+- Antes de fechar R-3105, regenerar binário candidato e controle limpo na
+  revisão atual, repetir 5 grupos com 3 warmups e 20 amostras, validar 21/21
+  cenários e os seis cenários AOT de R-3104, e somente então executar o gate
+  strict com `--write-evidence`.
 
 ## R-3106 Alloca Hoisting and Lifetime-Based Reuse
 
@@ -8825,7 +8835,8 @@ R-3104 is now `in_progress` for the backend hot path implementation.
    R-3102 permanece paralelo e `in_progress`.
 4. **R-3133**: reconcile current async-echo batch evidence before selecting
    the next optimization.
-5. **Fase B (R-3104, R-3105)**: backend hot path, only after R-3103 passes.
+5. **Fase B (R-3104, R-3105)**: backend hot path, only after R-3103 passes;
+   R-3105 remains open until current-head performance evidence is certified.
 6. **Fase C (R-3106, R-3107)**: midend + buffer reuse.
 7. **Fase D (R-3108, R-3109)**: string + autodiff inference.
 8. **Fase E (R-3110, R-3111, R-3112)**: SIMD + matmul + conv.

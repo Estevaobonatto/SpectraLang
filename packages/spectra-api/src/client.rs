@@ -819,7 +819,10 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
 
-    static TRACE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    // Client tests share process-global tracing state; serialize the whole
+    // module so unrelated requests cannot publish spans to another test's
+    // collector.
+    static CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn spawn_test_collector(listener: TcpListener) -> thread::JoinHandle<Vec<u8>> {
         thread::spawn(move || {
@@ -910,6 +913,7 @@ mod tests {
 
     #[test]
     fn client_supports_methods_and_arbitrary_bodies() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig::default());
 
@@ -950,7 +954,7 @@ mod tests {
 
     #[test]
     fn client_injects_w3c_trace_context_and_emits_client_span() {
-        let _guard = TRACE_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let collector = TcpListener::bind("127.0.0.1:0").expect("collector bind");
         let collector_addr = collector.local_addr().expect("collector address");
         let collector_thread = thread::spawn(move || {
@@ -1015,7 +1019,7 @@ mod tests {
 
     #[test]
     fn concurrent_requests_isolate_trace_context() {
-        let _guard = TRACE_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let collector = TcpListener::bind("127.0.0.1:0").expect("collector bind");
         let collector_addr = collector.local_addr().expect("collector address");
         let collector_thread = spawn_test_collector(collector);
@@ -1068,6 +1072,7 @@ mod tests {
 
     #[test]
     fn client_reuses_pooled_connection() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig::default());
         client.get(&url(&server, "/echo")).expect("first GET");
@@ -1080,6 +1085,7 @@ mod tests {
 
     #[test]
     fn client_follows_redirects_with_method_semantics() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig::default());
 
@@ -1103,6 +1109,7 @@ mod tests {
 
     #[test]
     fn client_enforces_redirect_limit() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig {
             max_redirects: 2,
@@ -1117,6 +1124,7 @@ mod tests {
 
     #[test]
     fn client_handles_large_bodies() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig {
             max_body_bytes: 512 * 1024,
@@ -1132,6 +1140,7 @@ mod tests {
 
     #[test]
     fn client_reports_explicit_timeout() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let mut server = start_client_test_server();
         let client = HttpClient::new(ClientConfig {
             timeout: Duration::from_millis(20),
@@ -1144,6 +1153,7 @@ mod tests {
 
     #[test]
     fn client_reports_connection_failure() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind unused port");
         let addr = listener.local_addr().expect("local addr");
         drop(listener);
@@ -1159,6 +1169,7 @@ mod tests {
 
     #[test]
     fn client_reports_protocol_error() {
+        let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind protocol server");
         let addr = listener.local_addr().expect("local addr");
         let join = thread::spawn(move || {
