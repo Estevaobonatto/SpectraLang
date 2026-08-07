@@ -212,6 +212,7 @@ fn instruction_result(instruction: &Instruction) -> Option<Value> {
         | InstructionKind::Or { result, .. }
         | InstructionKind::Not { result, .. }
         | InstructionKind::Alloca { result, .. }
+        | InstructionKind::ManualAlloc { result, .. }
         | InstructionKind::Load { result, .. }
         | InstructionKind::GetElementPtr { result, .. }
         | InstructionKind::FieldPtr { result, .. }
@@ -236,7 +237,8 @@ fn instruction_result(instruction: &Instruction) -> Option<Value> {
         | InstructionKind::CallIndirect { result, .. } => *result,
         InstructionKind::Store { .. }
         | InstructionKind::AsyncSuspend { .. }
-        | InstructionKind::AsyncResume { .. } => None,
+        | InstructionKind::AsyncResume { .. }
+        | InstructionKind::EscapeManualAlloc { .. } => None,
     }
 }
 
@@ -272,7 +274,8 @@ fn instruction_operands(instruction: &Instruction) -> Vec<Value> {
             ..
         }
         | InstructionKind::AsyncSuspend { task: operand, .. }
-        | InstructionKind::AsyncResume { task: operand, .. } => vec![*operand],
+        | InstructionKind::AsyncResume { task: operand, .. }
+        | InstructionKind::EscapeManualAlloc { ptr: operand, .. } => vec![*operand],
         InstructionKind::Store { ptr, value } => vec![*ptr, *value],
         InstructionKind::GetElementPtr { ptr, index, .. } => vec![*ptr, *index],
         InstructionKind::FieldPtr { ptr, .. } => vec![*ptr],
@@ -291,6 +294,7 @@ fn instruction_operands(instruction: &Instruction) -> Vec<Value> {
             ..
         } => vec![*data_ptr, *vtable_ptr],
         InstructionKind::Alloca { .. }
+        | InstructionKind::ManualAlloc { .. }
         | InstructionKind::FuncAddr { .. }
         | InstructionKind::ConstInt { .. }
         | InstructionKind::ConstIntTyped { .. }

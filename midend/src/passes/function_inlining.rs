@@ -466,6 +466,13 @@ fn remap_instruction(kind: &InstructionKind, values: &HashMap<usize, Value>) -> 
             ptr: map_value(*ptr, values),
             offset: *offset,
         },
+        InstructionKind::ManualAlloc { result, size } => InstructionKind::ManualAlloc {
+            result: map_value(*result, values),
+            size: *size,
+        },
+        InstructionKind::EscapeManualAlloc { ptr } => InstructionKind::EscapeManualAlloc {
+            ptr: map_value(*ptr, values),
+        },
         InstructionKind::Copy { result, source } => InstructionKind::Copy {
             result: map_value(*result, values),
             source: map_value(*source, values),
@@ -575,6 +582,7 @@ fn instruction_result(kind: &InstructionKind) -> Option<Value> {
         | InstructionKind::Or { result, .. }
         | InstructionKind::Not { result, .. }
         | InstructionKind::Alloca { result, .. }
+        | InstructionKind::ManualAlloc { result, .. }
         | InstructionKind::Load { result, .. }
         | InstructionKind::GetElementPtr { result, .. }
         | InstructionKind::FieldPtr { result, .. }

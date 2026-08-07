@@ -7664,13 +7664,12 @@ impl ASTLowering {
                 .cloned()
                 .unwrap_or_default();
 
-            let vtable_storage = self.builder.build_alloca(
-                ir_func,
-                IRType::Array {
-                    element_type: Box::new(IRType::Int),
-                    size: methods.len().max(1),
-                },
-            );
+            // R-210: vtables live on the runtime manual heap and are escaped to
+            // the base frame so `dyn` values outlive the creating scope.
+            let slot_count = methods.len().max(1) as i64;
+            let vtable_storage = self
+                .builder
+                .build_manual_alloc(ir_func, slot_count * 8);
 
             for (slot, method_name) in methods.iter().enumerate() {
                 let fn_name = format!("{}_{}", name, method_name);
@@ -7685,6 +7684,7 @@ impl ASTLowering {
                 self.builder.build_store(ir_func, slot_ptr, fn_addr);
             }
 
+            self.builder.build_escape_manual_alloc(ir_func, vtable_storage);
             vtable_storage
         } else {
             self.builder.build_const_int(ir_func, 0)

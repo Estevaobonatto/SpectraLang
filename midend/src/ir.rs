@@ -30,19 +30,7 @@ pub struct Module {
     pub name: String,
     pub functions: Vec<Function>,
     pub globals: Vec<Global>,
-    /// vtable definitions for dyn Trait dispatch
-    pub vtables: Vec<VTableDef>,
     pub source_file: Option<String>,
-}
-
-/// A vtable that maps a concrete type's methods for a trait.
-/// Emitted as a read-only data section of function-pointer slots.
-#[derive(Debug, Clone)]
-pub struct VTableDef {
-    /// Symbol name: `__vtable_TypeName_TraitName`
-    pub name: String,
-    /// Ordered function names (IR function names) for each slot.
-    pub methods: Vec<String>,
 }
 
 /// Global variable
@@ -174,6 +162,17 @@ pub enum InstructionKind {
     Alloca {
         result: Value,
         ty: Type,
+    },
+    /// Runtime manual heap allocation (tracked, frame-scoped). Used for values
+    /// that must outlive the current frame, such as dyn Trait vtables (R-210).
+    ManualAlloc {
+        result: Value,
+        size: i64,
+    },
+    /// Escapes a manual allocation to the base frame so it survives
+    /// `frame_exit` of the current function (R-210).
+    EscapeManualAlloc {
+        ptr: Value,
     },
     Load {
         result: Value,
@@ -448,7 +447,6 @@ impl Module {
             name: name.into(),
             functions: Vec::new(),
             globals: Vec::new(),
-            vtables: Vec::new(),
             source_file: None,
         }
     }

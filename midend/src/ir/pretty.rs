@@ -200,6 +200,12 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                 fmt_value(*ptr),
                 offset
             ),
+            InstructionKind::ManualAlloc { result, size } => {
+                format!("{} = manual_alloc {}", fmt_value(*result), size)
+            }
+            InstructionKind::EscapeManualAlloc { ptr } => {
+                format!("escape_manual_alloc {}", fmt_value(*ptr))
+            }
             InstructionKind::Call {
                 result,
                 function,

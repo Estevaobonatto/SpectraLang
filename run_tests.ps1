@@ -50,6 +50,19 @@ $totalSkipped = 0
 $results      = @()
 $runPhase31Gpu = $Phase -contains "phase31_gpu"
 
+if ($Phase -contains "phase2_r210_static_vtables") {
+    Write-Host "--- R-210 dyn vtable lifetime gate ---" -ForegroundColor Yellow
+    & python scripts\validate_r210_static_vtables.py --binary $binary
+    $validatorExit = $LASTEXITCODE
+    & git diff --check -- midend/src/ir.rs midend/src/lowering.rs backend/src/codegen.rs runtime/src/ffi.rs tests/validation/255_oop_dyn_vtable_lifetime.spectra scripts/validate_r210_static_vtables.py
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-210 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-210 focused gate passed." -ForegroundColor Green
+    exit 0
+}
 if ($Phase -contains "phase2_r211_generic_impls") {
     Write-Host "--- R-211 generic impl blocks gate ---" -ForegroundColor Yellow
     & python scripts\validate_r211_generic_impls.py --binary $binary

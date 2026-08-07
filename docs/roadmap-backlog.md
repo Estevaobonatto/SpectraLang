@@ -8984,7 +8984,7 @@ primeiro parâmetro passa sem diagnóstico.
 
 ## R-210 Static Vtables for dyn Trait Objects
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `midend`
 - Risk: `high`

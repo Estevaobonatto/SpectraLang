@@ -857,13 +857,15 @@ impl CodeGenerator {
                 Self::mark_scalar_alloca_value(candidate_mask, escaped, operand)
             }
             InstructionKind::Alloca { .. }
+            | InstructionKind::ManualAlloc { .. }
             | InstructionKind::FuncAddr { .. }
             | InstructionKind::ConstInt { .. }
             | InstructionKind::ConstIntTyped { .. }
             | InstructionKind::ConstFloat { .. }
             | InstructionKind::ConstFloatTyped { .. }
             | InstructionKind::ConstBool { .. }
-            | InstructionKind::ConstString { .. } => {}
+            | InstructionKind::ConstString { .. }
+            | InstructionKind::EscapeManualAlloc { .. } => {}
         }
     }
 
@@ -1568,6 +1570,7 @@ impl CodeGenerator {
                 string_literal_lengths,
                 stack_allocas,
                 scalar_alloca_vars,
+                frame_var,
                 track_allocations,
                 ir_block.id,
                 block_map,
@@ -1614,6 +1617,7 @@ impl CodeGenerator {
         string_literal_lengths: &mut HashMap<usize, i64>,
         stack_allocas: &HashSet<usize>,
         scalar_alloca_vars: &HashMap<usize, Variable>,
+        frame_var: Variable,
         track_allocations: bool,
         current_block_id: usize,
         block_map: &HashMap<usize, Block>,
@@ -1823,9 +1827,34 @@ impl CodeGenerator {
                 value_map.insert(result.id, result_val);
             }
 
+            // Runtime manual heap allocation (tracked, frame-scoped)
+            InstructionKind::ManualAlloc { result, size } => {
+                let size_value = builder.ins().iconst(types::I64, *size);
+                let func_ref = module.declare_func_in_func(
+                    hostcall.runtime_func(RuntimeImport::ManualAlloc),
+                    builder.func,
+                );
+                let call = builder.ins().call(func_ref, &[size_value]);
+                let results = builder.inst_results(call);
+                if let Some(&ptr) = results.first() {
+                    value_map.insert(result.id, ptr);
+                }
+            }
+
+            // Escape a manual allocation to the base frame so it survives
+            // frame_exit (used by dyn Trait vtables, R-210).
+            InstructionKind::EscapeManualAlloc { ptr } => {
+                let ptr_val = get_value(ptr)?;
+                let escape_ref = module.declare_func_in_func(
+                    hostcall.runtime_func(RuntimeImport::ManualEscape),
+                    builder.func,
+                );
+                let frame_val = builder.use_var(frame_var);
+                builder.ins().call(escape_ref, &[ptr_val, frame_val]);
+            }
+
             // Memory operations
-            InstructionKind::Alloca { result, ty } => {
-                if scalar_alloca_vars.contains_key(&result.id) {
+            InstructionKind::Alloca { result, ty } => {                if scalar_alloca_vars.contains_key(&result.id) {
                     // The address is proven not to escape; loads/stores use the
                     // Cranelift variable directly and no pointer value is needed.
                     return Ok(());

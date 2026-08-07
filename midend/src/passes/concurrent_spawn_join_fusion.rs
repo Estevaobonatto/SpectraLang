@@ -179,6 +179,7 @@ fn instruction_inputs(kind: &InstructionKind) -> Vec<Value> {
         InstructionKind::Store { ptr, value } => vec![*ptr, *value],
         InstructionKind::GetElementPtr { ptr, index, .. } => vec![*ptr, *index],
         InstructionKind::FieldPtr { ptr, .. } => vec![*ptr],
+        InstructionKind::EscapeManualAlloc { ptr } => vec![*ptr],
         InstructionKind::Call { args, .. } | InstructionKind::HostCall { args, .. } => args.clone(),
         InstructionKind::CallIndirect { fn_ptr, args, .. } => {
             let mut values = vec![*fn_ptr];
@@ -195,6 +196,7 @@ fn instruction_inputs(kind: &InstructionKind) -> Vec<Value> {
         InstructionKind::MakeDynFatPtr { data_ptr, vtable_ptr, .. } => vec![*data_ptr, *vtable_ptr],
         InstructionKind::LoadVtableSlot { vtable_ptr, .. } => vec![*vtable_ptr],
         InstructionKind::Alloca { .. }
+        | InstructionKind::ManualAlloc { .. }
         | InstructionKind::FuncAddr { .. }
         | InstructionKind::ConstInt { .. }
         | InstructionKind::ConstIntTyped { .. }

@@ -166,6 +166,21 @@ impl IRBuilder {
         })
     }
 
+    pub fn build_manual_alloc(&self, func: &mut Function, size: i64) -> Value {
+        self.try_emit(func, |result| InstructionKind::ManualAlloc {
+            result,
+            size,
+        })
+    }
+
+    pub fn build_escape_manual_alloc(&self, func: &mut Function, ptr: Value) {
+        if let Some(block_id) = self.current_block {
+            if let Some(block) = func.get_block_mut(block_id) {
+                block.add_instruction(InstructionKind::EscapeManualAlloc { ptr });
+            }
+        }
+    }
+
     pub fn build_copy(&self, func: &mut Function, source: Value) -> Value {
         self.try_emit(func, |result| InstructionKind::Copy { result, source })
     }
