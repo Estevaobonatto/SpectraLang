@@ -50,6 +50,19 @@ $totalSkipped = 0
 $results      = @()
 $runPhase31Gpu = $Phase -contains "phase31_gpu"
 
+if ($Phase -contains "phase2_r212_ufcs") {
+    Write-Host "--- R-212 UFCS gate ---" -ForegroundColor Yellow
+    & python scripts\validate_r212_ufcs.py --binary $binary
+    $validatorExit = $LASTEXITCODE
+    & git diff --check -- compiler/src/semantic/mod.rs midend/src/lowering.rs tests/validation/256_oop_ufcs.spectra scripts/validate_r212_ufcs.py docs/reference/03-tipos-compostos.md
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-212 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-212 focused gate passed." -ForegroundColor Green
+    exit 0
+}
 if ($Phase -contains "phase2_r210_static_vtables") {
     Write-Host "--- R-210 dyn vtable lifetime gate ---" -ForegroundColor Yellow
     & python scripts\validate_r210_static_vtables.py --binary $binary

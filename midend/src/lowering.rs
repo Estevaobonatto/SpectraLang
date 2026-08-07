@@ -2605,6 +2605,17 @@ impl ASTLowering {
                 data,
                 struct_data,
             } => {
+                // R-212: UFCS Trait::method(obj, args) return type from the trait.
+                if self.trait_method_order.contains_key(enum_name.as_str()) {
+                    if let Some((_, return_type)) = self
+                        .trait_method_signatures
+                        .get(enum_name.as_str())
+                        .and_then(|methods| methods.get(variant_name.as_str()))
+                    {
+                        return return_type.clone();
+                    }
+                }
+
                 let looks_like_call = data.is_some() || struct_data.is_some();
                 let is_known_type = self.struct_definitions.contains_key(enum_name.as_str())
                     || self.generic_structs.contains_key(enum_name.as_str())
@@ -6710,6 +6721,57 @@ impl ASTLowering {
                 data,
                 struct_data,
             } => {
+                // R-212: UFCS `Trait::method(obj, args)` — parsed as EnumVariant.
+                // The first argument is the receiver; dispatch statically to the
+                // impl method `Type_method` or dynamically through the vtable.
+                if self.trait_method_order.contains_key(enum_name.as_str()) {
+                    let mut call_args: Vec<Value> = Vec::new();
+                    if let Some(data_exprs) = data {
+                        for arg in data_exprs.iter() {
+                            call_args.push(self.lower_expression(arg, ir_func));
+                        }
+                    } else if let Some(named_fields) = struct_data {
+                        for (_, val_expr) in named_fields.iter() {
+                            call_args.push(self.lower_expression(val_expr, ir_func));
+                        }
+                    }
+                    if call_args.is_empty() {
+                        return self.builder.build_const_int(ir_func, 0);
+                    }
+                    let receiver = call_args.remove(0);
+                    let receiver_ty = if let Some(first) = data.as_ref().and_then(|d| d.first()) {
+                        self.infer_expr_ir_type(first)
+                    } else {
+                        IRType::Int
+                    };
+                    if let IRType::DynTrait { trait_name, .. } = &receiver_ty {
+                        return self.lower_dyn_method_call(
+                            receiver,
+                            trait_name.clone(),
+                            variant_name,
+                            &[],
+                            ir_func,
+                        );
+                    }
+                    let struct_name = match &receiver_ty {
+                        IRType::Struct { name, .. } => name.clone(),
+                        _ => {
+                            self.error(format!(
+                                "UFCS call '{}::{}' receiver must be a concrete type or dyn",
+                                enum_name, variant_name
+                            ));
+                            return self.builder.build_const_int(ir_func, 0);
+                        }
+                    };
+                    let function_name = format!("{}_{}", struct_name, variant_name);
+                    let mut args = vec![receiver];
+                    args.extend(call_args);
+                    return self
+                        .builder
+                        .build_call(ir_func, function_name, args, true)
+                        .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                }
+
                 // Handle `StructType::static_method(args)` — parsed as EnumVariant by the
                 // parser but is actually a static/associated function call.
                 if self.struct_definitions.contains_key(enum_name.as_str())

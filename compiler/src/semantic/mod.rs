@@ -9053,6 +9053,123 @@ impl SemanticAnalyzer {
                 }
 
                 // ------------------------------------------------------------------
+                // UFCS: Trait::method(obj, args) — the first argument is the receiver.
+                // ------------------------------------------------------------------
+                if self.traits.contains_key(enum_name.as_str()) {
+                    let trait_name = enum_name.as_str();
+                    let call_args = data.as_deref().unwrap_or(&[]);
+                    let trait_methods = self.traits.get(trait_name).cloned().unwrap_or_default();
+
+                    if let Some(method_info) = trait_methods.get(variant_name.as_str()) {
+                        if call_args.is_empty() {
+                            self.error_coded(
+                                "E017",
+                                format!(
+                                    "UFCS call '{}::{}' requires at least the receiver as its first argument",
+                                    trait_name, variant_name
+                                ),
+                                expr.span,
+                            );
+                            return;
+                        }
+
+                        let receiver_ty = self.infer_expression_type(&call_args[0]);
+                        let receiver_name = match &receiver_ty {
+                            Type::Struct { name } => Some(name.clone()),
+                            Type::Enum { name, .. } => Some(name.clone()),
+                            Type::DynTrait { trait_name: t, .. } if t == trait_name => None,
+                            _ => None,
+                        };
+
+                        if let Some(receiver_name) = receiver_name.as_ref() {
+                            if !self
+                                .trait_impls
+                                .contains_key(&(trait_name.to_string(), receiver_name.clone()))
+                            {
+                                self.error_coded(
+                                    "E016",
+                                    format!(
+                                        "Type '{}' does not implement trait '{}' required by UFCS call '{}::{}'",
+                                        receiver_name, trait_name, trait_name, variant_name
+                                    ),
+                                    expr.span,
+                                );
+                                return;
+                            }
+                        } else if !matches!(&receiver_ty, Type::DynTrait { .. }) {
+                            self.error_coded(
+                                "E016",
+                                format!(
+                                    "UFCS call '{}::{}' requires a receiver implementing '{}'",
+                                    trait_name, variant_name, trait_name
+                                ),
+                                expr.span,
+                            );
+                            return;
+                        }
+
+                        // Validate the remaining arguments against the trait signature.
+                        let sig = &method_info.signature;
+                        let expected = sig.params.len().saturating_sub(1);
+                        if call_args.len() - 1 != expected {
+                            self.error_coded(
+                                "E023",
+                                format!(
+                                    "Trait method '{}::{}' expects {} argument(s) after the receiver, found {}",
+                                    trait_name,
+                                    variant_name,
+                                    expected,
+                                    call_args.len() - 1
+                                ),
+                                expr.span,
+                            );
+                            return;
+                        }
+                        for (i, arg) in call_args.iter().skip(1).enumerate() {
+                            let arg_ty = self.infer_expression_type(arg);
+                            if let Some(expected_ty) = sig.params.get(i + 1) {
+                                if !self.types_match(&arg_ty, expected_ty)
+                                    && arg_ty != Type::Unknown
+                                    && *expected_ty != Type::Unknown
+                                {
+                                    self.error_coded(
+                                        "E023",
+                                        format!(
+                                            "Argument {} of UFCS call '{}::{}' has type {}, expected {}",
+                                            i + 2,
+                                            trait_name,
+                                            variant_name,
+                                            type_name(&arg_ty),
+                                            type_name(expected_ty)
+                                        ),
+                                        arg.span,
+                                    );
+                                }
+                            }
+                        }
+
+                        self.symbol_resolutions.insert(
+                            expr.span,
+                            SymbolInfo {
+                                is_local: false,
+                                def_span: None,
+                                ty: method_info.signature.return_type.clone(),
+                            },
+                        );
+                    } else {
+                        self.error_coded(
+                            "E017",
+                            format!(
+                                "Trait '{}' has no method '{}'",
+                                trait_name, variant_name
+                            ),
+                            expr.span,
+                        );
+                    }
+                    return;
+                }
+
+                // ------------------------------------------------------------------
                 // Local enum / struct static method (existing behaviour)
                 // ------------------------------------------------------------------
                 if let Some(args) = data {
