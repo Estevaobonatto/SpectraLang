@@ -54,7 +54,6 @@ fn test_constant_folding_add() {
             }],
         }],
         globals: vec![],
-        vtables: vec![],
         source_file: None,
     };
 
@@ -125,7 +124,6 @@ fn test_constant_folding_mul() {
             }],
         }],
         globals: vec![],
-        vtables: vec![],
         source_file: None,
     };
 
@@ -194,7 +192,6 @@ fn test_dead_code_elimination_basic() {
             }],
         }],
         globals: vec![],
-        vtables: vec![],
         source_file: None,
     };
 
@@ -241,7 +238,6 @@ fn test_dead_code_elimination_preserves_used() {
             }],
         }],
         globals: vec![],
-        vtables: vec![],
         source_file: None,
     };
 
@@ -306,7 +302,6 @@ fn test_combined_optimizations() {
             }],
         }],
         globals: vec![],
-        vtables: vec![],
         source_file: None,
     };
 
@@ -361,7 +356,6 @@ fn test_no_optimization_when_not_applicable() {
             }],
         }],
         globals: vec![],
-        vtables: vec![],
         source_file: None,
     };
 
@@ -415,7 +409,6 @@ fn test_dead_code_elimination_preserves_cast_operands() {
             }],
         }],
         globals: vec![],
-        vtables: vec![],
         source_file: None,
     };
 
@@ -524,7 +517,6 @@ fn test_function_inlining_remaps_parameters() {
             },
         ],
         globals: vec![],
-        vtables: vec![],
         source_file: None,
     };
 
@@ -681,7 +673,6 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
             },
         ],
         globals: vec![],
-        vtables: vec![],
         source_file: None,
     };
 
@@ -712,3 +703,4 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
         "stack-safe alloca should not block inlining"
     );
 }
+

@@ -21,7 +21,7 @@ spectra_http_request_duration_seconds_bucket{method="GET",le="2.5"} 2
 spectra_http_request_duration_seconds_bucket{method="GET",le="5"} 2
 spectra_http_request_duration_seconds_bucket{method="GET",le="10"} 2
 spectra_http_request_duration_seconds_bucket{method="GET",le="+Inf"} 2
-spectra_http_request_duration_seconds_sum{method="GET"} 0.0000354
+spectra_http_request_duration_seconds_sum{method="GET"} 0.0000416
 spectra_http_request_duration_seconds_count{method="GET"} 2
 # HELP spectra_http_requests_total Total HTTP requests
 # TYPE spectra_http_requests_total counter
