@@ -50,6 +50,19 @@ $totalSkipped = 0
 $results      = @()
 $runPhase31Gpu = $Phase -contains "phase31_gpu"
 
+if ($Phase -contains "phase2_r211_generic_impls") {
+    Write-Host "--- R-211 generic impl blocks gate ---" -ForegroundColor Yellow
+    & python scripts\validate_r211_generic_impls.py --binary $binary
+    $validatorExit = $LASTEXITCODE
+    & git diff --check -- compiler/src/parser/item.rs compiler/src/semantic/mod.rs midend/src/lowering.rs tests/validation/254_oop_generic_impls.spectra scripts/validate_r211_generic_impls.py
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-211 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-211 focused gate passed." -ForegroundColor Green
+    exit 0
+}
 if ($Phase -contains "phase2_r209_self_first_parameter") {
     Write-Host "--- R-209 self-first-parameter validation gate ---" -ForegroundColor Yellow
     & python scripts\validate_r209_self_first_parameter.py --binary $binary

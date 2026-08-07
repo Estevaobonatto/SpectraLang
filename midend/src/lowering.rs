@@ -342,6 +342,25 @@ impl MonomorphizationRequest {
     }
 }
 
+/// Specialization request for a generic impl method on an instantiated struct.
+/// The mangled function name is `{instantiated_struct}_{method}` (e.g.
+/// `Par_int_get`), matching the static method-call mangling.
+#[derive(Debug, Clone)]
+struct MethodMonomorphizationRequest {
+    /// Instantiated struct name (e.g. "Par_int").
+    instantiated_struct: String,
+    /// Method name.
+    method_name: String,
+    /// Concrete types to substitute for the impl type parameters.
+    concrete_types: Vec<IRType>,
+}
+
+impl MethodMonomorphizationRequest {
+    fn mangled_name(&self) -> String {
+        format!("{}_{}", self.instantiated_struct, self.method_name)
+    }
+}
+
 pub struct ASTLowering {
     source_file: String,
     builder: IRBuilder,
@@ -369,6 +388,15 @@ pub struct ASTLowering {
     generic_structs: HashMap<String, ASTStruct>,
     /// Maps generic enum names to their AST definitions
     generic_enums: HashMap<String, ASTEnum>,
+    /// Generic impl methods on generic structs: "Base_method" -> (method, type_params).
+    /// These are specialized per instantiation when a method call on an
+    /// instantiated struct is lowered (R-211).
+    generic_impl_methods: HashMap<String, (ASTMethod, Vec<TypeParameter>)>,
+    /// Maps instantiated struct names to (base generic name, concrete IR types):
+    /// "Par_int" -> ("Par", [Int]).
+    instantiated_structs: HashMap<String, (String, Vec<IRType>)>,
+    /// Pending specializations of generic impl methods: mangled name -> request.
+    pending_method_specializations: Vec<MethodMonomorphizationRequest>,
     /// Requests for monomorphization that need to be processed
     pending_specializations: Vec<MonomorphizationRequest>,
     /// Already generated specializations (mangled_name -> IR function name)
@@ -442,6 +470,9 @@ impl ASTLowering {
             pending_specializations: Vec::new(),
             generated_specializations: HashMap::new(),
             type_substitution_map: HashMap::new(),
+            generic_impl_methods: HashMap::new(),
+            instantiated_structs: HashMap::new(),
+            pending_method_specializations: Vec::new(),
             trait_implementations: HashMap::new(),
             function_return_types: HashMap::new(),
             std_import_aliases: HashMap::new(),
@@ -1134,9 +1165,34 @@ impl ASTLowering {
                 let ir_func = self.lower_function(func);
                 ir_module.add_function(ir_func);
             } else if let Item::Impl(impl_block) = item {
-                for method in &impl_block.methods {
-                    let ir_func = self.lower_method(method, &impl_block.type_name);
-                    ir_module.add_function(ir_func);
+                if impl_block.type_args.is_empty() {
+                    for method in &impl_block.methods {
+                        let ir_func = self.lower_method(method, &impl_block.type_name);
+                        ir_module.add_function(ir_func);
+                    }
+                } else if let Some(struct_def) = self.generic_structs.get(&impl_block.type_name).cloned()
+                {
+                    // Template impl on a generic struct: register each method for
+                    // per-instantiation specialization (R-211).
+                    let type_params = struct_def.type_params.clone();
+                    for method in &impl_block.methods {
+                        let key = format!("{}_{}", impl_block.type_name, method.name);
+                        self.generic_impl_methods
+                            .insert(key, (method.clone(), type_params.clone()));
+                    }
+                } else if let Some(enum_def) = self.generic_enums.get(&impl_block.type_name).cloned()
+                {
+                    let type_params = enum_def.type_params.clone();
+                    for method in &impl_block.methods {
+                        let key = format!("{}_{}", impl_block.type_name, method.name);
+                        self.generic_impl_methods
+                            .insert(key, (method.clone(), type_params.clone()));
+                    }
+                } else {
+                    self.error(format!(
+                        "Impl with type arguments on non-generic type '{}'",
+                        impl_block.type_name
+                    ));
                 }
             } else if let Item::TraitImpl(trait_impl) = item {
                 for method in &trait_impl.methods {
@@ -1154,6 +1210,19 @@ impl ASTLowering {
 
         // Process pending monomorphization requests
         self.process_monomorphization_requests(&mut ir_module);
+
+        // Process pending generic impl method specializations (R-211). These may
+        // nest (a specialized method can call another generic impl method), so
+        // drain until empty.
+        loop {
+            if self.pending_method_specializations.is_empty() {
+                break;
+            }
+            let requests = std::mem::take(&mut self.pending_method_specializations);
+            for request in requests {
+                self.process_method_specialization(&request, &mut ir_module);
+            }
+        }
 
         // Emit any lambda functions collected during lowering
         let lambdas = std::mem::take(&mut self.pending_lambdas);
@@ -1278,6 +1347,113 @@ impl ASTLowering {
         // Clear type substitution map after lowering
         self.type_substitution_map.clear();
 
+        result
+    }
+
+    /// Process a pending generic impl method specialization request (R-211).
+    fn process_method_specialization(
+        &mut self,
+        request: &MethodMonomorphizationRequest,
+        ir_module: &mut IRModule,
+    ) {
+        const MAX_METHOD_SPECIALIZATIONS: usize = 512;
+        if self.generated_specializations.len() > MAX_METHOD_SPECIALIZATIONS {
+            eprintln!(
+                "generic impl method specialization limit ({}) reached; remaining specializations skipped.",
+                MAX_METHOD_SPECIALIZATIONS
+            );
+            self.pending_method_specializations.clear();
+            return;
+        }
+
+        let mangled = request.mangled_name();
+        if self.generated_specializations.contains_key(&mangled) {
+            return;
+        }
+
+        let (base_name, _concrete_ir_types) = match self.instantiated_structs.get(&request.instantiated_struct) {
+            Some(entry) => entry.clone(),
+            None => {
+                // The instantiation may not have been registered yet (e.g. the
+                // base struct was used without specialization); fall back to the
+                // instantiated name itself with the request's concrete types.
+                (request.instantiated_struct.clone(), request.concrete_types.clone())
+            }
+        };
+
+        let key = format!("{}_{}", base_name, request.method_name);
+        let Some((method, type_params)) = self.generic_impl_methods.get(&key).cloned() else {
+            self.error(format!(
+                "Generic impl method '{key}' not found for specialization '{mangled}'"
+            ));
+            return;
+        };
+
+        let specialized = self.specialize_method(
+            &method,
+            &type_params,
+            &request.concrete_types,
+            &request.instantiated_struct,
+        );
+        ir_module.add_function(specialized.clone());
+        self.generated_specializations
+            .insert(mangled.clone(), specialized.name.clone());
+    }
+
+    /// Create a specialized copy of a generic impl method with the impl type
+    /// parameters substituted by concrete types. `instantiated_struct` is the
+    /// concrete struct name used to type `self` and to name the function.
+    fn specialize_method(
+        &mut self,
+        method: &ASTMethod,
+        type_params: &[TypeParameter],
+        concrete_types: &[IRType],
+        instantiated_struct: &str,
+    ) -> IRFunction {
+        let mut type_map: HashMap<String, IRType> = HashMap::new();
+        for (i, type_param) in type_params.iter().enumerate() {
+            if let Some(concrete_type) = concrete_types.get(i) {
+                type_map.insert(type_param.name.clone(), concrete_type.clone());
+            }
+        }
+
+        let mut specialized = method.clone();
+        for param in &mut specialized.params {
+            if let Some(ref mut ty) = param.type_annotation {
+                self.substitute_type_in_annotation(ty, &type_map);
+            }
+        }
+        if let Some(ref mut return_ty) = specialized.return_type {
+            self.substitute_type_in_annotation(return_ty, &type_map);
+        }
+
+        // Ensure the instantiated struct definition exists so `self` fields resolve.
+        let base_name = match self
+            .instantiated_structs
+            .get(instantiated_struct)
+            .cloned()
+        {
+            Some((base, _)) => base,
+            None => instantiated_struct.to_string(),
+        };
+        if !self.struct_definitions.contains_key(instantiated_struct) {
+            if self.generic_structs.contains_key(&base_name) {
+                let unknown_args: Vec<TypeAnnotation> = concrete_types
+                    .iter()
+                    .map(|ty| TypeAnnotation {
+                        kind: TypeAnnotationKind::Simple {
+                            segments: vec![self.ir_type_to_ast_name(ty)],
+                        },
+                        span: Span::dummy(),
+                    })
+                    .collect();
+                self.ensure_struct_definition(&base_name, &unknown_args);
+            }
+        }
+
+        self.type_substitution_map = type_map;
+        let result = self.lower_method(&specialized, instantiated_struct);
+        self.type_substitution_map.clear();
         result
     }
 
@@ -1571,6 +1747,16 @@ impl ASTLowering {
                 ));
             }
         }
+
+        // Track the instantiation for generic impl method specialization (R-211).
+        let concrete_ir_types: Vec<IRType> = type_args
+            .iter()
+            .map(|ann| self.lower_type_annotation(ann))
+            .collect();
+        self.instantiated_structs.insert(
+            mangled.clone(),
+            (base_name.to_string(), concrete_ir_types),
+        );
 
         let fields = self
             .struct_definitions
@@ -2638,6 +2824,31 @@ impl ASTLowering {
 
                 if let Some(ret) = self.function_return_types.get(&function_name) {
                     ret.clone()
+                } else if let Some((base_name, concrete_types)) =
+                    self.instantiated_structs.get(&obj_type_name).cloned()
+                {
+                    // R-211: return type of a generic impl method specialization is
+                    // derived from the template with the type parameters substituted.
+                    let key = format!("{}_{}", base_name, method_name);
+                    if let Some((method, type_params)) = self.generic_impl_methods.get(&key) {
+                        let mut type_map: HashMap<String, IRType> = HashMap::new();
+                        for (i, type_param) in type_params.iter().enumerate() {
+                            if let Some(concrete_type) = concrete_types.get(i) {
+                                type_map.insert(type_param.name.clone(), concrete_type.clone());
+                            }
+                        }
+                        method
+                            .return_type
+                            .as_ref()
+                            .map(|ann| {
+                                let mut ann = ann.clone();
+                                self.substitute_type_in_annotation(&mut ann, &type_map);
+                                self.lower_type_annotation(&ann)
+                            })
+                            .unwrap_or(IRType::Void)
+                    } else {
+                        IRType::Int
+                    }
                 } else {
                     IRType::Int
                 }
@@ -6970,6 +7181,33 @@ impl ASTLowering {
 
                 // 3. Construir nome da função: Type_method
                 let function_name = format!("{}_{}", obj_type_name, method_name);
+
+                // 3a. R-211: if the object is an instantiation of a generic struct
+                // with a template impl, request the per-instantiation specialization.
+                // The mangled name (instantiated_struct_method) matches the call.
+                if let Some((base_name, concrete_types)) =
+                    self.instantiated_structs.get(&obj_type_name).cloned()
+                {
+                    let generic_key = format!("{}_{}", base_name, method_name);
+                    if self.generic_impl_methods.contains_key(&generic_key) {
+                        if concrete_types.is_empty() {
+                            self.error(format!(
+                                "Method '{}' on generic struct '{}' requires concrete type arguments",
+                                method_name, base_name
+                            ));
+                        } else {
+                            let request = MethodMonomorphizationRequest {
+                                instantiated_struct: obj_type_name.clone(),
+                                method_name: method_name.clone(),
+                                concrete_types,
+                            };
+                            let mangled = request.mangled_name();
+                            if !self.generated_specializations.contains_key(&mangled) {
+                                self.pending_method_specializations.push(request);
+                            }
+                        }
+                    }
+                }
 
                 // 4. Lower argumentos
                 let mut call_args = vec![obj_value]; // self é o primeiro argumento

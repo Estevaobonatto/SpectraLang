@@ -9009,7 +9009,7 @@ tornando perigoso um objeto `dyn` escapar do escopo criador.
 
 ## R-211 Generic Impl Blocks
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `semantic`
 - Risk: `medium`

@@ -1984,8 +1984,82 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn type_from_mangle_part(&self, part: &str) -> Type {
-        match part {
+    /// R-211: resolve the method signature for an instantiated generic struct
+    /// (e.g. `Par_int`) from the template impl (registered under `Par`),
+    /// substituting the type parameters with the concrete type arguments.
+    fn instantiated_method_signature(
+        &self,
+        type_name: &str,
+        method_name: &str,
+    ) -> Option<FunctionSignature> {
+        let base_name = self
+            .generic_structs
+            .keys()
+            .find(|base| {
+                type_name.len() > base.len() + 1
+                    && type_name.starts_with(&format!("{}_", base))
+            })?
+            .clone();
+        let args_part = &type_name[base_name.len() + 1..];
+        let concrete_types: Vec<Type> = args_part
+            .split('_')
+            .map(|part| self.type_from_mangle_part(part))
+            .collect();
+        let type_params = self
+            .generic_structs
+            .get(&base_name)?
+            .0
+            .clone();
+
+        let signature = self
+            .methods
+            .get(&base_name)?
+            .get(method_name)?
+            .clone();
+
+        let mut params = signature.params.clone();
+        if signature.self_kind.is_some() && !params.is_empty() {
+            params[0] = Type::Struct {
+                name: type_name.to_string(),
+            };
+        }
+        let return_type = self.substitute_generic_types(&signature.return_type, &type_params, &concrete_types);
+        for param in params.iter_mut().skip(1) {
+            *param = self.substitute_generic_types(param, &type_params, &concrete_types);
+        }
+
+        Some(FunctionSignature {
+            params,
+            return_type,
+            self_kind: signature.self_kind,
+            is_async: signature.is_async,
+        })
+    }
+
+    /// Substitute type parameters in a `Type` using the type parameter names and
+    /// the concrete types in declaration order.
+    fn substitute_generic_types(
+        &self,
+        ty: &Type,
+        type_params: &[crate::ast::TypeParameter],
+        concrete_types: &[Type],
+    ) -> Type {
+        match ty {
+            Type::TypeParameter { name } => type_params
+                .iter()
+                .position(|p| &p.name == name)
+                .and_then(|idx| concrete_types.get(idx).cloned())
+                .unwrap_or_else(|| ty.clone()),
+            Type::Struct { name } if type_params.iter().any(|p| &p.name == name) => type_params
+                .iter()
+                .position(|p| &p.name == name)
+                .and_then(|idx| concrete_types.get(idx).cloned())
+                .unwrap_or_else(|| ty.clone()),
+            other => other.clone(),
+        }
+    }
+
+    fn type_from_mangle_part(&self, part: &str) -> Type {        match part {
             "int" => Type::Int,
             "float" => Type::Float,
             "i8" => Type::ExactInt { signed: true, width: IntWidth::I8 },
@@ -5175,6 +5249,7 @@ impl SemanticAnalyzer {
             trait_name: Some(trait_impl.trait_name.clone()),
             methods: trait_impl.methods.clone(),
             span: trait_impl.span,
+            type_args: trait_impl.type_args.clone(),
         };
 
         self.analyze_impl_block(&derived_impl);
@@ -5195,6 +5270,68 @@ impl SemanticAnalyzer {
         } else {
             false
         };
+
+        // Validate impl type arguments against the target type's type parameters.
+        if !impl_block.type_args.is_empty() {
+            match &type_param_info {
+                Some(params) => {
+                    if impl_block.type_args.len() != params.len() {
+                        self.error_coded(
+                            "E025",
+                            format!(
+                                "Impl for '{}' provides {} type argument(s), but the type declares {} type parameter(s)",
+                                impl_block.type_name,
+                                impl_block.type_args.len(),
+                                params.len()
+                            ),
+                            impl_block.span,
+                        );
+                    } else {
+                        // Template form: each impl type argument must name one of the
+                        // type parameters (e.g. `impl Par<T>`). Concrete arguments
+                        // (e.g. `impl Par<int>`) are rejected here; they are planned
+                        // with per-instantiation impls in a later item.
+                        for arg in &impl_block.type_args {
+                            let is_type_param = match &arg.kind {
+                                crate::ast::TypeAnnotationKind::Simple { segments } => {
+                                    segments.len() == 1
+                                        && params
+                                            .iter()
+                                            .any(|p| p.name == segments[0])
+                                }
+                                _ => false,
+                            };
+                            if !is_type_param {
+                                self.error_coded(
+                                    "E025",
+                                    format!(
+                                        "Impl type argument '{:?}' for '{}' must be one of the type parameters: {}",
+                                        arg.kind,
+                                        impl_block.type_name,
+                                        params
+                                            .iter()
+                                            .map(|p| p.name.as_str())
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
+                                    ),
+                                    arg.span,
+                                );
+                            }
+                        }
+                    }
+                }
+                None => {
+                    self.error_coded(
+                        "E025",
+                        format!(
+                            "Type '{}' is not generic and cannot be used with impl type arguments",
+                            impl_block.type_name
+                        ),
+                        impl_block.span,
+                    );
+                }
+            }
+        }
 
         // Se for impl Trait for Type, validar que implementa todos os métodos
         if let Some(ref trait_name) = impl_block.trait_name {
@@ -6205,7 +6342,9 @@ impl SemanticAnalyzer {
                     .map(|info| info.ty.clone())
                     .unwrap_or(Type::Unknown)
             }),
-            ExpressionKind::StructLiteral { name, .. } => Type::Struct { name: name.clone() },
+            ExpressionKind::StructLiteral { name, type_args, .. } => Type::Struct {
+                name: self.mangle_generic_type_name(name, type_args),
+            },
             ExpressionKind::Call { callee, .. } => {
                 if let ExpressionKind::Identifier(name) = &callee.kind {
                     if let Some(signature) = self.functions.get(name) {
@@ -7132,9 +7271,11 @@ impl SemanticAnalyzer {
                     _ => Type::Unknown,
                 }
             }
-            ExpressionKind::StructLiteral { name, .. } => {
+            ExpressionKind::StructLiteral { name, type_args, .. } => {
                 if self.struct_infos.contains_key(name) {
-                    Type::Struct { name: name.clone() }
+                    Type::Struct {
+                        name: self.mangle_generic_type_name(name, type_args),
+                    }
                 } else {
                     Type::Unknown
                 }
@@ -7305,6 +7446,12 @@ impl SemanticAnalyzer {
                         if let Some(signature) = type_methods.get(method_name) {
                             return signature.return_type.clone();
                         }
+                    }
+                    // R-211: instantiated generic struct method return type.
+                    if let Some(signature) =
+                        self.instantiated_method_signature(&type_name_str, method_name)
+                    {
+                        return signature.return_type;
                     }
                 }
 
@@ -9467,7 +9614,13 @@ impl SemanticAnalyzer {
                     let method_signature = self
                         .methods
                         .get(type_name)
-                        .and_then(|methods| methods.get(method_name).cloned());
+                        .and_then(|methods| methods.get(method_name).cloned())
+                        .or_else(|| {
+                            // R-211: instantiated generic struct (e.g. "Par_int").
+                            // Resolve the template impl's signature and substitute
+                            // the type parameters with the concrete type arguments.
+                            self.instantiated_method_signature(type_name, method_name)
+                        });
 
                     let signature = if let Some(sig) = method_signature {
                         Some(sig)

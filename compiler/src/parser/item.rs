@@ -2,7 +2,7 @@ use crate::{
     ast::{
         Attribute, AttributeArgument, Block, ConstDecl, Function, FunctionParam, ImplBlock, Item,
         Method, Parameter, StaticDecl, TraitDeclaration, TraitImpl, TraitMethod, TypeAlias,
-        TypeParameter, Visibility,
+        TypeAnnotation, TypeParameter, Visibility,
     },
     span::{span_union, Span},
     token::{Keyword, TokenKind},
@@ -613,17 +613,80 @@ impl Parser {
         let (first_name, _) =
             self.consume_identifier("Expected trait or type name after 'impl'")?;
 
+        // Optional qualified path: impl module::Type
+        let mut module_path = None;
+        let mut target_name = first_name.clone();
+        if self.check_symbol(':')
+            && self.position + 1 < self.tokens.len()
+            && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':'))
+        {
+            self.advance();
+            self.advance();
+            let mut segments = vec![first_name.clone()];
+            loop {
+                let (seg, _) = self.consume_identifier("Expected name after '::' in impl target")?;
+                segments.push(seg);
+                if self.check_symbol(':')
+                    && self.position + 1 < self.tokens.len()
+                    && matches!(self.tokens[self.position + 1].kind, TokenKind::Symbol(':'))
+                {
+                    self.advance();
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            if segments.len() > 1 {
+                module_path = Some(segments[..segments.len() - 1].join("::"));
+                target_name = segments[segments.len() - 1].clone();
+            }
+        }
+
+        // Optional type arguments: impl Type<T>
+        let mut type_args = Vec::new();
+        if self.check_symbol('<') {
+            self.advance();
+            while !self.check_symbol('>') && !self.is_at_end() {
+                type_args.push(self.parse_type_annotation()?);
+                if self.check_symbol(',') {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            self.consume_symbol('>', "Expected '>' after impl type arguments")?;
+        }
+
         // Checar se é "impl Trait for Type" ou "impl Type"
         if self.check_keyword(Keyword::For) {
             // É um trait impl: impl TraitName for TypeName
             self.advance(); // consume 'for'
             let (type_name, _) = self.consume_identifier("Expected type name after 'for'")?;
-            let trait_impl = self.parse_trait_impl_block(start_span, first_name, type_name)?;
+            let mut for_type_args = Vec::new();
+            if self.check_symbol('<') {
+                self.advance();
+                while !self.check_symbol('>') && !self.is_at_end() {
+                    for_type_args.push(self.parse_type_annotation()?);
+                    if self.check_symbol(',') {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                self.consume_symbol('>', "Expected '>' after impl type arguments")?;
+            }
+            let trait_impl = self.parse_trait_impl_block(
+                start_span,
+                first_name,
+                type_name,
+                for_type_args,
+            )?;
             return Ok(Item::TraitImpl(trait_impl));
         }
 
         // É um impl regular: impl TypeName
-        let type_name = first_name;
+        let type_name = target_name;
+        let _ = module_path; // module qualification is validated by the semantic phase
 
         self.consume_symbol('{', "Expected '{' to start impl block")?;
 
@@ -765,6 +828,7 @@ impl Parser {
             trait_name: None, // impl regular
             methods,
             span: span_union(start_span, end_span),
+            type_args,
         }))
     }
 
@@ -964,6 +1028,7 @@ impl Parser {
         start_span: Span,
         trait_name: String,
         type_name: String,
+        type_args: Vec<TypeAnnotation>,
     ) -> Result<TraitImpl, ()> {
         self.consume_symbol('{', "Expected '{' to start trait impl block")?;
 
@@ -1099,6 +1164,7 @@ impl Parser {
             type_name,
             methods,
             span: span_union(start_span, end_span),
+            type_args,
         })
     }
 

@@ -696,6 +696,8 @@ pub struct ImplBlock {
     pub trait_name: Option<String>, // Nome do trait (se for impl Trait for Type)
     pub methods: Vec<Method>,       // Métodos implementados
     pub span: Span,
+    /// Type arguments of the impl target (e.g. `impl Par<T>` or `impl Par<int>`).
+    pub type_args: Vec<TypeAnnotation>,
 }
 
 /// Método associado a um tipo
@@ -756,6 +758,8 @@ pub struct TraitImpl {
     pub type_name: String,    // Nome do tipo que implementa o trait
     pub methods: Vec<Method>, // Métodos implementados (com corpo)
     pub span: Span,
+    /// Type arguments of the impl target (e.g. `impl Trait for Par<T>`).
+    pub type_args: Vec<TypeAnnotation>,
 }
 
 // ============================================================================
