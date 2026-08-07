@@ -8961,7 +8961,7 @@ chamado como estático) é emitida apenas com mensagem, sem código estável.
 
 ## R-209 Self-First-Parameter Validation
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `semantic`
 - Risk: `low`

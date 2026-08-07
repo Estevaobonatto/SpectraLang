@@ -71,6 +71,7 @@ records, traits, impl blocks, and `dyn` casts.
 | `E021` | semantic | struct used in a literal or field access is not defined | declare or import the record before using it |
 | `E022` | semantic | invalid `as dyn Trait` cast: type does not implement the trait | implement the trait for the concrete type before casting |
 | `E023` | semantic | trait impl signature mismatch (parameter count/types or return type) | match the exact signature declared by the trait |
+| `E024` | semantic | `self` receiver appears after other parameters | move the `self` receiver to the first parameter position |
 
 ## Phase 21 Async Diagnostics
 

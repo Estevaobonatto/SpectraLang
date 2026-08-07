@@ -5232,9 +5232,20 @@ impl SemanticAnalyzer {
             // Extrair tipos dos parâmetros
             let mut param_types = Vec::new();
             let mut self_kind = None;
+            let mut seen_regular_param = false;
             for param in &method.params {
                 if param.is_self {
                     // self parameter - tipo � o do impl block
+                    if seen_regular_param {
+                        self.error_coded(
+                            "E024",
+                            format!(
+                                "Method '{}' declares 'self' after other parameters; 'self' must be the first parameter",
+                                method.name
+                            ),
+                            param.span,
+                        );
+                    }
                     if self_kind.is_some() {
                         self.error_coded(
                             "E014",
@@ -5257,6 +5268,7 @@ impl SemanticAnalyzer {
                         name: impl_block.type_name.clone(),
                     });
                 } else {
+                    seen_regular_param = true;
                     let param_type = self.type_annotation_to_type(&param.type_annotation);
                     param_types.push(param_type);
                 }
@@ -5380,12 +5392,23 @@ impl SemanticAnalyzer {
 
         // Then add this trait's own methods (can override inherited methods)
         for method in &trait_decl.methods {
-            // Converter parâmetros para Type
+            // Converter par�metros para Type
             let mut param_types = Vec::new();
             let mut self_kind = None;
             let mut parameter_infos = Vec::new();
+            let mut seen_regular_param = false;
             for param in &method.params {
                 if param.is_self {
+                    if seen_regular_param {
+                        self.error_coded(
+                            "E024",
+                            format!(
+                                "Trait method '{}' declares 'self' after other parameters; 'self' must be the first parameter",
+                                method.name
+                            ),
+                            param.span,
+                        );
+                    }
                     if self_kind.is_some() {
                         self.error_coded(
                             "E014",
@@ -5413,6 +5436,7 @@ impl SemanticAnalyzer {
                         ty: None,
                     });
                 } else {
+                    seen_regular_param = true;
                     let param_type = self.type_annotation_to_type(&param.type_annotation);
                     param_types.push(param_type);
                     parameter_infos.push(ParameterInfo {
@@ -5519,8 +5543,19 @@ impl SemanticAnalyzer {
             // Converter parâmetros para Type
             let mut param_types = Vec::new();
             let mut self_kind = None;
+            let mut seen_regular_param = false;
             for param in &method.params {
                 if param.is_self {
+                    if seen_regular_param {
+                        self.error_coded(
+                            "E024",
+                            format!(
+                                "Method '{}' declares 'self' after other parameters; 'self' must be the first parameter",
+                                method.name
+                            ),
+                            param.span,
+                        );
+                    }
                     if self_kind.is_some() {
                         self.error_coded(
                             "E014",
@@ -5543,6 +5578,7 @@ impl SemanticAnalyzer {
                         name: impl_block.type_name.clone(),
                     });
                 } else {
+                    seen_regular_param = true;
                     let param_type = self.type_annotation_to_type(&param.type_annotation);
                     param_types.push(param_type);
                 }

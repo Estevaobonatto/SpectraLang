@@ -50,6 +50,19 @@ $totalSkipped = 0
 $results      = @()
 $runPhase31Gpu = $Phase -contains "phase31_gpu"
 
+if ($Phase -contains "phase2_r209_self_first_parameter") {
+    Write-Host "--- R-209 self-first-parameter validation gate ---" -ForegroundColor Yellow
+    & python scripts\validate_r209_self_first_parameter.py --binary $binary
+    $validatorExit = $LASTEXITCODE
+    & git diff --check -- compiler/src/semantic/mod.rs docs/diagnostics/error-code-reference.md scripts/validate_r209_self_first_parameter.py tests/errors/self_must_be_first_parameter.spectra
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-209 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-209 focused gate passed." -ForegroundColor Green
+    exit 0
+}
 if ($Phase -contains "phase2_r208_oop_diagnostics") {
     Write-Host "--- R-208 stable OOP diagnostic codes gate ---" -ForegroundColor Yellow
     & python scripts\validate_r208_oop_diagnostics.py --binary $binary
