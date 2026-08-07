@@ -8935,7 +8935,7 @@ corrompendo o ponteiro e causando o segfault no `drop()`.
 
 ## R-208 Stable OOP Diagnostic Codes
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P1`
 - Owner: `frontend`
 - Risk: `low`

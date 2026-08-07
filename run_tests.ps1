@@ -50,6 +50,20 @@ $totalSkipped = 0
 $results      = @()
 $runPhase31Gpu = $Phase -contains "phase31_gpu"
 
+if ($Phase -contains "phase2_r208_oop_diagnostics") {
+    Write-Host "--- R-208 stable OOP diagnostic codes gate ---" -ForegroundColor Yellow
+    & python scripts\validate_r208_oop_diagnostics.py --binary $binary
+    $validatorExit = $LASTEXITCODE
+    & git diff --check -- compiler/src/semantic/mod.rs docs/diagnostics/error-code-reference.md scripts/validate_r208_oop_diagnostics.py
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-208 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-208 focused gate passed." -ForegroundColor Green
+    exit 0
+}
+
 if ($Phase -contains "phase2_r207_struct_layout") {
     Write-Host "--- R-207 struct layout and drop semantics gate ---" -ForegroundColor Yellow
     & python scripts\validate_r207_struct_layout.py --binary $binary
@@ -1241,7 +1255,20 @@ if ($structLayout.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase2-oop-layout"; Teste = "validate_r207_struct_layout"; Status = $structLayout.Status; Detalhe = $structLayout.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.11: R-1002 debugger and stack traces
+# Grupo 8.11: R-208 stable OOP diagnostic codes
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-208 stable OOP diagnostic codes ---" -ForegroundColor Yellow
+$oopDiagnostics = Invoke-HostCommand -name "validate_r208_oop_diagnostics" -fileName "python" -arguments @("scripts\validate_r208_oop_diagnostics.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($oopDiagnostics.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase2-oop-diagnostics"; Teste = "validate_r208_oop_diagnostics"; Status = $oopDiagnostics.Status; Detalhe = $oopDiagnostics.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.12: R-1002 debugger and stack traces
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1002 debugger and stack traces ---" -ForegroundColor Yellow

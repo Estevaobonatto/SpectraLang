@@ -1731,7 +1731,8 @@ impl SemanticAnalyzer {
         let has_self = signature.self_kind.is_some();
 
         if !has_self {
-            self.error_with_hint(
+            self.error_coded_with_hint(
+                "E018",
                 format!(
                     "Method '{}' does not take 'self'; call it as an associated function",
                     method_name
@@ -1760,7 +1761,8 @@ impl SemanticAnalyzer {
         let expected_args = signature.params.len().saturating_sub(arg_offset);
 
         if arguments.len() != expected_args {
-            self.error_with_details(
+            self.error_coded_with_details(
+                "E023",
                 format!(
                     "Method '{}' expects {} argument(s), but {} were provided",
                     method_name,
@@ -5232,9 +5234,10 @@ impl SemanticAnalyzer {
             let mut self_kind = None;
             for param in &method.params {
                 if param.is_self {
-                    // self parameter - tipo é o do impl block
+                    // self parameter - tipo � o do impl block
                     if self_kind.is_some() {
-                        self.error(
+                        self.error_coded(
+                            "E014",
                             format!(
                                 "Method '{}' declares more than one self parameter",
                                 method.name
@@ -5290,7 +5293,8 @@ impl SemanticAnalyzer {
                 .insert(method.name.clone(), signature)
                 .is_some()
             {
-                self.error(
+                self.error_coded(
+                    "E013",
                     format!(
                         "Method '{}' is already defined for type '{}'",
                         method.name, impl_block.type_name
@@ -5357,7 +5361,8 @@ impl SemanticAnalyzer {
                     trait_methods.insert(method_name, method_signature);
                 }
             } else {
-                self.error(
+                self.error_coded(
+                    "E015",
                     format!(
                         "Parent trait '{}' is not defined. Traits must be declared before being used as parent traits.",
                         parent_trait_name
@@ -5382,7 +5387,8 @@ impl SemanticAnalyzer {
             for param in &method.params {
                 if param.is_self {
                     if self_kind.is_some() {
-                        self.error(
+                        self.error_coded(
+                            "E014",
                             format!(
                                 "Trait method '{}' declares more than one self parameter",
                                 method.name
@@ -5492,7 +5498,8 @@ impl SemanticAnalyzer {
                         .insert((trait_name.to_string(), impl_block.type_name.clone()), true);
                     return;
                 }
-                self.error(
+                self.error_coded(
+                    "E012",
                     format!("Trait '{}' is not defined", trait_name),
                     impl_block.span,
                 );
@@ -5515,7 +5522,8 @@ impl SemanticAnalyzer {
             for param in &method.params {
                 if param.is_self {
                     if self_kind.is_some() {
-                        self.error(
+                        self.error_coded(
+                            "E014",
                             format!(
                                 "Method '{}' declares more than one self parameter",
                                 method.name
@@ -5614,7 +5622,7 @@ impl SemanticAnalyzer {
                             message.push_str(&format!(". Expected {}", signature_repr));
                         }
 
-                        self.error(message, impl_block.span);
+                        self.error_coded("E023", message, impl_block.span);
                         continue;
                     }
 
@@ -5635,7 +5643,7 @@ impl SemanticAnalyzer {
                                 message.push_str(&format!(" (expected {})", signature_repr));
                             }
 
-                            self.error(message, impl_block.span);
+                            self.error_coded("E023", message, impl_block.span);
                         }
                     }
 
@@ -5655,7 +5663,7 @@ impl SemanticAnalyzer {
                             message.push_str(&format!(" (expected {})", signature_repr));
                         }
 
-                        self.error(message, impl_block.span);
+                        self.error_coded("E023", message, impl_block.span);
                     }
                 }
                 None => {
@@ -5681,7 +5689,7 @@ impl SemanticAnalyzer {
                             )
                         };
 
-                        self.error(message, impl_block.span);
+                        self.error_coded("E016", message, impl_block.span);
                     }
                 }
             }
@@ -8341,7 +8349,11 @@ impl SemanticAnalyzer {
                 let struct_info = match self.struct_infos.get(name).cloned() {
                     Some(info) => info,
                     None => {
-                        self.error(format!("Struct '{}' is not defined", name), expr.span);
+                        self.error_coded(
+                            "E021",
+                            format!("Struct '{}' is not defined", name),
+                            expr.span,
+                        );
                         // Still analyze field expressions to surface nested errors
                         for (_, field_value) in fields {
                             self.analyze_expression(field_value);
@@ -8406,10 +8418,11 @@ impl SemanticAnalyzer {
                                 message.push_str(&hint);
                             }
 
-                            self.error(message, field_value.span);
+                            self.error_coded("E020", message, field_value.span);
                         }
                     } else {
-                        self.error(
+                        self.error_coded(
+                            "E020",
                             format!("Struct '{}' has no field named '{}'", name, field_name),
                             field_value.span,
                         );
@@ -8418,7 +8431,8 @@ impl SemanticAnalyzer {
 
                 for expected_field_name in struct_info.fields.keys() {
                     if !provided_fields.contains(expected_field_name) {
-                        self.error(
+                        self.error_coded(
+                            "E019",
                             format!(
                                 "Struct literal for '{}' is missing field '{}'",
                                 name, expected_field_name
@@ -8492,7 +8506,11 @@ impl SemanticAnalyzer {
                                 );
                             }
                             FieldLookup::NoStruct => {
-                                self.error(format!("Struct '{}' is not defined", name), expr.span);
+                                self.error_coded(
+                                    "E021",
+                                    format!("Struct '{}' is not defined", name),
+                                    expr.span,
+                                );
                             }
                         }
                     }
@@ -8624,7 +8642,8 @@ impl SemanticAnalyzer {
                                     .and_then(|methods| methods.get(&inner_variant))
                                 {
                                     if method_export.self_kind.is_some() {
-                                        self.error_with_hint(
+                                        self.error_coded_with_hint(
+                                            "E018",
                                             format!(
                                                 "Method '{}::{}' takes 'self'; call it on a value",
                                                 item_name, inner_variant
@@ -8877,7 +8896,8 @@ impl SemanticAnalyzer {
 
                             if let Some(signature) = &signature {
                                 if signature.self_kind.is_some() {
-                                    self.error_with_hint(
+                                    self.error_coded_with_hint(
+                                        "E018",
                                         format!(
                                             "Method '{}::{}' takes 'self'; call it on a value",
                                             enum_name, variant_name
@@ -9394,7 +9414,8 @@ impl SemanticAnalyzer {
                     // dyn Trait method calls are valid — dispatch is dynamic
                     Type::DynTrait { .. } => None,
                     _ => {
-                        self.error(
+                        self.error_coded(
+                            "E017",
                             format!(
                                 "Cannot call method '{}' on type '{:?}'",
                                 method_name, obj_type
@@ -9495,12 +9516,14 @@ impl SemanticAnalyzer {
                             existing.def_span = def_span;
                         }
                     } else if self.methods.contains_key(type_name) {
-                        self.error(
+                        self.error_coded(
+                            "E017",
                             self.missing_method_diagnostic(type_name, method_name),
                             expr.span,
                         );
                     } else {
-                        self.error(
+                        self.error_coded(
+                            "E017",
                             self.missing_method_diagnostic(type_name, method_name),
                             expr.span,
                         );
@@ -9603,7 +9626,8 @@ impl SemanticAnalyzer {
                         .contains_key(&(trait_name.clone(), struct_name.clone()))
                     {
                         valid = false;
-                        self.error(
+                        self.error_coded(
+                            "E022",
                             format!(
                                 "Cannot cast `{}` to `dyn {}`: type `{}` does not implement trait `{}`",
                                 struct_name, trait_name, struct_name, trait_name

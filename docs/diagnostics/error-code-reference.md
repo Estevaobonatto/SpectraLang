@@ -52,6 +52,26 @@ The following set is the current stable Phase 1 table for high-frequency diagnos
 
 This satisfies the Phase 1 acceptance target of at least 20 high-frequency diagnostics with actionable remediation guidance.
 
+## Phase 2 OOP Diagnostics (R-208)
+
+The following codes are the stable object-oriented/trait diagnostic range for
+records, traits, impl blocks, and `dyn` casts.
+
+| Code | Phase | Meaning | Expected hint/action |
+| --- | --- | --- | --- |
+| `E012` | semantic | trait used as an `impl` target is not defined | declare or import the trait before the impl block |
+| `E013` | semantic | method is already defined for the same type | remove the duplicate method or give it a distinct name |
+| `E014` | semantic | method declares more than one `self` parameter | keep exactly one `self` receiver |
+| `E015` | semantic | parent trait of a trait declaration is not defined | declare the parent trait before the child trait |
+| `E016` | semantic | required trait method is not implemented | implement the method (or rely on its default implementation) in the `impl Trait for Type` block |
+| `E017` | semantic | method not found for the receiver type | call an existing method or add an impl block with that method |
+| `E018` | semantic | `self`-taking method called as a static/associated function (or vice versa) | call it on a value (`value.method(...)`) or as `Type::method(...)` per the signature |
+| `E019` | semantic | struct literal is missing a required field | provide a value for every field of the record |
+| `E020` | semantic | struct literal field has an unknown name or wrong type | use the declared field names and types of the record |
+| `E021` | semantic | struct used in a literal or field access is not defined | declare or import the record before using it |
+| `E022` | semantic | invalid `as dyn Trait` cast: type does not implement the trait | implement the trait for the concrete type before casting |
+| `E023` | semantic | trait impl signature mismatch (parameter count/types or return type) | match the exact signature declared by the trait |
+
 ## Phase 21 Async Diagnostics
 
 The following async diagnostic range is stable for tooling and documentation.
