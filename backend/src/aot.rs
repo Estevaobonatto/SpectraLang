@@ -156,9 +156,21 @@ impl AotCodeGenerator {
             self.declare_function(func, rename_main)?;
         }
 
+        // Function parameter types for call-site argument coercion.
+        let function_params: HashMap<String, Vec<IRType>> = ir_module
+            .functions
+            .iter()
+            .map(|func| {
+                (
+                    func.name.clone(),
+                    func.params.iter().map(|param| param.ty.clone()).collect(),
+                )
+            })
+            .collect();
+
         // Second pass: define all functions.
         for func in &ir_module.functions {
-            self.define_function(func)?;
+            self.define_function(func, &function_params)?;
         }
 
         // If building an executable, validate that a `main` entry point exists
@@ -224,7 +236,11 @@ impl AotCodeGenerator {
         Ok(func_id)
     }
 
-    fn define_function(&mut self, ir_func: &IRFunction) -> BackendResult<()> {
+    fn define_function(
+        &mut self,
+        ir_func: &IRFunction,
+        function_params: &HashMap<String, Vec<IRType>>,
+    ) -> BackendResult<()> {
         let func_id = *self
             .function_map
             .get(&ir_func.name)
@@ -336,6 +352,7 @@ impl AotCodeGenerator {
             CodeGenerator::generate_block(
                 &mut self.module,
                 &self.function_map,
+                function_params,
                 &mut hostcall,
                 &mut builder,
                 ir_block,

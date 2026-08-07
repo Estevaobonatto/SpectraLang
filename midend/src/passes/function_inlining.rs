@@ -461,6 +461,11 @@ fn remap_instruction(kind: &InstructionKind, values: &HashMap<usize, Value>) -> 
             index: map_value(*index, values),
             element_type: element_type.clone(),
         },
+        InstructionKind::FieldPtr { result, ptr, offset } => InstructionKind::FieldPtr {
+            result: map_value(*result, values),
+            ptr: map_value(*ptr, values),
+            offset: *offset,
+        },
         InstructionKind::Copy { result, source } => InstructionKind::Copy {
             result: map_value(*result, values),
             source: map_value(*source, values),
@@ -572,6 +577,7 @@ fn instruction_result(kind: &InstructionKind) -> Option<Value> {
         | InstructionKind::Alloca { result, .. }
         | InstructionKind::Load { result, .. }
         | InstructionKind::GetElementPtr { result, .. }
+        | InstructionKind::FieldPtr { result, .. }
         | InstructionKind::Copy { result, .. }
         | InstructionKind::Phi { result, .. }
         | InstructionKind::ConstInt { result, .. }

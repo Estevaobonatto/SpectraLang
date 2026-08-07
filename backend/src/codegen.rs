@@ -262,6 +262,16 @@ impl CodeGenerator {
         self.hostcall_batch_stats = HostCallBatchStats::default();
         let _tensor_ir = validate_tensor_ir(ir_module)?;
         self.pre_intern_host_names(ir_module);
+        let function_params: HashMap<String, Vec<IRType>> = ir_module
+            .functions
+            .iter()
+            .map(|func| {
+                (
+                    func.name.clone(),
+                    func.params.iter().map(|param| param.ty.clone()).collect(),
+                )
+            })
+            .collect();
         // First pass: declare all functions
         for func in &ir_module.functions {
             self.declare_function(func)?;
@@ -269,7 +279,7 @@ impl CodeGenerator {
 
         // Second pass: define all functions
         for func in &ir_module.functions {
-            self.define_function(func)?;
+            self.define_function(func, &function_params)?;
         }
 
         // Finalize all functions
@@ -346,7 +356,11 @@ impl CodeGenerator {
     }
 
     /// Define a function body
-    fn define_function(&mut self, ir_func: &IRFunction) -> BackendResult<()> {
+    fn define_function(
+        &mut self,
+        ir_func: &IRFunction,
+        function_params: &HashMap<String, Vec<IRType>>,
+    ) -> BackendResult<()> {
         let func_id = *self
             .function_map
             .get(&ir_func.name)
@@ -464,6 +478,7 @@ impl CodeGenerator {
             Self::generate_block(
                 &mut self.module,
                 &self.function_map,
+                function_params,
                 &mut hostcall,
                 &mut builder,
                 ir_block,
@@ -807,7 +822,10 @@ impl CodeGenerator {
             }
             | InstructionKind::LoadDynVtablePtr {
                 fat_ptr: source, ..
-            } => Self::mark_scalar_alloca_value(candidate_mask, escaped, source),
+            }
+            | InstructionKind::FieldPtr { ptr: source, .. } => {
+                Self::mark_scalar_alloca_value(candidate_mask, escaped, source)
+            }
             InstructionKind::MakeDynFatPtr {
                 data_ptr,
                 vtable_ptr,
@@ -1143,8 +1161,39 @@ impl CodeGenerator {
         }
     }
 
-    fn host_argument_to_i64(builder: &mut FunctionBuilder, value: Value) -> BackendResult<Value> {
-        Ok(match builder.func.dfg.value_type(value) {
+    /// Convert a call argument to the callee parameter's Cranelift type.
+    /// Char/bool/exact-width parameters use narrow Cranelift types (I8/I16/I32)
+    /// while Spectra constants and most values are I64; without conversion the
+    /// Cranelift verifier rejects the call.
+    fn coerce_call_arg(builder: &mut FunctionBuilder, value: Value, param_ty: &IRType) -> Value {
+        use spectra_midend::ir::IntWidth;
+        let target = match param_ty {
+            IRType::Char => types::I32,
+            IRType::Bool => types::I8,
+            IRType::ExactInt { width, .. } => match width {
+                IntWidth::I8 => types::I8,
+                IntWidth::I16 => types::I16,
+                IntWidth::I32 => types::I32,
+                IntWidth::I64 | IntWidth::Isize | IntWidth::Usize => types::I64,
+            },
+            _ => return value,
+        };
+        let current = builder.func.dfg.value_type(value);
+        if current == target {
+            return value;
+        }
+        match (current, target) {
+            (types::I64, types::I8 | types::I16 | types::I32) => {
+                builder.ins().ireduce(target, value)
+            }
+            (types::I8 | types::I16 | types::I32, types::I64) => {
+                builder.ins().uextend(target, value)
+            }
+            _ => value,
+        }
+    }
+
+    fn host_argument_to_i64(builder: &mut FunctionBuilder, value: Value) -> BackendResult<Value> {        Ok(match builder.func.dfg.value_type(value) {
             types::I64 => value,
             types::I8 | types::I16 | types::I32 => builder.ins().sextend(types::I64, value),
             types::F64 => builder.ins().bitcast(types::I64, MemFlags::new(), value),
@@ -1447,6 +1496,7 @@ impl CodeGenerator {
     pub(crate) fn generate_block<M: Module>(
         module: &mut M,
         function_map: &HashMap<String, FuncId>,
+        function_params: &HashMap<String, Vec<IRType>>,
         hostcall: &mut HostCallLoweringContext<'_>,
         builder: &mut FunctionBuilder,
         ir_block: &IRBasicBlock,
@@ -1508,6 +1558,7 @@ impl CodeGenerator {
             Self::generate_instruction(
                 module,
                 function_map,
+                function_params,
                 hostcall,
                 builder,
                 instr,
@@ -1553,6 +1604,7 @@ impl CodeGenerator {
     pub(crate) fn generate_instruction<M: Module>(
         module: &mut M,
         function_map: &HashMap<String, FuncId>,
+        function_params: &HashMap<String, Vec<IRType>>,
         hostcall: &mut HostCallLoweringContext<'_>,
         builder: &mut FunctionBuilder,
         instr: &Instruction,
@@ -1879,6 +1931,14 @@ impl CodeGenerator {
                 value_map.insert(result.id, result_val);
             }
 
+            // Field pointer with a constant byte offset (padded aggregate layout)
+            InstructionKind::FieldPtr { result, ptr, offset } => {
+                let ptr_val = get_value(ptr)?;
+                let offset_val = builder.ins().iconst(types::I64, *offset as i64);
+                let result_val = builder.ins().iadd(ptr_val, offset_val);
+                value_map.insert(result.id, result_val);
+            }
+
             // Function call
             InstructionKind::Call {
                 result,
@@ -1891,7 +1951,18 @@ impl CodeGenerator {
 
                 let func_ref = module.declare_func_in_func(func_id, builder.func);
 
-                let arg_values: Result<Vec<_>, _> = args.iter().map(|arg| get_value(arg)).collect();
+                let param_types = function_params.get(function.as_str());
+                let arg_values: Result<Vec<_>, _> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, arg)| {
+                        let value = get_value(arg)?;
+                        Ok(match param_types.and_then(|params| params.get(idx)) {
+                            Some(param_ty) => Self::coerce_call_arg(builder, value, param_ty),
+                            None => value,
+                        })
+                    })
+                    .collect();
                 let arg_values = arg_values?;
 
                 let call = builder.ins().call(func_ref, &arg_values);
@@ -2791,7 +2862,17 @@ impl CodeGenerator {
 
                 let sig_ref = builder.import_signature(sig);
 
-                let arg_values: Result<Vec<_>, _> = args.iter().map(|arg| get_value(arg)).collect();
+                let arg_values: Result<Vec<_>, _> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, arg)| {
+                        let value = get_value(arg)?;
+                        Ok(match signature_params.get(idx) {
+                            Some(param_ty) => Self::coerce_call_arg(builder, value, param_ty),
+                            None => value,
+                        })
+                    })
+                    .collect();
                 let arg_values = arg_values?;
 
                 let call = builder.ins().call_indirect(sig_ref, ptr_val, &arg_values);
@@ -3421,65 +3502,7 @@ impl CodeGenerator {
 
     /// Get size in bytes of an IR type
     pub(crate) fn type_size_bytes(ty: &IRType) -> usize {
-        match ty {
-            IRType::Void => 0,
-            IRType::Bool => 1,
-            IRType::Char => 4,
-            IRType::Int => 8,
-            IRType::Float => 8,
-            IRType::ExactInt { width, .. } => match width {
-                spectra_midend::ir::IntWidth::I8 => 1,
-                spectra_midend::ir::IntWidth::I16 => 2,
-                spectra_midend::ir::IntWidth::I32 => 4,
-                spectra_midend::ir::IntWidth::I64
-                | spectra_midend::ir::IntWidth::Isize
-                | spectra_midend::ir::IntWidth::Usize => 8,
-            },
-            IRType::ExactFloat { width } => match width {
-                spectra_midend::ir::FloatWidth::F32 => 4,
-                spectra_midend::ir::FloatWidth::F64 => 8,
-            },
-            IRType::String => 8,
-            IRType::Pointer(_) => 8,
-            IRType::Task { .. } => 8,
-            IRType::Range => 8,
-            IRType::Array { element_type, size } => Self::type_size_bytes(element_type) * size,
-            IRType::Tuple { elements } => {
-                // Soma dos tamanhos de cada elemento (sem padding por enquanto)
-                elements
-                    .iter()
-                    .map(|elem_ty| Self::type_size_bytes(elem_ty))
-                    .sum()
-            }
-            IRType::Struct { fields, .. } => {
-                // Soma dos tamanhos de cada campo (sem padding por enquanto)
-                fields
-                    .iter()
-                    .map(|(_, field_ty)| Self::type_size_bytes(field_ty))
-                    .sum()
-            }
-            IRType::Enum { variants, .. } => {
-                // Tamanho máximo entre todos os variants (tag + max data)
-                let max_variant_size = variants
-                    .iter()
-                    .map(|(_, data_types)| {
-                        if let Some(types) = data_types {
-                            8 + types
-                                .iter()
-                                .map(|ty| Self::type_size_bytes(ty))
-                                .sum::<usize>()
-                        } else {
-                            8 // Apenas o tag
-                        }
-                    })
-                    .max()
-                    .unwrap_or(8);
-                max_variant_size
-            }
-            IRType::Function { .. } => 8,
-            IRType::Tensor { .. } => 8,
-            IRType::DynTrait { .. } => 16, // fat pointer: data_ptr (8) + vtable_ptr (8)
-        }
+        spectra_midend::layout::type_size_bytes(ty)
     }
 
     /// Get pointer to a compiled function
@@ -3613,7 +3636,18 @@ mod tests {
             });
 
         assert!(codegen.declare_function(&function).is_ok());
-        assert!(codegen.define_function(&function).is_ok());
+        let function_params: HashMap<String, Vec<IRType>> = std::iter::once((
+            function.name.clone(),
+            function
+                .params
+                .iter()
+                .map(|param| param.ty.clone())
+                .collect(),
+        ))
+        .collect();
+        assert!(codegen
+            .define_function(&function, &function_params)
+            .is_ok());
     }
 
     #[test]
@@ -4134,7 +4168,7 @@ mod tests {
         let result = codegen.declare_function(&func);
         assert!(result.is_ok());
 
-        let result = codegen.define_function(&func);
+        let result = codegen.define_function(&func, &std::collections::HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -4150,7 +4184,7 @@ mod tests {
 
         assert!(codegen.declare_function(&func).is_ok());
         let err = codegen
-            .define_function(&func)
+            .define_function(&func, &std::collections::HashMap::new())
             .expect_err("missing target block must be reported, not panic");
         assert_eq!(err.kind(), &BackendErrorKind::MissingBlock);
         assert!(err.message().contains("999"));
@@ -4183,7 +4217,7 @@ mod tests {
 
         assert!(codegen.declare_function(&func).is_ok());
         let err = codegen
-            .define_function(&func)
+            .define_function(&func, &std::collections::HashMap::new())
             .expect_err("missing phi incoming must be reported, not panic");
         assert_eq!(err.kind(), &BackendErrorKind::MissingPhiIncoming);
         assert!(err.message().contains(&join_block_id.to_string()));
@@ -4232,7 +4266,7 @@ mod tests {
 
         // Generate code
         assert!(codegen.declare_function(&func).is_ok());
-        assert!(codegen.define_function(&func).is_ok());
+        assert!(codegen.define_function(&func, &std::collections::HashMap::new()).is_ok());
     }
 
     #[test]
@@ -4278,7 +4312,7 @@ mod tests {
 
         codegen.pre_intern_host_names_for_test(&func);
         assert!(codegen.declare_function(&func).is_ok());
-        assert!(codegen.define_function(&func).is_ok());
+        assert!(codegen.define_function(&func, &std::collections::HashMap::new()).is_ok());
         let stats = codegen.hostcall_batch_stats();
         assert_eq!(stats.batched_sites, 1);
         assert_eq!(stats.batched_hostcalls, 2);
@@ -4320,7 +4354,7 @@ mod tests {
 
         codegen.pre_intern_host_names_for_test(&func);
         assert!(codegen.declare_function(&func).is_ok());
-        assert!(codegen.define_function(&func).is_ok());
+        assert!(codegen.define_function(&func, &std::collections::HashMap::new()).is_ok());
         let stats = codegen.hostcall_batch_stats();
         assert_eq!(stats.batched_sites, 0);
         assert_eq!(stats.batched_hostcalls, 0);
@@ -4370,7 +4404,7 @@ mod tests {
 
         // Generate code
         assert!(codegen.declare_function(&func).is_ok());
-        assert!(codegen.define_function(&func).is_ok());
+        assert!(codegen.define_function(&func, &std::collections::HashMap::new()).is_ok());
     }
 
     #[test]
@@ -4411,7 +4445,7 @@ mod tests {
 
         codegen.pre_intern_host_names_for_test(&func);
         assert!(codegen.declare_function(&func).is_ok());
-        assert!(codegen.define_function(&func).is_ok());
+        assert!(codegen.define_function(&func, &std::collections::HashMap::new()).is_ok());
     }
 
     #[test]
@@ -4447,6 +4481,6 @@ mod tests {
         entry_block.set_terminator(Terminator::Return { value: Some(task) });
 
         assert!(codegen.declare_function(&func).is_ok());
-        assert!(codegen.define_function(&func).is_ok());
+        assert!(codegen.define_function(&func, &std::collections::HashMap::new()).is_ok());
     }
 }

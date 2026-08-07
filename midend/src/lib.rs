@@ -4,6 +4,7 @@
 pub mod builder;
 pub mod autodiff;
 pub mod ir;
+pub mod layout;
 pub mod lowering;
 pub mod passes;
 pub mod tensor_graph;

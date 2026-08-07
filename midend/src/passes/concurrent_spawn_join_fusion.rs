@@ -178,6 +178,7 @@ fn instruction_inputs(kind: &InstructionKind) -> Vec<Value> {
         InstructionKind::Load { ptr, .. } => vec![*ptr],
         InstructionKind::Store { ptr, value } => vec![*ptr, *value],
         InstructionKind::GetElementPtr { ptr, index, .. } => vec![*ptr, *index],
+        InstructionKind::FieldPtr { ptr, .. } => vec![*ptr],
         InstructionKind::Call { args, .. } | InstructionKind::HostCall { args, .. } => args.clone(),
         InstructionKind::CallIndirect { fn_ptr, args, .. } => {
             let mut values = vec![*fn_ptr];

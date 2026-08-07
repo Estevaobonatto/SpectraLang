@@ -2,6 +2,7 @@
 // Converts semantic AST to SSA-based IR
 
 use crate::builder::IRBuilder;
+use crate::layout;
 use crate::ir::{
     FloatWidth as IRFloatWidth, Function as IRFunction, IntWidth as IRIntWidth,
     LocalDebugInfo, Module as IRModule, Parameter, SourceSpan, Terminator, Type as IRType, Value,
@@ -1598,13 +1599,12 @@ impl ASTLowering {
             fields: field_defs.clone(),
         };
         let struct_ptr = self.builder.build_alloca(ir_func, struct_type);
+        let layout = layout::layout_of(field_defs.iter().map(|(_, ty)| ty));
         for (field_idx, (_, field_type)) in field_defs.iter().enumerate() {
-            let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
-            let field_ptr = self.builder.build_getelementptr(
+            let field_ptr = self.builder.build_field_ptr(
                 ir_func,
                 struct_ptr,
-                index_value,
-                field_type.clone(),
+                layout.offsets[field_idx] as i64,
             );
             let value = self.lower_default_value_for_type(field_type, ir_func);
             self.builder.build_store(ir_func, field_ptr, value);
@@ -4867,25 +4867,34 @@ impl ASTLowering {
                                 let var_type = self.lower_type_annotation(type_ann);
                                 if let IRType::Struct {
                                     name: struct_type_name,
-                                    fields,
+                                    ..
                                 } = var_type
                                 {
-                                    let struct_ptr = self.builder.build_alloca(
-                                        ir_func,
-                                        IRType::Struct {
-                                            name: struct_type_name.clone(),
-                                            fields: fields.clone(),
-                                        },
+                                    // Structs are pointers: bind the value pointer
+                                    // directly so field access, method calls, and
+                                    // scope-exit drop glue see the real struct.
+                                    self.struct_var_map.insert(
+                                        name.clone(),
+                                        (value, struct_type_name),
                                     );
-                                    self.builder.build_store(ir_func, struct_ptr, value);
-                                    self.struct_var_map
-                                        .insert(name.clone(), (struct_ptr, struct_type_name));
-                                    self.value_map.insert(name.clone(), struct_ptr);
+                                    self.value_map.insert(name.clone(), value);
                                 } else if let Some(&alloca_ptr) = self.alloca_map.get(&name) {
                                     self.builder.build_store(ir_func, alloca_ptr, value);
                                 } else {
                                     self.value_map.insert(name.clone(), value);
                                 }
+                            } else if let Some(IRType::Struct {
+                                name: struct_type_name,
+                                ..
+                            }) = inferred_type.as_ref()
+                            {
+                                // Value produced by a call/expression returning a
+                                // struct: track it so scope-exit drop glue runs.
+                                self.struct_var_map.insert(
+                                    name.clone(),
+                                    (value, struct_type_name.clone()),
+                                );
+                                self.value_map.insert(name.clone(), value);
                             } else if let Some(&alloca_ptr) = self.alloca_map.get(&name) {
                                 self.builder.build_store(ir_func, alloca_ptr, value);
                             } else {
@@ -5015,15 +5024,43 @@ impl ASTLowering {
                                 self.lower_expression(object, ir_func)
                             };
 
-                        // Step 3: GEP + store
-                        if let Some((field_idx, field_type)) = field_info {
-                            let index_value =
-                                self.builder.build_const_int(ir_func, field_idx as i64);
-                            let field_ptr = self.builder.build_getelementptr(
+                        // Step 3: field pointer (padded layout) + store
+                        if let Some((field_idx, _field_type)) = field_info {
+                            let offsets = match self.infer_expr_ir_type(object) {
+                                IRType::Struct { fields, .. } => {
+                                    layout::layout_of(fields.iter().map(|(_, ty)| ty)).offsets
+                                }
+                                _ => {
+                                    if let spectra_compiler::ast::ExpressionKind::Identifier(
+                                        var_name,
+                                    ) = &object.kind
+                                    {
+                                        self.struct_var_map
+                                            .get(var_name.as_str())
+                                            .and_then(|(_, sname)| {
+                                                self.struct_definitions
+                                                    .get(sname.as_str())
+                                                    .map(|defs| {
+                                                        layout::layout_of(
+                                                            defs.iter().map(|(_, ty)| ty),
+                                                        )
+                                                        .offsets
+                                                    })
+                                            })
+                                            .unwrap_or_default()
+                                    } else {
+                                        Vec::new()
+                                    }
+                                }
+                            };
+                            let byte_offset = offsets
+                                .get(field_idx)
+                                .copied()
+                                .unwrap_or(field_idx * 8);
+                            let field_ptr = self.builder.build_field_ptr(
                                 ir_func,
                                 struct_ptr,
-                                index_value,
-                                field_type,
+                                byte_offset as i64,
                             );
                             self.builder.build_store(ir_func, field_ptr, value);
                         }
@@ -6290,16 +6327,13 @@ impl ASTLowering {
                 };
                 let tuple_ptr = self.builder.build_alloca(ir_func, tuple_type);
 
-                // Inicializar cada elemento
+                // Inicializar cada elemento (offsets com padding)
+                let layout = layout::layout_of(&elem_types);
                 for (i, elem_expr) in elements.iter().enumerate() {
                     let elem_value = self.lower_expression(elem_expr, ir_func);
-                    let index_value = self.builder.build_const_int(ir_func, i as i64);
-                    let elem_ptr = self.builder.build_getelementptr(
-                        ir_func,
-                        tuple_ptr,
-                        index_value,
-                        elem_types[i].clone(),
-                    );
+                    let elem_ptr =
+                        self.builder
+                            .build_field_ptr(ir_func, tuple_ptr, layout.offsets[i] as i64);
                     self.builder.build_store(ir_func, elem_ptr, elem_value);
                 }
 
@@ -6309,9 +6343,6 @@ impl ASTLowering {
             ExpressionKind::TupleAccess { tuple, index } => {
                 // Avaliar a expressão da tuple
                 let tuple_ptr = self.lower_expression(tuple, ir_func);
-
-                // Calcular o endereço do elemento usando o índice constante
-                let index_value = self.builder.build_const_int(ir_func, *index as i64);
 
                 // Inferir o tipo do elemento da tuple
                 let elem_type = if let ExpressionKind::TupleLiteral { elements } = &tuple.kind {
@@ -6331,12 +6362,16 @@ impl ASTLowering {
                     }
                 };
 
-                let elem_ptr = self.builder.build_getelementptr(
-                    ir_func,
-                    tuple_ptr,
-                    index_value,
-                    elem_type.clone(),
-                );
+                // Offset do elemento com layout padded
+                let offset = match self.infer_expr_ir_type(tuple) {
+                    IRType::Tuple { elements } => layout::layout_of(&elements)
+                        .offsets
+                        .get(*index)
+                        .copied()
+                        .unwrap_or(*index * 8),
+                    _ => *index * 8,
+                };
+                let elem_ptr = self.builder.build_field_ptr(ir_func, tuple_ptr, offset as i64);
 
                 // Carregar o valor do elemento
                 self.builder.build_load_typed(ir_func, elem_ptr, elem_type)
@@ -6358,11 +6393,14 @@ impl ASTLowering {
                 // Alocar espaço para o struct no stack
                 let struct_ptr = self.builder.build_alloca(ir_func, struct_type);
 
+                // Layout com padding para os campos
+                let struct_layout = layout::layout_of(field_defs.iter().map(|(_, ty)| ty));
+
                 // Inicializar cada campo
                 for (field_name, field_expr) in fields.iter() {
                     let field_value = self.lower_expression(field_expr, ir_func);
 
-                    let (field_idx, field_type) = field_defs
+                    let (field_idx, _field_type) = field_defs
                         .iter()
                         .enumerate()
                         .find(|(_, (fname, _))| fname == field_name)
@@ -6375,13 +6413,14 @@ impl ASTLowering {
                             (0, IRType::Int)
                         });
 
-                    let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
-                    let field_ptr = self.builder.build_getelementptr(
-                        ir_func,
-                        struct_ptr,
-                        index_value,
-                        field_type,
-                    );
+                    let byte_offset = struct_layout
+                        .offsets
+                        .get(field_idx)
+                        .copied()
+                        .unwrap_or(field_idx * 8) as i64;
+                    let field_ptr = self
+                        .builder
+                        .build_field_ptr(ir_func, struct_ptr, byte_offset);
 
                     self.builder.build_store(ir_func, field_ptr, field_value);
                 }
@@ -6401,15 +6440,17 @@ impl ASTLowering {
                                 .enumerate()
                                 .find(|(_, (fname, _))| fname == field)
                             {
-                                // GEP para o campo
-                                let index_value =
-                                    self.builder.build_const_int(ir_func, field_idx as i64);
-                                let field_ptr = self.builder.build_getelementptr(
-                                    ir_func,
-                                    struct_ptr,
-                                    index_value,
-                                    field_type.clone(),
-                                );
+                                // Field pointer com offset de layout padded
+                                let byte_offset = layout::layout_of(
+                                    field_defs.iter().map(|(_, ty)| ty),
+                                )
+                                .offsets
+                                .get(field_idx)
+                                .copied()
+                                .unwrap_or(field_idx * 8) as i64;
+                                let field_ptr = self
+                                    .builder
+                                    .build_field_ptr(ir_func, struct_ptr, byte_offset);
 
                                 // Load do campo
                                 return self.builder.build_load_typed(
@@ -6427,18 +6468,21 @@ impl ASTLowering {
                 } = self.infer_expr_ir_type(object)
                 {
                     if let Some((field_idx, field_ty)) = field_defs
-                        .into_iter()
+                        .iter()
                         .enumerate()
                         .find(|(_, (fname, _))| fname == field)
-                        .map(|(idx, (_, ty))| (idx, ty))
+                        .map(|(idx, (_, ty))| (idx, ty.clone()))
                     {
-                        let index_value = self.builder.build_const_int(ir_func, field_idx as i64);
-                        let field_ptr = self.builder.build_getelementptr(
-                            ir_func,
-                            object_ptr,
-                            index_value,
-                            field_ty.clone(),
-                        );
+                        let byte_offset = layout::layout_of(
+                            field_defs.iter().map(|(_, ty)| ty),
+                        )
+                        .offsets
+                        .get(field_idx)
+                        .copied()
+                        .unwrap_or(field_idx * 8) as i64;
+                        let field_ptr =
+                            self.builder
+                                .build_field_ptr(ir_func, object_ptr, byte_offset);
                         return self
                             .builder
                             .build_load_typed(ir_func, field_ptr, field_ty.clone());
@@ -6693,14 +6737,13 @@ impl ASTLowering {
                             // Alocar tupla no stack
                             let tuple_ptr = self.builder.build_alloca(ir_func, tuple_type.clone());
 
-                            // Store cada elemento
+                            // Store cada elemento com offsets padded (tag + dados)
+                            let variant_layout = layout::layout_of(&element_types);
                             for (idx, elem_value) in elements.iter().enumerate() {
-                                let index_value = self.builder.build_const_int(ir_func, idx as i64);
-                                let elem_ptr = self.builder.build_getelementptr(
+                                let elem_ptr = self.builder.build_field_ptr(
                                     ir_func,
                                     tuple_ptr,
-                                    index_value,
-                                    element_types[idx].clone(),
+                                    variant_layout.offsets[idx] as i64,
                                 );
                                 self.builder.build_store(ir_func, elem_ptr, *elem_value);
                             }
@@ -7098,12 +7141,18 @@ impl ASTLowering {
                     return self.builder.build_const_int(ir_func, 0);
                 }
 
+                self.value_map.push_scope();
+                self.variable_types.push_scope();
+                self.array_map.push_scope();
+                self.range_map.push_scope();
+                self.struct_var_map.push_scope();
+
                 for stmt in &stmts[..stmts.len() - 1] {
                     self.lower_statement(stmt, ir_func);
                 }
 
                 let last = &stmts[stmts.len() - 1];
-                match &last.kind {
+                let last_value = match &last.kind {
                     spectra_compiler::ast::StatementKind::Expression(expr) => {
                         self.lower_expression(expr, ir_func)
                     }
@@ -7111,7 +7160,40 @@ impl ASTLowering {
                         self.lower_statement(last, ir_func);
                         self.builder.build_const_int(ir_func, 0)
                     }
+                };
+
+                if !self.current_block_is_terminated(ir_func) {
+                    // Drop semantics: before leaving the block scope, call
+                    // `StructName_drop(ptr)` for every struct variable whose
+                    // type implements `Drop` (in reverse order).
+                    let drop_calls: Vec<(String, Value)> = self
+                        .struct_var_map
+                        .scopes
+                        .last()
+                        .map(|scope| {
+                            scope
+                                .values()
+                                .filter(|(_, struct_name)| {
+                                    self.trait_implementations
+                                        .contains_key(&(struct_name.clone(), "Drop".to_string()))
+                                })
+                                .map(|(ptr, struct_name)| (struct_name.clone(), *ptr))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    for (struct_name, ptr) in drop_calls.iter().rev() {
+                        let fn_name = format!("{}_drop", struct_name);
+                        self.builder.build_call(ir_func, fn_name, vec![*ptr], false);
+                    }
                 }
+
+                self.struct_var_map.pop_scope();
+                self.array_map.pop_scope();
+                self.range_map.pop_scope();
+                self.variable_types.pop_scope();
+                self.value_map.pop_scope();
+
+                last_value
             }
             ExpressionKind::DifferentiableBlock(block) => {
                 let stmts = &block.statements;
@@ -7420,14 +7502,13 @@ impl ASTLowering {
                 }) = scrutinee_type
                 {
                     let mut result = self.builder.build_const_int(ir_func, 1);
+                    let tuple_layout = layout::layout_of(tuple_types.iter());
                     for (idx, pattern) in elements.iter().enumerate() {
                         if let Some(field_ty) = tuple_types.get(idx) {
-                            let index_value = self.builder.build_const_int(ir_func, idx as i64);
-                            let field_ptr = self.builder.build_getelementptr(
+                            let field_ptr = self.builder.build_field_ptr(
                                 ir_func,
                                 scrutinee,
-                                index_value,
-                                field_ty.clone(),
+                                tuple_layout.offsets[idx] as i64,
                             );
                             let field_value =
                                 self.builder
@@ -7460,14 +7541,13 @@ impl ASTLowering {
                         .map(|(idx, (name, ty))| (name, (idx, ty)))
                         .collect();
                     let mut result = self.builder.build_const_int(ir_func, 1);
+                    let struct_layout = layout::layout_of(struct_fields.iter().map(|(_, ty)| ty));
                     for (field_name, pattern) in fields {
                         if let Some((idx, field_ty)) = field_map.get(field_name) {
-                            let index_value = self.builder.build_const_int(ir_func, *idx as i64);
-                            let field_ptr = self.builder.build_getelementptr(
+                            let field_ptr = self.builder.build_field_ptr(
                                 ir_func,
                                 scrutinee,
-                                index_value,
-                                field_ty.clone(),
+                                struct_layout.offsets[*idx] as i64,
                             );
                             let field_value =
                                 self.builder
@@ -7600,13 +7680,11 @@ impl ASTLowering {
                 {
                     for (idx, pattern) in elements.iter().enumerate() {
                         if let Some(field_ty) = tuple_types.get(idx) {
-                            let index_value = self.builder.build_const_int(ir_func, idx as i64);
-                            let field_ptr = self.builder.build_getelementptr(
-                                ir_func,
-                                scrutinee,
-                                index_value,
-                                field_ty.clone(),
-                            );
+                            let byte_offset =
+                                layout::layout_of(tuple_types.iter()).offsets[idx] as i64;
+                            let field_ptr = self
+                                .builder
+                                .build_field_ptr(ir_func, scrutinee, byte_offset);
                             let field_value =
                                 self.builder
                                     .build_load_typed(ir_func, field_ptr, field_ty.clone());
@@ -7633,14 +7711,13 @@ impl ASTLowering {
                         .enumerate()
                         .map(|(idx, (name, ty))| (name, (idx, ty)))
                         .collect();
+                    let struct_layout = layout::layout_of(struct_fields.iter().map(|(_, ty)| ty));
                     for (field_name, pattern) in fields {
                         if let Some((idx, field_ty)) = field_map.get(field_name) {
-                            let index_value = self.builder.build_const_int(ir_func, *idx as i64);
-                            let field_ptr = self.builder.build_getelementptr(
+                            let field_ptr = self.builder.build_field_ptr(
                                 ir_func,
                                 scrutinee,
-                                index_value,
-                                field_ty.clone(),
+                                struct_layout.offsets[*idx] as i64,
                             );
                             let field_value =
                                 self.builder
@@ -7705,18 +7782,17 @@ impl ASTLowering {
                             variants.iter().find(|(name, _, _)| name == variant_name)
                         {
                             if let Some(types) = variant_types {
+                                // Layout da tupla (tag + dados): offsets padded
+                                let variant_layout = layout::layout_of(types.iter());
                                 // Para cada pattern de data, extrair o valor correspondente
                                 for (idx, sub_pattern) in ordered_patterns.iter().enumerate() {
                                     if let Some(sub_type) = types.get(idx) {
                                         // Extrair elemento idx+1 da tuple (idx 0 é o tag)
-                                        let index_value =
-                                            self.builder.build_const_int(ir_func, (idx + 1) as i64);
-                                        let element_ptr = self.builder.build_getelementptr(
-                                            ir_func,
-                                            scrutinee,
-                                            index_value,
-                                            sub_type.clone(),
-                                        );
+                                        let byte_offset =
+                                            8 + variant_layout.offsets[idx] as i64;
+                                        let element_ptr = self
+                                            .builder
+                                            .build_field_ptr(ir_func, scrutinee, byte_offset);
                                         let element_value = self.builder.build_load_typed(
                                             ir_func,
                                             element_ptr,

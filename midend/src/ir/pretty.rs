@@ -194,6 +194,12 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
                 fmt_value(*index),
                 fmt_type(element_type)
             ),
+            InstructionKind::FieldPtr { result, ptr, offset } => format!(
+                "{} = field_ptr {}, {}",
+                fmt_value(*result),
+                fmt_value(*ptr),
+                offset
+            ),
             InstructionKind::Call {
                 result,
                 function,

@@ -158,6 +158,14 @@ impl IRBuilder {
         })
     }
 
+    pub fn build_field_ptr(&self, func: &mut Function, ptr: Value, offset: i64) -> Value {
+        self.try_emit(func, |result| InstructionKind::FieldPtr {
+            result,
+            ptr,
+            offset,
+        })
+    }
+
     pub fn build_copy(&self, func: &mut Function, source: Value) -> Value {
         self.try_emit(func, |result| InstructionKind::Copy { result, source })
     }

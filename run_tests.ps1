@@ -50,6 +50,20 @@ $totalSkipped = 0
 $results      = @()
 $runPhase31Gpu = $Phase -contains "phase31_gpu"
 
+if ($Phase -contains "phase2_r207_struct_layout") {
+    Write-Host "--- R-207 struct layout and drop semantics gate ---" -ForegroundColor Yellow
+    & python scripts\validate_r207_struct_layout.py --binary $binary
+    $validatorExit = $LASTEXITCODE
+    & git diff --check -- backend/src/codegen.rs midend/src/layout.rs midend/src/lowering.rs midend/src/ir.rs runtime/src/ffi.rs tests/validation/253_oop_struct_layout_drop.spectra scripts/validate_r207_struct_layout.py
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-207 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-207 focused gate passed." -ForegroundColor Green
+    exit 0
+}
+
 if ($Phase -contains "phase27_tracing") {
     & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "scripts\run_phase27_tracing.ps1") -Binary $binary
     exit $LASTEXITCODE
@@ -1214,7 +1228,20 @@ if ($floatConstCast.Status -eq "PASSOU") {
 $results += [PSCustomObject]@{ Diretorio = "phase2-codegen"; Teste = "validate_r205_float_const_cast_codegen"; Status = $floatConstCast.Status; Detalhe = $floatConstCast.Detail }
 
 # ---------------------------------------------------------------------------
-# Grupo 8.10: R-1002 debugger and stack traces
+# Grupo 8.10: R-207 struct layout with padding and cumulative offsets
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- R-207 struct layout and drop semantics ---" -ForegroundColor Yellow
+$structLayout = Invoke-HostCommand -name "validate_r207_struct_layout" -fileName "python" -arguments @("scripts\validate_r207_struct_layout.py", "--binary", $binary) -workingDir (Get-Location).Path
+if ($structLayout.Status -eq "PASSOU") {
+    $totalPassed++
+} else {
+    $totalFailed++
+}
+$results += [PSCustomObject]@{ Diretorio = "phase2-oop-layout"; Teste = "validate_r207_struct_layout"; Status = $structLayout.Status; Detalhe = $structLayout.Detail }
+
+# ---------------------------------------------------------------------------
+# Grupo 8.11: R-1002 debugger and stack traces
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- R-1002 debugger and stack traces ---" -ForegroundColor Yellow

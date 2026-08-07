@@ -214,6 +214,7 @@ fn instruction_result(instruction: &Instruction) -> Option<Value> {
         | InstructionKind::Alloca { result, .. }
         | InstructionKind::Load { result, .. }
         | InstructionKind::GetElementPtr { result, .. }
+        | InstructionKind::FieldPtr { result, .. }
         | InstructionKind::FuncAddr { result, .. }
         | InstructionKind::AsyncReady { result, .. }
         | InstructionKind::Phi { result, .. }
@@ -274,6 +275,7 @@ fn instruction_operands(instruction: &Instruction) -> Vec<Value> {
         | InstructionKind::AsyncResume { task: operand, .. } => vec![*operand],
         InstructionKind::Store { ptr, value } => vec![*ptr, *value],
         InstructionKind::GetElementPtr { ptr, index, .. } => vec![*ptr, *index],
+        InstructionKind::FieldPtr { ptr, .. } => vec![*ptr],
         InstructionKind::Call { args, .. } | InstructionKind::HostCall { args, .. } => args.clone(),
         InstructionKind::CallIndirect { fn_ptr, args, .. } => {
             let mut operands = Vec::with_capacity(args.len() + 1);

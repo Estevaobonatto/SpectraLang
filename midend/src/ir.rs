@@ -190,6 +190,14 @@ pub enum InstructionKind {
         index: Value,
         element_type: Type,
     },
+    /// Pointer arithmetic with a constant byte offset for aggregate fields.
+    /// Used for struct/tuple/enum fields whose layout requires padding and
+    /// cumulative offsets (see `crate::layout`).
+    FieldPtr {
+        result: Value,
+        ptr: Value,
+        offset: i64,
+    },
 
     // Function calls
     Call {

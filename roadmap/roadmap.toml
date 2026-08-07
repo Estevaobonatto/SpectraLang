@@ -1,6 +1,6 @@
 version = 1
 title = "SpectraLang Production AI Roadmap"
-updated_at = "2026-06-25"
+updated_at = "2026-08-07"
 status_scale = ["not_started", "in_progress", "blocked", "complete"]
 priority_scale = ["P0", "P1", "P2", "P3"]
 
@@ -4808,4 +4808,134 @@ acceptance = [
   "baseline.json remains byte-for-byte unchanged and historical R-3131/R-3132 evidence remains preserved and explicitly historical",
   "the focused gate run_tests.ps1 -Phase phase31_r3133_async_echo executes unit tests, roadmap/report validation, evidence generation, and git diff --check",
   "R-3103 is complete; R-3104 may be in_progress or complete only after its own backend codegen and baseline gates pass"
+]
+
+[[items]]
+id = "R-207"
+title = "Struct Layout with Padding and Cumulative Offsets"
+phase = "phase_2"
+owner = "backend"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = []
+summary = "Fix record field layout so offsets are cumulative with alignment instead of index times field size; this fixes the Drop ACCESS_VIOLATION caused by 1-byte fields (bool/char) overlapping preceding 8-byte fields such as string pointers."
+acceptance = [
+  "a shared layout function computes cumulative field offsets with natural alignment and a total size aligned to 8 bytes, used consistently by lowering and backend (alloca and type_size_bytes)",
+  "GetElementPtr carries byte offsets; verification, inlining, DCE, and fusion passes are updated accordingly",
+  "examples/test_oop_drop.spectra executes to completion with exit 0 (no ACCESS_VIOLATION)",
+  "a tests/validation regression covers structs mixing bool/char fields after 8-byte fields with write, read, and drop execution",
+  "the existing validation suite still passes unchanged except for the fixed crash",
+  "scripts/validate_r207_struct_layout.py and run_tests.ps1 -Phase phase2_r207_struct_layout gate the item"
+]
+
+[[items]]
+id = "R-208"
+title = "Stable OOP Diagnostic Codes"
+phase = "phase_2"
+owner = "frontend"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = []
+summary = "Assign stable E### diagnostic codes to object-oriented error sites (method not found, trait not defined, trait method not implemented, parent trait not defined, wrong signature, multiple self, struct/field/literal errors, invalid dyn casts, self-method-called-static) so tools can key on codes instead of messages."
+acceptance = [
+  "stable codes exist for the documented OOP error sites and are emitted consistently by parser and semantic analysis",
+  "docs/diagnostics/error-code-reference.md documents every new code",
+  "existing tests/errors fixtures for OOP assert their codes via check --json",
+  "scripts/validate_r208_oop_diagnostics.py and run_tests.ps1 -Phase phase2_r208_oop_diagnostics gate the item"
+]
+
+[[items]]
+id = "R-209"
+title = "Self-First-Parameter Validation"
+phase = "phase_2"
+owner = "semantic"
+priority = "P1"
+status = "not_started"
+risk = "low"
+dependencies = ["R-208"]
+summary = "Reject methods and trait signatures where a self receiver appears in any position other than the first parameter, with a stable diagnostic code."
+acceptance = [
+  "func f(x: int, self) and similar receiver misplacements are rejected with a stable semantic diagnostic code",
+  "receivers after the first parameter are rejected in inherent impls, trait declarations, and trait impls",
+  "negative regressions exist in tests/errors asserting the new code",
+  "scripts/validate_r209_self_first_parameter.py and run_tests.ps1 -Phase phase2_r209_self_first_parameter gate the item"
+]
+
+[[items]]
+id = "R-210"
+title = "Static Vtables for dyn Trait Objects"
+phase = "phase_2"
+owner = "midend"
+priority = "P2"
+status = "not_started"
+risk = "high"
+dependencies = []
+summary = "Wire the dead Module.vtables/VTableDef IR infrastructure so vtables are emitted as module-level read-only data instead of per-cast stack allocations, allowing dyn trait objects to outlive the scope that created them."
+acceptance = [
+  "Module.vtables and VTableDef are constructed and consumed by lowering and backend; the dead infrastructure is either used or removed",
+  "coerce-to-dyn references a module-level vtable instead of a stack alloca",
+  "dyn values stored in records and used after the creating scope ends, and returned from functions, do not dangle",
+  "JIT and AOT codegen both support static vtables",
+  "tests/validation regression covers dyn outliving its creating scope",
+  "scripts/validate_r210_static_vtables.py and run_tests.ps1 -Phase phase2_r210_static_vtables gate the item"
+]
+
+[[items]]
+id = "R-211"
+title = "Generic Impl Blocks"
+phase = "phase_2"
+owner = "semantic"
+priority = "P1"
+status = "not_started"
+risk = "medium"
+dependencies = []
+summary = "Support impl blocks with type parameters (impl Par<T>) including bounds, and module-qualified impl targets (impl module::Type), from parser through semantic binding to lowering and monomorphized method calls."
+acceptance = [
+  "parser accepts impl Par<T> (with optional bounds) and impl module::Type",
+  "semantic binds impl type parameters in method signatures and bodies; self resolves to the generic instantiation",
+  "lowering emits and resolves monomorphized methods for generic impl instantiations",
+  "parse, check, and run regressions exist in tests/validation",
+  "docs/reference/03-tipos-compostos.md documents the supported syntax",
+  "scripts/validate_r211_generic_impls.py and run_tests.ps1 -Phase phase2_r211_generic_impls gate the item"
+]
+
+[[items]]
+id = "R-212"
+title = "UFCS for User Traits"
+phase = "phase_2"
+owner = "midend"
+priority = "P2"
+status = "not_started"
+risk = "medium"
+dependencies = []
+summary = "Support Trait::method(obj, args) universal function call syntax for user-defined traits on concrete and dyn types, including default trait methods, with targeted diagnostics when the trait or impl is missing."
+acceptance = [
+  "Trait::method(obj, args) resolves user traits in scope and validates signatures against the trait contract",
+  "lowering routes UFCS calls to TypeName_method for concrete types, to default-method copies, and to vtable slots for dyn types",
+  "errors are emitted for unknown traits, missing impls, and signature mismatches",
+  "tests/validation and tests/errors regressions cover concrete, dyn, and default-method UFCS",
+  "docs/reference/03-tipos-compostos.md documents UFCS",
+  "scripts/validate_r212_ufcs.py and run_tests.ps1 -Phase phase2_r212_ufcs gate the item"
+]
+
+[[items]]
+id = "R-213"
+title = "Generic Trait Impls"
+phase = "phase_2"
+owner = "midend"
+priority = "P2"
+status = "not_started"
+risk = "high"
+dependencies = ["R-211"]
+summary = "Support generic traits (trait Container<T>), concrete trait impls (impl Container<int> for Type), and bounded generic trait impls (impl<T: Bound> Trait<T> for Type) with static dispatch via monomorphization and an object-safety rule for dyn of generic traits."
+acceptance = [
+  "generic traits declare type parameters usable in method signatures and bodies",
+  "impl Container<int> for Type and impl<T: Bound> Trait<T> for Type are parsed, bound, and monomorphized",
+  "calls resolve through bounds and concrete impls with static dispatch",
+  "dyn of a generic trait is rejected unless the trait type parameter is fixed, with a targeted diagnostic",
+  "tests/validation and tests/errors regressions cover the supported and rejected cases",
+  "docs/reference/03-tipos-compostos.md documents generic traits",
+  "scripts/validate_r213_generic_trait_impls.py and run_tests.ps1 -Phase phase2_r213_generic_trait_impls gate the item"
 ]

@@ -8895,3 +8895,187 @@ Placeholder até `R-3103` consolidar profiling:
 - Async: gap ≤ 2.0x vs Go
 
 Números em `optimization-plan.md` (R-3103) substituem esses placeholders.
+
+---
+
+## R-207 Struct Layout with Padding and Cumulative Offsets
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `backend`
+- Risk: `high`
+- Dependencies: `-`
+
+A análise de POO encontrou um crash real: `examples/test_oop_drop.spectra`
+termina com ACCESS VIOLATION (0xC0000005) ao sair do primeiro escopo. A causa
+raiz é o layout de records: `offset = index_do_campo x tamanho_do_campo`
+(`backend/src/codegen.rs:1871-1875`) com `bool` de 1 byte (`codegen.rs:3426`).
+Em `record Buffer { name: string, size: int, is_open: bool }`, `is_open`
+(índice 2) ocupa o offset 2, dentro do ponteiro da string `name` (offsets 0-7),
+corrompendo o ponteiro e causando o segfault no `drop()`.
+
+### Scope
+
+- introduzir uma função de layout compartilhada (offsets cumulativos com
+  alinhamento natural por campo e total alinhado a 8 bytes) usada pelo
+  lowering e pelo backend (alloca e `type_size_bytes`)
+- `GetElementPtr` passa a carregar offset em bytes; ajustar os passes de
+  verification, inlining, DCE e fusion que casam o campo `index`
+- corrigir o crash do Drop e adicionar regressão de execução com campos
+  bool/char após campos de 8 bytes
+- validar que a suíte existente continua passando
+
+### Acceptance
+
+- layout compartilhado e consistente entre midend e backend
+- `examples/test_oop_drop.spectra` executa com exit 0
+- regressão em `tests/validation/` (escrita, leitura e drop com campos mistos)
+- gate `run_tests.ps1 -Phase phase2_r207_struct_layout` via
+  `scripts/validate_r207_struct_layout.py`
+
+## R-208 Stable OOP Diagnostic Codes
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `frontend`
+- Risk: `low`
+- Dependencies: `-`
+
+A maioria dos erros de POO (método não encontrado, trait não definido, método
+de trait não implementado, trait pai não definido, assinatura errada, self
+múltiplo, erros de struct literal e campo, cast dyn inválido, método com self
+chamado como estático) é emitida apenas com mensagem, sem código estável.
+
+### Scope
+
+- atribuir códigos `E###` estáveis a cada site de erro POO no parser e no
+  semântico
+- documentar os códigos em `docs/diagnostics/error-code-reference.md`
+- atualizar fixtures `tests/errors/` para assertar códigos via `check --json`
+
+### Acceptance
+
+- códigos estáveis emitidos de forma consistente
+- documentação atualizada
+- `scripts/validate_r208_oop_diagnostics.py` + gate `phase2_r208_oop_diagnostics`
+
+## R-209 Self-First-Parameter Validation
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `semantic`
+- Risk: `low`
+- Dependencies: `R-208`
+
+O semântico só valida "mais de um self"; um receiver em posição posterior ao
+primeiro parâmetro passa sem diagnóstico.
+
+### Scope
+
+- rejeitar receivers em qualquer posição que não seja o primeiro parâmetro
+  em impls inherent, declarações de trait e trait impls
+- emitir código estável (depende de R-208)
+
+### Acceptance
+
+- `func f(x: int, self)` rejeitado com diagnóstico estável
+- regressões negativas em `tests/errors/`
+- `scripts/validate_r209_self_first_parameter.py` + gate `phase2_r209_self_first_parameter`
+
+## R-210 Static Vtables for dyn Trait Objects
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `midend`
+- Risk: `high`
+- Dependencies: `-`
+
+`Module.vtables`/`VTableDef` (`midend/src/ir.rs:34-46`) são código morto; as
+vtables reais são alocadas na pilha a cada cast (`lowering.rs:7347-7373`),
+tornando perigoso um objeto `dyn` escapar do escopo criador.
+
+### Scope
+
+- construir e consumir `Module.vtables`/`VTableDef` no lowering e no backend
+- emitir vtables como dados de módulo (JIT e AOT) em vez de stack alloca
+- regressão de `dyn` armazenado em record e retornado de função, usado após
+  o fim do escopo criador, sem dangling
+
+### Acceptance
+
+- infraestrutura morta usada ou removida
+- `dyn` sobrevive ao escopo criador sem dangling em JIT e AOT
+- `scripts/validate_r210_static_vtables.py` + gate `phase2_r210_static_vtables`
+
+## R-211 Generic Impl Blocks
+
+- Status: `not_started`
+- Priority: `P1`
+- Owner: `semantic`
+- Risk: `medium`
+- Dependencies: `-`
+
+`impl Type<T>` genérico e `impl module::Type` não são aceitos pelo parser
+(`docs/frontend/parser-coverage-audit.md:40`).
+
+### Scope
+
+- parser aceita `impl Par<T>` (com bounds) e `impl module::Type`
+- semântico vincula type params do impl em assinaturas e corpos; `self`
+  resolve para a instanciação genérica
+- lowering emite e resolve métodos monomorfizados
+
+### Acceptance
+
+- parse, check e run de regressões em `tests/validation/`
+- docs/reference/03-tipos-compostos.md atualizado
+- `scripts/validate_r211_generic_impls.py` + gate `phase2_r211_generic_impls`
+
+## R-212 UFCS for User Traits
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `midend`
+- Risk: `medium`
+- Dependencies: `-`
+
+`Trait::method(obj)` (UFCS) só existe para caminhos de stdlib
+(`lowering.rs:6874-6887`); traits de usuário não são resolvíveis dessa forma.
+
+### Scope
+
+- resolver `Trait::method(obj, args)` contra traits do escopo com validação
+  de assinatura
+- lowering para `TypeName_method` (concreto), métodos default e slots de
+  vtable (dyn)
+- diagnósticos para trait/impl ausentes e assinaturas incompatíveis
+
+### Acceptance
+
+- regressões em `tests/validation/` e `tests/errors/` (concreto, dyn, default)
+- docs/reference/03-tipos-compostos.md documenta UFCS
+- `scripts/validate_r212_ufcs.py` + gate `phase2_r212_ufcs`
+
+## R-213 Generic Trait Impls
+
+- Status: `not_started`
+- Priority: `P2`
+- Owner: `midend`
+- Risk: `high`
+- Dependencies: `R-211`
+
+Traits genéricos (`trait Container<T>`) e impls genéricos de trait
+(`impl Container<int> for Type`, `impl<T: Bound> Trait<T> for Type`) não
+existem.
+
+### Scope
+
+- traits com parâmetros de tipo usáveis em assinaturas e corpos de métodos
+- impls concretos e genéricos com bounds, dispatch estático via monomorfização
+- regra de object safety: `dyn` de trait genérico só com T fixo
+
+### Acceptance
+
+- regressões de sucesso e erro em `tests/validation/` e `tests/errors/`
+- docs/reference/03-tipos-compostos.md documenta traits genéricos
+- `scripts/validate_r213_generic_trait_impls.py` + gate `phase2_r213_generic_trait_impls`

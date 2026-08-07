@@ -1024,12 +1024,13 @@ pub extern "C" fn spectra_rt_manual_escape(ptr: *mut u8, current_frame_id: usize
 
     guard.remove_from_frame(old_frame_id, ptr_value);
 
-    // Find the parent frame (second from the top of the stack).
-    let parent_frame_id = if guard.frames.len() >= 2 {
-        guard.frames[guard.frames.len() - 2].id
-    } else {
-        0 // base frame
-    };
+    // Move the allocation to the base frame (0). Escaping only to the
+    // immediate parent frame is unsafe: when the parent is itself a transient
+    // callee frame (e.g. `Outer::create` calling `Inner::new`), the parent's
+    // `frame_exit` would free the escaped allocation while the caller still
+    // holds it. The base frame is never popped by `frame_exit`, so escaped
+    // values remain valid for the lifetime of the program.
+    let parent_frame_id = 0;
 
     if let Some(entry) = guard.allocations.get_mut(&ptr_value) {
         entry.frame_id = parent_frame_id;

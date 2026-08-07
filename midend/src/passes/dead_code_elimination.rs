@@ -110,6 +110,9 @@ impl DeadCodeElimination {
                 used.insert(ptr.id);
                 used.insert(index.id);
             }
+            InstructionKind::FieldPtr { ptr, .. } => {
+                used.insert(ptr.id);
+            }
             InstructionKind::MakeDynFatPtr {
                 data_ptr,
                 vtable_ptr,
@@ -172,6 +175,7 @@ impl DeadCodeElimination {
             | InstructionKind::Alloca { result, .. }
             | InstructionKind::Load { result, .. }
             | InstructionKind::GetElementPtr { result, .. }
+            | InstructionKind::FieldPtr { result, .. }
             | InstructionKind::Copy { result, .. }
             | InstructionKind::Phi { result, .. }
             | InstructionKind::ConstInt { result, .. }
