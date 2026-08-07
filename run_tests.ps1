@@ -50,6 +50,19 @@ $totalSkipped = 0
 $results      = @()
 $runPhase31Gpu = $Phase -contains "phase31_gpu"
 
+if ($Phase -contains "phase2_r213_generic_trait_impls") {
+    Write-Host "--- R-213 generic traits gate ---" -ForegroundColor Yellow
+    & python scripts\validate_r213_generic_trait_impls.py --binary $binary
+    $validatorExit = $LASTEXITCODE
+    & git diff --check -- compiler/src/ast/mod.rs compiler/src/parser/item.rs compiler/src/semantic/mod.rs tests/validation/257_oop_generic_traits.spectra scripts/validate_r213_generic_trait_impls.py docs/diagnostics/error-code-reference.md docs/reference/03-tipos-compostos.md
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "R-213 focused gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "R-213 focused gate passed." -ForegroundColor Green
+    exit 0
+}
 if ($Phase -contains "phase2_r212_ufcs") {
     Write-Host "--- R-212 UFCS gate ---" -ForegroundColor Yellow
     & python scripts\validate_r212_ufcs.py --binary $binary

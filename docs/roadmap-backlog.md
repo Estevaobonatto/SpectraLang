@@ -9058,7 +9058,7 @@ tornando perigoso um objeto `dyn` escapar do escopo criador.
 
 ## R-213 Generic Trait Impls
 
-- Status: `not_started`
+- Status: `complete`
 - Priority: `P2`
 - Owner: `midend`
 - Risk: `high`

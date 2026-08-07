@@ -698,6 +698,8 @@ pub struct ImplBlock {
     pub span: Span,
     /// Type arguments of the impl target (e.g. `impl Par<T>` or `impl Par<int>`).
     pub type_args: Vec<TypeAnnotation>,
+    /// Generic parameter clause of the impl: `impl<T: Bound> Trait for Type` (R-213).
+    pub type_params: Vec<TypeParameter>,
 }
 
 /// Método associado a um tipo
@@ -737,6 +739,8 @@ pub struct TraitDeclaration {
     pub parent_traits: Vec<String>, // NEW: Trait inheritance (e.g., trait Debug: Printable)
     pub methods: Vec<TraitMethod>,  // Assinaturas de métodos (sem corpo)
     pub span: Span,
+    /// Generic type parameters: `trait Container<T>` (R-213).
+    pub type_params: Vec<TypeParameter>,
 }
 
 /// Método em um trait (pode ter ou não implementação default)
@@ -760,6 +764,8 @@ pub struct TraitImpl {
     pub span: Span,
     /// Type arguments of the impl target (e.g. `impl Trait for Par<T>`).
     pub type_args: Vec<TypeAnnotation>,
+    /// Generic parameter clause of the impl: `impl<T: Bound> Trait for Type` (R-213).
+    pub type_params: Vec<TypeParameter>,
 }
 
 // ============================================================================

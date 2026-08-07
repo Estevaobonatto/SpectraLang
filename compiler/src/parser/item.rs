@@ -610,6 +610,12 @@ impl Parser {
         // Expect: impl TypeName { methods... } ou impl TraitName for TypeName { methods... }
         let start_span = self.consume_keyword(Keyword::Impl, "Expected 'impl' keyword")?;
 
+        // Optional generic parameter clause: impl<T: Bound> Trait for Type (R-213).
+        let mut impl_type_params = Vec::new();
+        if self.check_symbol('<') {
+            impl_type_params = self.parse_type_parameters()?;
+        }
+
         let (first_name, _) =
             self.consume_identifier("Expected trait or type name after 'impl'")?;
 
@@ -679,7 +685,8 @@ impl Parser {
                 start_span,
                 first_name,
                 type_name,
-                for_type_args,
+                type_args,
+                impl_type_params,
             )?;
             return Ok(Item::TraitImpl(trait_impl));
         }
@@ -829,6 +836,7 @@ impl Parser {
             methods,
             span: span_union(start_span, end_span),
             type_args,
+            type_params: impl_type_params,
         }))
     }
 
@@ -838,6 +846,12 @@ impl Parser {
         let start_span = self.consume_keyword(Keyword::Trait, "Expected 'trait' keyword")?;
 
         let (name, _name_span) = self.consume_identifier("Expected trait name")?;
+
+        // Optional generic type parameters: trait Container<T> (R-213)
+        let mut type_params = Vec::new();
+        if self.check_symbol('<') {
+            type_params = self.parse_type_parameters()?;
+        }
 
         // Parse optional parent traits: trait A: B, C
         let mut parent_traits = Vec::new();
@@ -999,6 +1013,7 @@ impl Parser {
             parent_traits,
             methods,
             span: span_union(start_span, end_span),
+            type_params,
         };
 
         let mut signature_map: HashMap<String, TraitMethodSignature> = HashMap::new();
@@ -1029,6 +1044,7 @@ impl Parser {
         trait_name: String,
         type_name: String,
         type_args: Vec<TypeAnnotation>,
+        impl_type_params: Vec<TypeParameter>,
     ) -> Result<TraitImpl, ()> {
         self.consume_symbol('{', "Expected '{' to start trait impl block")?;
 
@@ -1165,6 +1181,7 @@ impl Parser {
             methods,
             span: span_union(start_span, end_span),
             type_args,
+            type_params: impl_type_params,
         })
     }
 

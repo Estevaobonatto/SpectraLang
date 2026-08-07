@@ -396,6 +396,8 @@ pub struct SemanticAnalyzer {
     // Traits: maps trait_name to (method_name, method_info)
     traits: HashMap<String, HashMap<String, TraitMethodInfo>>,
     trait_signatures: HashMap<String, HashMap<String, TraitMethodSignature>>,
+    // Generic type parameters of traits: trait Container<T> (R-213).
+    trait_type_params: HashMap<String, Vec<crate::ast::TypeParameter>>,
     // Trait implementations: maps (trait_name, type_name) to validation status
     trait_impls: HashMap<(String, String), bool>,
     // Struct metadata for validation and lookup
@@ -692,6 +694,7 @@ impl SemanticAnalyzer {
             drop_types: HashSet::new(),
             traits: HashMap::new(),
             trait_impls: HashMap::new(),
+            trait_type_params: HashMap::new(),
             struct_infos: HashMap::new(),
             json_struct_derives: HashMap::new(),
             enum_infos: HashMap::new(),
@@ -5250,6 +5253,7 @@ impl SemanticAnalyzer {
             methods: trait_impl.methods.clone(),
             span: trait_impl.span,
             type_args: trait_impl.type_args.clone(),
+            type_params: trait_impl.type_params.clone(),
         };
 
         self.analyze_impl_block(&derived_impl);
@@ -5270,9 +5274,16 @@ impl SemanticAnalyzer {
         } else {
             false
         };
+        let pushed_impl_generics = if !impl_block.type_params.is_empty() {
+            self.push_generic_params(&impl_block.type_params)
+        } else {
+            false
+        };
 
         // Validate impl type arguments against the target type's type parameters.
-        if !impl_block.type_args.is_empty() {
+        // For trait impls the type arguments belong to the trait and are validated
+        // in validate_trait_impl (R-213).
+        if !impl_block.type_args.is_empty() && impl_block.trait_name.is_none() {
             match &type_param_info {
                 Some(params) => {
                     if impl_block.type_args.len() != params.len() {
@@ -5495,12 +5506,22 @@ impl SemanticAnalyzer {
         if pushed_generics {
             self.pop_generic_params();
         }
+        if pushed_impl_generics {
+            self.pop_generic_params();
+        }
     }
 
-    /// Analisa declaração de trait e registra assinaturas dos métodos
+    /// Analisa declara��o de trait e registra assinaturas dos m�todos
     fn analyze_trait_declaration(&mut self, trait_decl: &crate::ast::TraitDeclaration) {
         let mut trait_methods = HashMap::new();
         let mut signature_map = HashMap::new();
+
+        // R-213: register the trait's generic type parameters (trait Container<T>).
+        if !trait_decl.type_params.is_empty() {
+            self.trait_type_params
+                .insert(trait_decl.name.clone(), trait_decl.type_params.clone());
+            self.push_generic_params(&trait_decl.type_params);
+        }
 
         // First, inherit methods from parent traits
         for parent_trait_name in &trait_decl.parent_traits {
@@ -5674,6 +5695,32 @@ impl SemanticAnalyzer {
             .cloned()
             .unwrap_or_default();
 
+        // R-213: generic traits (trait Container<T>) — resolve the concrete type
+        // arguments from the impl (`impl Container<int> for X`) and substitute
+        // them into the trait method signatures before validation.
+        let trait_params = self.trait_type_params.get(trait_name).cloned().unwrap_or_default();
+        let trait_concrete_args: Vec<Type> = if trait_params.is_empty() {
+            Vec::new()
+        } else {
+            if impl_block.type_args.len() != trait_params.len() {
+                self.error_coded(
+                    "E025",
+                    format!(
+                        "Impl of generic trait '{}' provides {} type argument(s), but the trait declares {} type parameter(s)",
+                        trait_name,
+                        impl_block.type_args.len(),
+                        trait_params.len()
+                    ),
+                    impl_block.span,
+                );
+            }
+            impl_block
+                .type_args
+                .iter()
+                .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                .collect()
+        };
+
         // Coletar métodos implementados
         let mut implemented_methods = HashMap::new();
         for method in &impl_block.methods {
@@ -5777,6 +5824,29 @@ impl SemanticAnalyzer {
                             &trait_method_info.signature.params[..]
                         };
 
+                    // R-213: substitute the trait's type parameters with the impl's
+                    // concrete type arguments before comparing signatures.
+                    let trait_type_param_defs = self
+                        .trait_type_params
+                        .get(trait_name)
+                        .cloned()
+                        .unwrap_or_default();
+                    let substituted_trait_params: Vec<Type> = trait_params
+                        .iter()
+                        .map(|t| {
+                            self.substitute_generic_types(
+                                t,
+                                &trait_type_param_defs,
+                                &trait_concrete_args,
+                            )
+                        })
+                        .collect();
+                    let substituted_trait_return = self.substitute_generic_types(
+                        &trait_method_info.signature.return_type,
+                        &trait_type_param_defs,
+                        &trait_concrete_args,
+                    );
+
                     let impl_params = if impl_has_self && impl_signature.params.len() >= 1 {
                         &impl_signature.params[1..]
                     } else {
@@ -5801,7 +5871,7 @@ impl SemanticAnalyzer {
 
                     // Verificar tipos dos parâmetros
                     for (i, (trait_param, impl_param)) in
-                        trait_params.iter().zip(impl_params.iter()).enumerate()
+                        substituted_trait_params.iter().zip(impl_params.iter()).enumerate()
                     {
                         if !self.types_match(impl_param, trait_param) {
                             let mut message = format!(
@@ -5821,14 +5891,11 @@ impl SemanticAnalyzer {
                     }
 
                     // Verificar tipo de retorno
-                    if !self.types_match(
-                        &impl_signature.return_type,
-                        &trait_method_info.signature.return_type,
-                    ) {
+                    if !self.types_match(&impl_signature.return_type, &substituted_trait_return) {
                         let mut message = format!(
                             "Method '{}' has wrong return type. Expected {:?}, found {:?}",
                             trait_method_name,
-                            trait_method_info.signature.return_type,
+                            substituted_trait_return,
                             impl_signature.return_type
                         );
 
@@ -9927,7 +9994,24 @@ impl SemanticAnalyzer {
                     },
                 ) = (&from_ty, &to_ty)
                 {
-                    if !self
+                    // R-213: dyn of a generic trait requires fixed type arguments,
+                    // which are not supported yet.
+                    if self
+                        .trait_type_params
+                        .get(trait_name)
+                        .map(|params| !params.is_empty())
+                        .unwrap_or(false)
+                    {
+                        valid = false;
+                        self.error_coded(
+                            "E026",
+                            format!(
+                                "Cannot cast `{}` to `dyn {}`: generic traits require fixed type arguments for object safety (e.g. `dyn Trait<int>`)",
+                                struct_name, trait_name
+                            ),
+                            expr.span,
+                        );
+                    } else if !self
                         .trait_impls
                         .contains_key(&(trait_name.clone(), struct_name.clone()))
                     {
