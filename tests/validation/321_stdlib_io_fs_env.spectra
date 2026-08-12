@@ -1,0 +1,59 @@
+module stdlib_io_fs_env
+
+import std.env as env
+import std.fs as fs
+import std.io as io
+
+public func main() returns int {
+    io.print("stdlib-io")
+    io.println("-println")
+    io.eprint("stdlib-eprint")
+    io.eprintln("-eprintln")
+    io.flush()
+
+    let path = "target/stdlib-core-hunt/fs/roundtrip.txt"
+    if fs.fs_write(path, "one") {
+    } else {
+        return 1
+    }
+    if fs.fs_append(path, "-two") {
+    } else {
+        return 2
+    }
+    if fs.fs_exists(path) {
+    } else {
+        return 3
+    }
+    if fs.fs_read(path) != "one-two" {
+        return 4
+    }
+    if fs.fs_remove(path) {
+    } else {
+        return 5
+    }
+    if fs.fs_exists(path) {
+        return 6
+    }
+    if fs.fs_remove("") {
+        return 7
+    }
+    if fs.fs_read("") != "" {
+        return 8
+    }
+
+    let key = "SPECTRALANG_STDLIB_CORE_HUNT"
+    if env.env_set(key, "active") {
+    } else {
+        return 9
+    }
+    if env.env_get(key) != "active" {
+        return 10
+    }
+    if env.env_args_count() < 1 {
+        return 11
+    }
+    if env.env_arg(999999) != "" {
+        return 12
+    }
+    return 0
+}

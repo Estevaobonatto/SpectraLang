@@ -1,0 +1,77 @@
+module stdlib_collections_list_map
+
+import std.collections as collections
+
+public func main() returns int {
+    let values = collections.list_new()
+    collections.list_push(values, 3)
+    collections.list_push(values, 1)
+    collections.list_push(values, 2)
+
+    if collections.list_len(values) != 3 {
+        return 1
+    }
+    if collections.list_get(values, 0) != 3 or collections.list_get(values, 99) != -1 {
+        return 2
+    }
+    if collections.list_contains(values, 1) != true or collections.list_contains(values, 9) != false {
+        return 3
+    }
+    collections.list_set(values, 1, 10)
+    collections.list_insert_at(values, 1, 5)
+    if collections.list_get(values, 1) != 5 or collections.list_len(values) != 4 {
+        return 4
+    }
+    if collections.list_remove_at(values, 1) != 5 {
+        return 5
+    }
+    if collections.list_pop_front(values) != 3 or collections.list_pop(values) != 2 {
+        return 6
+    }
+    if collections.list_index_of(values, 10) != 0 {
+        return 7
+    }
+    collections.list_push(values, 7)
+    collections.list_push(values, 4)
+    collections.list_sort(values)
+    if collections.list_get(values, 0) != 4 or collections.list_get(values, 2) != 10 {
+        return 8
+    }
+    collections.list_clear(values)
+    if collections.list_len(values) != 0 or collections.list_pop(values) != -1 {
+        return 9
+    }
+    collections.list_free(values)
+
+    let map = collections.map_new()
+    if collections.map_len(map) != 0 {
+        return 10
+    }
+    collections.map_set(map, 0, 0)
+    collections.map_set(map, 7, 14)
+    collections.map_set(map, 7, 21)
+    if collections.map_len(map) != 2 {
+        return 11
+    }
+    if collections.map_contains(map, 0) != 1 or collections.map_contains(map, 8) != 0 {
+        return 12
+    }
+    if collections.map_get(map, 0) != 0 or collections.map_get(map, 7) != 21 {
+        return 13
+    }
+    if collections.map_remove(map, 7) != 21 or collections.map_len(map) != 1 {
+        return 14
+    }
+    collections.map_clear(map)
+    if collections.map_len(map) != 0 {
+        return 15
+    }
+    collections.map_free(map)
+
+    let pending_a = collections.list_new()
+    let pending_b = collections.list_new()
+    if collections.list_free_all() != 2 {
+        return 16
+    }
+    return 0
+}

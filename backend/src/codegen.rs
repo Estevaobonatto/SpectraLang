@@ -2511,10 +2511,14 @@ impl CodeGenerator {
                         builder.func,
                     );
                     let call = builder.ins().call(func_ref, &[channel, value]);
-                    let results = builder.inst_results(call);
+                    let ret = builder.inst_results(call).first().copied();
                     if let Some(result_value) = result {
-                        if let Some(ret) = results.first() {
-                            value_map.insert(result_value.id, *ret);
+                        if let Some(ret) = ret {
+                            let value = match result_type.as_ref() {
+                                Some(IRType::Bool) => builder.ins().ireduce(types::I8, ret),
+                                _ => ret,
+                            };
+                            value_map.insert(result_value.id, value);
                         }
                     }
                     return Ok(());

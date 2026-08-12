@@ -5,7 +5,7 @@ use spectra_compiler::ast::{
     Visibility, WhileLoop,
 };
 use spectra_compiler::span::Span;
-use spectra_midend::ir::InstructionKind;
+use spectra_midend::ir::{InstructionKind, Type as IRType};
 use spectra_midend::ASTLowering;
 
 // ---------------------------------------------------------------------------
@@ -30,10 +30,55 @@ fn bool_lit(b: bool) -> Expression {
     }
 }
 
+fn string_lit(value: &str) -> Expression {
+    Expression {
+        span: s(),
+        kind: ExpressionKind::StringLiteral(value.to_string()),
+    }
+}
+
 fn ident(name: &str) -> Expression {
     Expression {
         span: s(),
         kind: ExpressionKind::Identifier(name.to_string()),
+    }
+}
+
+fn field_path(parts: &[&str]) -> Expression {
+    let mut expression = ident(parts[0]);
+    for field in &parts[1..] {
+        expression = Expression {
+            span: s(),
+            kind: ExpressionKind::FieldAccess {
+                object: Box::new(expression),
+                field: (*field).to_string(),
+            },
+        };
+    }
+    expression
+}
+
+fn call(callee: Expression, arguments: Vec<Expression>) -> Expression {
+    Expression {
+        span: s(),
+        kind: ExpressionKind::Call {
+            callee: Box::new(callee),
+            arguments,
+        },
+    }
+}
+
+fn enum_variant(enum_name: &str, variant_name: &str, data: Option<Vec<Expression>>) -> Expression {
+    Expression {
+        span: s(),
+        kind: ExpressionKind::EnumVariant {
+            module_path: None,
+            enum_name: enum_name.to_string(),
+            type_args: Vec::new(),
+            variant_name: variant_name.to_string(),
+            data,
+            struct_data: None,
+        },
     }
 }
 
@@ -155,6 +200,190 @@ fn make_module(name: &str, items: Vec<Item>) -> Module {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[test]
+fn list_contains_host_result_is_lowered_as_bool() {
+    let contains = call(
+        field_path(&["std", "collections", "list_contains"]),
+        vec![int_lit(1), int_lit(1)],
+    );
+    let module = make_module(
+        "collections_bool",
+        vec![make_function("main", vec![let_stmt("present", contains)])],
+    );
+
+    let ir = ASTLowering::new()
+        .lower_module(&module)
+        .expect("lowering should pass");
+    let contains_result_type = ir
+        .functions
+        .iter()
+        .flat_map(|function| function.blocks.iter())
+        .flat_map(|block| block.instructions.iter())
+        .find_map(|instruction| match &instruction.kind {
+            InstructionKind::HostCall {
+                host,
+                result_type: Some(result_type),
+                ..
+            } if host == "spectra.std.collections.list_contains" => Some(result_type),
+            _ => None,
+        });
+
+    assert_eq!(contains_result_type, Some(&IRType::Bool));
+}
+
+#[test]
+fn std_io_input_lowers_to_string_hostcall() {
+    let input = call(
+        field_path(&["std", "io", "input"]),
+        vec![string_lit("prompt")],
+    );
+    let module = make_module(
+        "io_input",
+        vec![make_function("main", vec![let_stmt("line", input)])],
+    );
+
+    let ir = ASTLowering::new()
+        .lower_module(&module)
+        .expect("lowering should pass");
+    let input_result_type = ir
+        .functions
+        .iter()
+        .flat_map(|function| function.blocks.iter())
+        .flat_map(|block| block.instructions.iter())
+        .find_map(|instruction| match &instruction.kind {
+            InstructionKind::HostCall {
+                host,
+                result_type: Some(result_type),
+                ..
+            } if host == "spectra.std.io.input" => Some(result_type),
+            _ => None,
+        });
+
+    assert_eq!(input_result_type, Some(&IRType::String));
+}
+
+#[test]
+fn stdlib_boolean_host_results_keep_bool_ir_types() {
+    let fs_exists = call(
+        field_path(&["std", "fs", "fs_exists"]),
+        vec![string_lit("target/stdlib-bug-hunt-missing")],
+    );
+    let env_set = call(
+        field_path(&["std", "env", "env_set"]),
+        vec![string_lit("SPECTRA_TEST_KEY"), string_lit("value")],
+    );
+    let module = make_module(
+        "stdlib_boolean_results",
+        vec![make_function(
+            "main",
+            vec![let_stmt("exists", fs_exists), let_stmt("set", env_set)],
+        )],
+    );
+
+    let ir = ASTLowering::new()
+        .lower_module(&module)
+        .expect("lowering should pass");
+    let boolean_hosts: Vec<(&str, &IRType)> = ir
+        .functions
+        .iter()
+        .flat_map(|function| function.blocks.iter())
+        .flat_map(|block| block.instructions.iter())
+        .filter_map(|instruction| match &instruction.kind {
+            InstructionKind::HostCall {
+                host,
+                result_type: Some(result_type),
+                ..
+            } if host == "spectra.std.fs.fs_exists" || host == "spectra.std.env.env_set" => {
+                Some((host.as_str(), result_type))
+            }
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(boolean_hosts.len(), 2);
+    assert!(boolean_hosts
+        .iter()
+        .all(|(_, result_type)| *result_type == &IRType::Bool));
+}
+
+#[test]
+fn result_unwrap_err_uses_the_enum_error_payload_type() {
+    let error = enum_variant(
+        "Result",
+        "Err",
+        Some(vec![string_lit("failure")]),
+    );
+    let unwrap = call(
+        field_path(&["std", "result", "result_unwrap_err"]),
+        vec![error],
+    );
+    let module = make_module(
+        "result_error_payload",
+        vec![make_function("main", vec![let_stmt("message", unwrap)])],
+    );
+
+    let ir = ASTLowering::new()
+        .lower_module(&module)
+        .expect("lowering should pass");
+    let result_type = ir
+        .functions
+        .iter()
+        .flat_map(|function| function.blocks.iter())
+        .flat_map(|block| block.instructions.iter())
+        .find_map(|instruction| match &instruction.kind {
+            InstructionKind::HostCall {
+                host,
+                result_type: Some(result_type),
+                ..
+            } if host == "spectra.std.result.result_unwrap_err" => Some(result_type),
+            _ => None,
+        });
+
+    assert_eq!(result_type, Some(&IRType::String));
+}
+
+#[test]
+fn result_unwrap_err_keeps_inferred_binding_payload_type() {
+    let error = enum_variant(
+        "Result",
+        "Err",
+        Some(vec![string_lit("failure")]),
+    );
+    let unwrap = call(
+        field_path(&["std", "result", "result_unwrap_err"]),
+        vec![ident("error")],
+    );
+    let module = make_module(
+        "result_error_binding",
+        vec![make_function(
+            "main",
+            vec![
+                let_stmt("error", error),
+                let_stmt("message", unwrap),
+            ],
+        )],
+    );
+
+    let ir = ASTLowering::new()
+        .lower_module(&module)
+        .expect("lowering should pass");
+    let result_type = ir
+        .functions
+        .iter()
+        .flat_map(|function| function.blocks.iter())
+        .flat_map(|block| block.instructions.iter())
+        .find_map(|instruction| match &instruction.kind {
+            InstructionKind::HostCall {
+                host,
+                result_type: Some(result_type),
+                ..
+            } if host == "spectra.std.result.result_unwrap_err" => Some(result_type),
+            _ => None,
+        });
+
+    assert_eq!(result_type, Some(&IRType::String));
+}
 
 #[test]
 fn test_lower_simple_arithmetic() {

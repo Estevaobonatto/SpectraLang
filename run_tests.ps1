@@ -63,6 +63,28 @@ if ($Phase -contains "language_bug_hunt_v2") {
     exit 0
 }
 
+if ($Phase -contains "stdlib_core_bug_hunt") {
+    Write-Host "--- SpectraLang core stdlib executable bug-hunt ---" -ForegroundColor Yellow
+    & python scripts\validate_stdlib_core_bug_hunt.py --binary $binary
+    $validatorExit = $LASTEXITCODE
+    & git diff --check -- `
+        backend/src/codegen.rs `
+        midend/src/lowering.rs `
+        midend/tests/lowering_tests.rs `
+        scripts/validate_stdlib_core_bug_hunt.py `
+        docs/goals/spectralang-stdlib-core-bug-hunt/GOAL.md `
+        docs/goals/spectralang-stdlib-core-bug-hunt/PLAN.md `
+        docs/goals/spectralang-stdlib-core-bug-hunt/FINDINGS.md `
+        run_tests.ps1
+    $diffExit = $LASTEXITCODE
+    if ($validatorExit -ne 0 -or $diffExit -ne 0) {
+        Write-Host "Core stdlib bug-hunt gate blocked (validator=$validatorExit, diff-check=$diffExit)." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Core stdlib bug-hunt gate passed." -ForegroundColor Green
+    exit 0
+}
+
 if ($Phase -contains "phase2_r213_generic_trait_impls") {
     Write-Host "--- R-213 generic traits gate ---" -ForegroundColor Yellow
     & python scripts\validate_r213_generic_trait_impls.py --binary $binary

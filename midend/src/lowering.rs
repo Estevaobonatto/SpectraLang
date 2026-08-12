@@ -693,17 +693,19 @@ impl ASTLowering {
             type_params: vec![make_type_param("T")],
             variants: vec![
                 EnumVariant {
-                    name: "None".to_string(),
-                    span: dummy,
-                    attributes: Vec::new(),
-                    data: None,
-                    struct_data: None,
-                },
-                EnumVariant {
+                    // Keep the ABI tag aligned with runtime std.option:
+                    // Some = 0 and None = 1.
                     name: "Some".to_string(),
                     span: dummy,
                     attributes: Vec::new(),
                     data: Some(vec![simple_type_ann("T")]),
+                    struct_data: None,
+                },
+                EnumVariant {
+                    name: "None".to_string(),
+                    span: dummy,
+                    attributes: Vec::new(),
+                    data: None,
                     struct_data: None,
                 },
             ],
@@ -3009,7 +3011,7 @@ impl ASTLowering {
                     }
                 }
 
-                if let Some(descriptor) = self.host_function_descriptor(callee) {
+                if let Some(descriptor) = self.host_function_descriptor_for_call(callee, arguments) {
                     return descriptor.return_type.clone();
                 }
 
@@ -3054,11 +3056,15 @@ impl ASTLowering {
             ExpressionKind::MethodCall {
                 object,
                 method_name,
-                arguments: _,
+                arguments,
                 type_name,
             } => {
                 if let Some(descriptor) =
-                    self.std_method_host_function_descriptor(object, method_name)
+                    self.std_method_host_function_descriptor_for_call(
+                        object,
+                        method_name,
+                        arguments,
+                    )
                 {
                     return descriptor.return_type.clone();
                 }
@@ -6351,6 +6357,65 @@ impl ASTLowering {
         self.host_function_descriptor_for_path(&path)
     }
 
+    /// Refine stdlib functions whose public signature uses `unknown` from the
+    /// concrete generic enum payload at the call site.  The host ABI returns a
+    /// canonical i64 word, but the IR type still matters for string equality,
+    /// float bitcasts, and bool narrowing after `Option`/`Result` unwrapping.
+    fn host_function_descriptor_for_call(
+        &self,
+        callee: &Expression,
+        arguments: &[Expression],
+    ) -> Option<HostFunctionDescriptor> {
+        let descriptor = self.host_function_descriptor(callee)?;
+        Some(self.refine_host_function_descriptor(descriptor, arguments))
+    }
+
+    fn refine_host_function_descriptor(
+        &self,
+        mut descriptor: HostFunctionDescriptor,
+        arguments: &[Expression],
+    ) -> HostFunctionDescriptor {
+        let first_type = arguments
+            .first()
+            .map(|argument| self.infer_expr_ir_type(argument));
+
+        let payload_type = |enum_type: Option<IRType>, variant: &str| {
+            let IRType::Enum { variants, .. } = enum_type? else {
+                return None;
+            };
+            variants.into_iter().find_map(|(name, payload)| {
+                (name == variant)
+                    .then(|| payload.and_then(|types| types.into_iter().next()))
+                    .flatten()
+            })
+        };
+
+        let refined_type = match descriptor.runtime_name {
+            "spectra.std.option.option_unwrap" | "spectra.std.option.option_unwrap_or" => {
+                payload_type(first_type, "Some").or_else(|| {
+                    (descriptor.runtime_name.ends_with("unwrap_or"))
+                        .then(|| arguments.get(1).map(|argument| self.infer_expr_ir_type(argument)))
+                        .flatten()
+                })
+            }
+            "spectra.std.result.result_unwrap"
+            | "spectra.std.result.result_unwrap_or" => {
+                payload_type(first_type, "Ok").or_else(|| {
+                    (descriptor.runtime_name.ends_with("unwrap_or"))
+                        .then(|| arguments.get(1).map(|argument| self.infer_expr_ir_type(argument)))
+                        .flatten()
+                })
+            }
+            "spectra.std.result.result_unwrap_err" => payload_type(first_type, "Err"),
+            _ => None,
+        };
+
+        if let Some(refined_type) = refined_type {
+            descriptor.return_type = refined_type;
+        }
+        descriptor
+    }
+
     fn std_method_host_function_descriptor(
         &self,
         object: &Expression,
@@ -6359,6 +6424,16 @@ impl ASTLowering {
         let mut path = self.resolve_call_path(object)?;
         path.push(method_name.to_string());
         self.host_function_descriptor_for_path(&path)
+    }
+
+    fn std_method_host_function_descriptor_for_call(
+        &self,
+        object: &Expression,
+        method_name: &str,
+        arguments: &[Expression],
+    ) -> Option<HostFunctionDescriptor> {
+        let descriptor = self.std_method_host_function_descriptor(object, method_name)?;
+        Some(self.refine_host_function_descriptor(descriptor, arguments))
     }
 
     fn host_function_descriptor_for_path(&self, path: &[String]) -> Option<HostFunctionDescriptor> {
@@ -6796,7 +6871,7 @@ impl ASTLowering {
                     }
                 }
 
-                if let Some(descriptor) = self.host_function_descriptor(callee) {
+                if let Some(descriptor) = self.host_function_descriptor_for_call(callee, arguments) {
                     // Special case: io.print / io.println / io.eprint / io.eprintln
                     // use (type_tag, value) pairs so the runtime can dispatch the
                     // correct formatter per argument.
@@ -7870,7 +7945,11 @@ impl ASTLowering {
             } => {
                 // Check if this is actually a qualified stdlib function call
                 // like `std.string.len(x)` parsed as MethodCall { object: std.string, method: "len" }
-                if let Some(desc) = self.std_method_host_function_descriptor(object, method_name) {
+                if let Some(desc) = self.std_method_host_function_descriptor_for_call(
+                    object,
+                    method_name,
+                    arguments,
+                ) {
                     let mut call_args = Vec::new();
                     for arg in arguments {
                         call_args.push(self.lower_expression(arg, ir_func));
@@ -9598,6 +9677,11 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::String,
                 returns_value: true,
             }),
+            ("io", "input") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.io.input",
+                return_type: IRType::String,
+                returns_value: true,
+            }),
             ("collections", "list_new") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.list_new",
                 return_type: IRType::Int,
@@ -9625,7 +9709,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("collections", "list_contains") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.list_contains",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("collections", "list_clear") => Some(HostFunctionDescriptor {
@@ -10597,22 +10681,22 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("fs", "fs_write") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.fs.fs_write",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("fs", "fs_append") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.fs.fs_append",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("fs", "fs_exists") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.fs.fs_exists",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("fs", "fs_remove") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.fs.fs_remove",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             // ── std.env ───────────────────────────────────────────────────
@@ -10623,7 +10707,7 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("env", "env_set") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.env.env_set",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("env", "env_args_count") => Some(HostFunctionDescriptor {
@@ -10639,12 +10723,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             // ── std.option ────────────────────────────────────────────────
             ("option", "is_some") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.option.is_some",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("option", "is_none") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.option.is_none",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("option", "option_unwrap") => Some(HostFunctionDescriptor {
@@ -10660,12 +10744,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             // ── std.result ────────────────────────────────────────────────
             ("result", "is_ok") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.result.is_ok",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("result", "is_err") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.result.is_err",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("result", "result_unwrap") => Some(HostFunctionDescriptor {
