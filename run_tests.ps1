@@ -51,6 +51,18 @@ $totalSkipped = 0
 $results      = @()
 $runPhase31Gpu = $Phase -contains "phase31_gpu"
 
+if ($Phase -contains "language_bug_hunt_v2") {
+    Write-Host "--- SpectraLang executable language bug-hunt v2 ---" -ForegroundColor Yellow
+    & python scripts\validate_language_bug_hunt_v2.py --binary $binary
+    $validatorExit = $LASTEXITCODE
+    if ($validatorExit -ne 0) {
+        Write-Host "Language bug-hunt v2 gate blocked (validator=$validatorExit)." -ForegroundColor Red
+        exit $validatorExit
+    }
+    Write-Host "Language bug-hunt v2 gate passed." -ForegroundColor Green
+    exit 0
+}
+
 if ($Phase -contains "phase2_r213_generic_trait_impls") {
     Write-Host "--- R-213 generic traits gate ---" -ForegroundColor Yellow
     & python scripts\validate_r213_generic_trait_impls.py --binary $binary

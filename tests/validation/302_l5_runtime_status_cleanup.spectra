@@ -1,0 +1,28 @@
+module bug_hunt_v2_302_runtime_status_cleanup
+
+import std.concurrent as concurrent
+import std.serve as serve
+
+public func main() returns int {
+    concurrent.reset()
+    serve.reset()
+
+    let server = serve.server_new(2)
+    let request = serve.server_enqueue(server, 6)
+    serve.server_warmup(server)
+    if serve.server_process_batch(server, 1) != 1 {
+        return 1
+    }
+    if serve.server_result(server, request) != 12 {
+        return 2
+    }
+
+    let task = concurrent.task_spawn(9)
+    if concurrent.task_join(task) != 9 {
+        return 3
+    }
+
+    serve.reset()
+    concurrent.reset()
+    return 0
+}

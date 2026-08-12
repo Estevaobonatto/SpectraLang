@@ -1,0 +1,31 @@
+module bug_hunt_v2_299_filesystem_roundtrip
+
+import std.fs as fs
+import std.string as text
+
+public func main() returns int {
+    let path = "target/bug-hunt-v2/fs/roundtrip.txt"
+    if not fs.fs_write(path, "alpha") {
+        return 1
+    }
+    if not fs.fs_append(path, "-beta") {
+        return 2
+    }
+    if not fs.fs_exists(path) {
+        return 3
+    }
+    let contents = fs.fs_read(path)
+    if contents != "alpha-beta" {
+        return 4
+    }
+    if text.len(contents) != 10 {
+        return 5
+    }
+    if not fs.fs_remove(path) {
+        return 6
+    }
+    if fs.fs_exists(path) {
+        return 7
+    }
+    return 0
+}

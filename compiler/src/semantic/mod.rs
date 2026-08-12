@@ -418,6 +418,9 @@ pub struct SemanticAnalyzer {
     >,
     // Generic enums: maps enum_name to (type_params, variants)
     generic_enums: HashMap<String, (Vec<crate::ast::TypeParameter>, Vec<String>)>,
+    // Type aliases are kept as syntax annotations so the midend can expand
+    // them without losing aggregate layout information.
+    type_aliases: HashMap<String, crate::ast::TypeAnnotation>,
     // Track if we're inside a loop (for break/continue validation)
     loop_depth: usize,
     // Track if we're inside a function (for return validation)
@@ -704,6 +707,7 @@ impl SemanticAnalyzer {
             enum_infos: HashMap::new(),
             generic_structs: HashMap::new(),
             generic_enums: HashMap::new(),
+            type_aliases: HashMap::new(),
             loop_depth: 0,
             current_function: None,
             trait_signatures: HashMap::new(),
@@ -1922,6 +1926,8 @@ impl SemanticAnalyzer {
                                 Type::Enum {
                                     name: other.to_string(),
                                 }
+                            } else if let Some(alias) = self.type_aliases.get(other) {
+                                self.type_annotation_to_type(&Some(alias.clone()))
                             } else {
                                 Type::Unknown
                             }
@@ -4966,6 +4972,27 @@ impl SemanticAnalyzer {
             }
         }
 
+        // Register aliases after structs/enums are known, but before function
+        // signatures and bodies are analysed.  Keeping every alias in the map
+        // first also makes declaration order irrelevant for alias chains.
+        for item in &module.items {
+            if let Item::TypeAlias(alias) = item {
+                if self.type_aliases.contains_key(&alias.name)
+                    || self.struct_infos.contains_key(&alias.name)
+                    || self.enum_infos.contains_key(&alias.name)
+                {
+                    self.error_coded(
+                        "E006",
+                        format!("Type '{}' is already defined", alias.name),
+                        alias.span,
+                    );
+                } else {
+                    self.type_aliases
+                        .insert(alias.name.clone(), alias.ty.clone());
+                }
+            }
+        }
+
         // Constants/statics are registered before body analysis so functions can
         // reference declarations regardless of item order.
         for item in &module.items {
@@ -7934,6 +7961,19 @@ impl SemanticAnalyzer {
                     }
                 } else if self.struct_infos.contains_key(enum_name.as_str()) {
                     // Static method call on a struct: StructName::method(...)
+                    // JSON derive methods are generated metadata rather than
+                    // user-authored impl items. Keep their result types
+                    // explicit here so `json_error_field(...)` cannot fall
+                    // back to the receiver struct type during expression
+                    // inference.
+                    if variant_name == "json_error_field" {
+                        return Type::String;
+                    }
+                    if variant_name == "from_json" {
+                        return Type::Struct {
+                            name: enum_name.clone(),
+                        };
+                    }
                     self.methods
                         .get(enum_name.as_str())
                         .and_then(|mm| mm.get(variant_name.as_str()))

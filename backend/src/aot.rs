@@ -674,6 +674,12 @@ impl AotCodeGenerator {
         };
 
         let mut data_ctx = DataDescription::new();
+        // Spectra strings are represented as null-terminated i64 slots.  The
+        // runtime reads them through `*const i64`, so the AOT data symbol must
+        // carry the same alignment as the JIT allocation.  Without this, a
+        // linked executable could place a literal at an arbitrary byte
+        // boundary and abort on the first string hostcall.
+        data_ctx.set_align(std::mem::align_of::<i64>() as u64);
         data_ctx.define(bytes.into_boxed_slice());
         let _ = self.module.define_data(data_id, &data_ctx);
 

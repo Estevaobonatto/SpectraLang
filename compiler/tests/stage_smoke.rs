@@ -39,6 +39,36 @@ fn frontend_and_semantic_accepts_valid_program() {
 }
 
 #[test]
+fn type_aliases_are_available_to_signatures_and_bodies() {
+    let source = r#"
+        module aliases
+
+        type Pair = (int, string)
+        const BASE: int = 40 + 2
+
+        func make_pair() returns Pair {
+            (BASE, "spectra")
+        }
+
+        public func main() returns int {
+            let pair: Pair = make_pair()
+            if pair.0 != 42 {
+                return 1
+            }
+            if pair.1 != "spectra" {
+                return 2
+            }
+            return 0
+        }
+    "#;
+
+    let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
+    pipeline
+        .compile(source, "type_aliases.spectra")
+        .expect("type aliases should resolve before function analysis and lowering");
+}
+
+#[test]
 fn pipeline_reports_coded_semantic_error() {
     let source = r#"
         module smoke
@@ -260,4 +290,30 @@ fn generic_return_type_parameter_cannot_satisfy_concrete_return() {
                 && semantic.message.contains("expected string")
                 && semantic.message.contains("found T")
     ));
+}
+
+#[test]
+fn json_derived_static_error_field_keeps_string_type_without_annotation() {
+    let source = r#"
+        module json_type_flow
+
+        #[derive(Serialize, Deserialize)]
+        record Profile {
+            id: int,
+            name: string,
+        }
+
+        public func main() returns int {
+            let field = Profile::json_error_field("{\"id\":7,\"name\":\"Ada\"}")
+            if field != "" {
+                return 1
+            }
+            return 0
+        }
+    "#;
+
+    let mut pipeline = CompilationPipeline::new(CompilationOptions::default());
+    pipeline
+        .compile(source, "json_derived_static_error_field.spectra")
+        .expect("derived JSON static method should infer string through the full pipeline");
 }
