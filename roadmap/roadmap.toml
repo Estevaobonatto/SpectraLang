@@ -4939,3 +4939,128 @@ acceptance = [
   "docs/reference/03-tipos-compostos.md documents generic traits",
   "scripts/validate_r213_generic_trait_impls.py and run_tests.ps1 -Phase phase2_r213_generic_trait_impls gate the item"
 ]
+
+[[items]]
+id = "R-214"
+title = "OOP Aggregate ABI and Dynamic Fat-Pointer Safety"
+phase = "phase_2"
+owner = "backend"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-207", "R-210"]
+summary = "Harden scalar-width coercion, nested aggregate layout, dynamic fat pointers, and JIT/AOT field access so mixed records and dyn values preserve their ABI contract."
+acceptance = [
+  "mixed bool/char/exact-width/float records and nested records pass check and run without verifier failures or incorrect field comparisons",
+  "aggregate literals, assignments, default values, and equality coerce exact scalar values to their declared field types",
+  "MakeDynFatPtr materializes a stable data/vtable pair with manual-frame escape semantics and UFCS dyn calls forward the receiver data",
+  "tests/validation/258_oop_layout_permutations.spectra, tests/validation/260_oop_dyn_aggregate_overwrite.spectra, and tests/validation/274_exact_width_aggregate_boundary.spectra pass",
+  "scripts/validate_language_bug_hunt.py validates the JIT-facing aggregate and dyn matrix"
+]
+
+[[items]]
+id = "R-215"
+title = "Aggregate Drop Glue and Return Ownership"
+phase = "phase_2"
+owner = "midend"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-207", "R-210"]
+summary = "Emit recursive Drop and manual-allocation escape handling for nested aggregates, returns, implicit block values, methods, and closures without duplicate destruction."
+acceptance = [
+  "nested droppable fields are destroyed exactly once at scope exit while moved return values are excluded from the source scope",
+  "returned structs, tuples, arrays, enums, and dyn aggregates recursively escape owned manual allocations before the caller observes them",
+  "function, method, lambda, explicit return, and implicit block-expression paths share the ownership rules",
+  "tests/validation/259_oop_drop_nested_lifetimes.spectra passes three consecutive runs with all lifetime markers",
+  "scripts/validate_language_bug_hunt.py repeats the lifetime regression and checks its markers"
+]
+
+[[items]]
+id = "R-216"
+title = "Generic Aggregate and Trait Substitution"
+phase = "phase_2"
+owner = "semantic"
+priority = "P1"
+status = "complete"
+risk = "high"
+dependencies = ["R-211", "R-213"]
+summary = "Propagate concrete type arguments through multi-parameter generic records, nested fields, generic enum constructors/patterns, and UFCS trait method signatures."
+acceptance = [
+  "generic record field lookup and nested aggregate construction resolve all concrete type arguments in declaration order",
+  "generic enum unit, tuple, and named-field constructors infer the same specialized enum type as the expected parameter",
+  "UFCS and concrete trait calls substitute independent concrete arguments into parameter and return types",
+  "tests/validation/263_oop_generic_struct_multiarg.spectra, tests/validation/264_oop_generic_trait_substitution.spectra, and tests/validation/268_pattern_generic_enum_oop.spectra pass",
+  "scripts/validate_language_bug_hunt.py validates the generic substitution matrix"
+]
+
+[[items]]
+id = "R-217"
+title = "Generic Method Monomorphization Across Modules"
+phase = "phase_2"
+owner = "midend"
+priority = "P1"
+status = "complete"
+risk = "high"
+dependencies = ["R-211", "R-213"]
+summary = "Carry imported generic function and method templates into lowering and resolve concrete cross-module calls without losing specialization or return types."
+acceptance = [
+  "imported generic function templates are retained in the AST/semantic registry and registered before module lowering",
+  "cross-module generic method calls lower to concrete symbols and preserve their specialized return types",
+  "the valid multi-file project exercises generic evaluation, inherent methods, and a dyn cast through the normal CLI path",
+  "tests/projects/valid/oop_cross_module_dispatch passes check and run with the original source contract",
+  "scripts/validate_language_bug_hunt.py validates the project and promoted generic regressions"
+]
+
+[[items]]
+id = "R-218"
+title = "Inherited Trait Vtable Slots and UFCS Dispatch"
+phase = "phase_2"
+owner = "midend"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-210", "R-212"]
+summary = "Construct parent-first inherited trait metadata and route concrete, default, UFCS, and dyn calls through the same vtable slot ordering."
+acceptance = [
+  "inherited parent methods precede child methods in trait metadata and overrides occupy the inherited slot",
+  "default methods and explicit methods are both available through concrete and dyn receivers",
+  "UFCS calls pass the receiver data correctly for concrete and dyn values",
+  "tests/validation/261_oop_vtable_inheritance_defaults.spectra and tests/validation/262_oop_ufcs_receiver_matrix.spectra pass",
+  "scripts/validate_language_bug_hunt.py validates the inherited-vtable and UFCS matrix"
+]
+
+[[items]]
+id = "R-219"
+title = "Cross-Module Trait Registry and Qualified-Target Diagnostics"
+phase = "phase_2"
+owner = "semantic"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-211", "R-213", "R-218"]
+summary = "Export and import trait declarations, trait implementations, and generic templates across modules, while rejecting unresolved module-qualified inherent impl targets with stable E027 diagnostics."
+acceptance = [
+  "module exports include generic function templates, trait declarations, and trait implementation metadata needed by downstream semantic and midend passes",
+  "imported traits reconstruct method order/signatures for downstream vtable construction and imported impls participate in dyn cast validation",
+  "impl missing::Foreign is rejected with E027 and an actionable hint instead of silently compiling",
+  "tests/errors/oop_module_qualified_unknown_type.spectra asserts E027 and tests/projects/valid/oop_cross_module_dispatch passes",
+  "docs/diagnostics/error-code-reference.md documents E027 and scripts/validate_language_bug_hunt.py checks it through the JSON contract"
+]
+
+[[items]]
+id = "R-2113"
+title = "Async API Trait Objects Preserve Task Response Types"
+phase = "phase_21"
+owner = "web"
+priority = "P0"
+status = "complete"
+risk = "high"
+dependencies = ["R-2108", "R-2203"]
+summary = "Register the async API handler contracts so dynamic AsyncHandler calls lower as Task<Response> and await remains type-correct through the public API surface."
+acceptance = [
+  "AsyncHandler and related API traits expose stable Request/Response method signatures to semantic analysis and lowering",
+  "a dynamic async handler call returns Task<Response> and can be awaited without an internal Int/Task mismatch",
+  "tests/validation/273_api_handler_async_trait.spectra passes check and run through the normal CLI path",
+  "scripts/validate_language_bug_hunt.py validates the async API trait regression"
+]

@@ -104,6 +104,16 @@ pub struct Module {
     /// Populated by the semantic analyser so the midend can register
     /// cross-module struct layouts before lowering.
     pub imported_struct_defs: Vec<Struct>,
+    /// Trait implementations imported from user modules.  Each entry carries
+    /// the local trait/type names and concrete trait arguments so semantic and
+    /// midend passes preserve cross-module coherence and dyn dispatch.
+    pub imported_trait_impls: Vec<(String, String, Vec<Type>)>,
+    /// Generic function templates imported from user modules for downstream
+    /// monomorphization.
+    pub imported_generic_functions: Vec<Function>,
+    /// Trait declarations imported from builtin or user modules for midend
+    /// vtable slot/signature construction.
+    pub imported_trait_decls: Vec<TraitDeclaration>,
 }
 
 impl Module {
@@ -116,6 +126,9 @@ impl Module {
             imported_function_return_types: Vec::new(),
             imported_enum_defs: Vec::new(),
             imported_struct_defs: Vec::new(),
+            imported_trait_impls: Vec::new(),
+            imported_generic_functions: Vec::new(),
+            imported_trait_decls: Vec::new(),
         }
     }
 }
@@ -693,6 +706,10 @@ pub struct SwitchCase {
 #[derive(Debug, Clone)]
 pub struct ImplBlock {
     pub type_name: String,          // Nome do tipo (struct ou enum)
+    /// Optional module qualification from `impl module::Type`.
+    /// The semantic phase validates the module/type target before treating
+    /// the implementation as an ordinary impl for the imported type.
+    pub module_path: Option<String>,
     pub trait_name: Option<String>, // Nome do trait (se for impl Trait for Type)
     pub methods: Vec<Method>,       // Métodos implementados
     pub span: Span,

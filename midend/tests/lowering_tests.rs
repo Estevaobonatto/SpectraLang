@@ -146,6 +146,9 @@ fn make_module(name: &str, items: Vec<Item>) -> Module {
         imported_function_return_types: Vec::new(),
         imported_struct_defs: Vec::new(),
         imported_enum_defs: Vec::new(),
+        imported_trait_impls: Vec::new(),
+        imported_generic_functions: Vec::new(),
+        imported_trait_decls: Vec::new(),
     }
 }
 

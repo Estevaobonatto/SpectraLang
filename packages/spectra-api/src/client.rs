@@ -816,7 +816,7 @@ mod tests {
     use crate::server::{HttpServer, ServerConfig, ServerResponse};
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::Arc;
+    use std::sync::{mpsc, Arc};
     use std::thread;
 
     // Client tests share process-global tracing state; serialize the whole
@@ -824,32 +824,68 @@ mod tests {
     // collector.
     static CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-    fn spawn_test_collector(listener: TcpListener) -> thread::JoinHandle<Vec<u8>> {
-        thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("collector request");
-            let mut request = Vec::new();
-            let mut buffer = [0_u8; 4096];
-            let body_start = loop {
-                let read = stream.read(&mut buffer).expect("collector read");
-                assert!(read > 0, "collector request truncated");
-                request.extend_from_slice(&buffer[..read]);
-                if let Some(index) = request.windows(4).position(|window| window == b"\r\n\r\n") {
-                    break index + 4;
+    fn spawn_test_collector(
+        listener: TcpListener,
+    ) -> (thread::JoinHandle<Vec<u8>>, mpsc::Sender<()>) {
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let join = thread::spawn(move || {
+            listener
+                .set_nonblocking(true)
+                .expect("collector nonblocking mode");
+            let mut payload = Vec::new();
+            loop {
+                match stop_rx.try_recv() {
+                    Ok(()) | Err(mpsc::TryRecvError::Disconnected) => return payload,
+                    Err(mpsc::TryRecvError::Empty) => {}
                 }
-            };
-            let headers = String::from_utf8_lossy(&request[..body_start]);
-            let content_length = headers.lines().find_map(|line| {
-                line.strip_prefix("Content-Length:")
-                    .or_else(|| line.strip_prefix("content-length:"))
-            }).and_then(|value| value.trim().parse::<usize>().ok()).expect("content length");
-            while request.len() < body_start + content_length {
-                let read = stream.read(&mut buffer).expect("collector body read");
-                assert!(read > 0, "collector body truncated");
-                request.extend_from_slice(&buffer[..read]);
+
+                let (mut stream, _) = match listener.accept() {
+                    Ok(connection) => connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(error) => panic!("collector request: {error}"),
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .expect("collector read timeout");
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 4096];
+                let body_start = loop {
+                    let read = stream.read(&mut buffer).expect("collector read");
+                    assert!(read > 0, "collector request truncated");
+                    request.extend_from_slice(&buffer[..read]);
+                    if let Some(index) = request
+                        .windows(4)
+                        .position(|window| window == b"\r\n\r\n")
+                    {
+                        break index + 4;
+                    }
+                };
+                let headers = String::from_utf8_lossy(&request[..body_start]);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.strip_prefix("Content-Length:")
+                            .or_else(|| line.strip_prefix("content-length:"))
+                    })
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .expect("content length");
+                while request.len() < body_start + content_length {
+                    let read = stream.read(&mut buffer).expect("collector body read");
+                    assert!(read > 0, "collector body truncated");
+                    request.extend_from_slice(&buffer[..read]);
+                }
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .expect("collector response");
+                payload.extend_from_slice(&request[body_start..body_start + content_length]);
             }
-            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").expect("collector response");
-            request[body_start..body_start + content_length].to_vec()
-        })
+        });
+        (join, stop_tx)
     }
 
     fn start_client_test_server() -> HttpServer {
@@ -1022,7 +1058,7 @@ mod tests {
         let _guard = CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let collector = TcpListener::bind("127.0.0.1:0").expect("collector bind");
         let collector_addr = collector.local_addr().expect("collector address");
-        let collector_thread = spawn_test_collector(collector);
+        let (collector_thread, collector_stop) = spawn_test_collector(collector);
         let config = tracing::config_new(
             &format!("http://{collector_addr}/v1/traces"),
             "spectra-api-concurrency-test",
@@ -1066,6 +1102,7 @@ mod tests {
         }
         tracing::flush().expect("concurrent trace flush");
         tracing::config_shutdown(config).expect("concurrent trace shutdown");
+        collector_stop.send(()).expect("stop collector");
         assert!(!collector_thread.join().expect("collector thread").is_empty());
         let _ = server.shutdown();
     }

@@ -75,6 +75,10 @@ pub(crate) struct HostCallLoweringContext<'a> {
     pub(crate) string_literal_data: &'a mut HashMap<String, StringLiteralRecord>,
     pub(crate) string_literal_storage: &'a mut Vec<Box<[i64]>>,
     pub(crate) batch_stats: &'a mut HostCallBatchStats,
+    /// Finalized JIT function addresses that belong to an earlier module in
+    /// the same project build.  AOT lowering leaves this unset because all
+    /// functions are resolved by the object linker.
+    pub(crate) finalized_function_ptrs: Option<&'a HashMap<String, i64>>,
 }
 
 impl HostCallLoweringContext<'_> {

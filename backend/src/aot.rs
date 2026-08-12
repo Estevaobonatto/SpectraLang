@@ -347,6 +347,7 @@ impl AotCodeGenerator {
             string_literal_data: &mut self.string_literal_data,
             string_literal_storage: &mut self.string_literal_storage,
             batch_stats: &mut self.hostcall_batch_stats,
+            finalized_function_ptrs: None,
         };
         for ir_block in &blocks {
             CodeGenerator::generate_block(

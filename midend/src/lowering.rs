@@ -437,6 +437,9 @@ pub struct ASTLowering {
     errors: Vec<MidendError>,
     /// Compile-time constants lowered as literals at each use site.
     const_values: HashMap<String, LoweredConstValue>,
+    /// Borrowed receiver parameters are visible in `struct_var_map` but are
+    /// not owned by the current method and must not be destroyed on return.
+    drop_excluded_names: HashSet<String>,
 }
 
 impl ASTLowering {
@@ -488,9 +491,11 @@ impl ASTLowering {
             trait_declarations: HashMap::new(),
             errors: Vec::new(),
             const_values: HashMap::new(),
+            drop_excluded_names: HashSet::new(),
         };
         lowering.register_builtin_generic_enums();
         lowering.register_builtin_async_traits();
+        lowering.register_builtin_api_traits();
         lowering
     }
 
@@ -537,6 +542,125 @@ impl ASTLowering {
                 ("cancel".to_string(), (Vec::new(), IRType::Int)),
             ]),
         );
+    }
+
+    /// Register the public std.api trait contracts that are supplied by the
+    /// compiler's builtin module registry rather than as local AST traits.
+    ///
+    /// API handles are opaque integer values in the midend, so Request and
+    /// Response both lower to `Int` here.  Keeping the async result as
+    /// `Task<Int>` is essential for dyn AsyncHandler: the backend vtable call
+    /// must preserve the task boundary for a subsequent `await` (R-2113).
+    fn register_builtin_api_traits(&mut self) {
+        let api_handle = IRType::Int;
+        let api_task = |output: IRType| IRType::Task {
+            output: Box::new(output),
+        };
+
+        self.trait_method_order.insert(
+            "IntoResponse".to_string(),
+            vec!["into_response".to_string()],
+        );
+        self.trait_method_signatures.insert(
+            "IntoResponse".to_string(),
+            HashMap::from([(
+                "into_response".to_string(),
+                (Vec::new(), api_handle.clone()),
+            )]),
+        );
+
+        self.trait_method_order
+            .insert("Handler".to_string(), vec!["call".to_string()]);
+        self.trait_method_signatures.insert(
+            "Handler".to_string(),
+            HashMap::from([(
+                "call".to_string(),
+                (vec![api_handle.clone()], IRType::Int),
+            )]),
+        );
+
+        self.trait_method_order
+            .insert("AsyncHandler".to_string(), vec!["call".to_string()]);
+        self.trait_method_signatures.insert(
+            "AsyncHandler".to_string(),
+            HashMap::from([(
+                "call".to_string(),
+                (vec![api_handle.clone()], api_task(IRType::Int)),
+            )]),
+        );
+
+        self.trait_method_order.insert(
+            "Middleware".to_string(),
+            vec!["on_request".to_string(), "on_response".to_string()],
+        );
+        self.trait_method_signatures.insert(
+            "Middleware".to_string(),
+            HashMap::from([
+                (
+                    "on_request".to_string(),
+                    (vec![api_handle.clone()], IRType::Int),
+                ),
+                (
+                    "on_response".to_string(),
+                    (vec![api_handle.clone()], IRType::Int),
+                ),
+            ]),
+        );
+
+        self.trait_method_order.insert(
+            "AsyncMiddleware".to_string(),
+            vec!["on_request".to_string(), "on_response".to_string()],
+        );
+        self.trait_method_signatures.insert(
+            "AsyncMiddleware".to_string(),
+            HashMap::from([
+                (
+                    "on_request".to_string(),
+                    (vec![api_handle.clone()], api_task(IRType::Int)),
+                ),
+                (
+                    "on_response".to_string(),
+                    (vec![api_handle], api_task(IRType::Int)),
+                ),
+            ]),
+        );
+    }
+
+    fn register_trait_metadata(&mut self, trait_decl: &TraitDeclaration) {
+        self.trait_declarations
+            .insert(trait_decl.name.clone(), trait_decl.clone());
+        self.trait_method_order.insert(
+            trait_decl.name.clone(),
+            trait_decl.methods.iter().map(|method| method.name.clone()).collect(),
+        );
+        let signatures = trait_decl
+            .methods
+            .iter()
+            .map(|method| {
+                let params = method
+                    .params
+                    .iter()
+                    .filter(|param| !param.is_self)
+                    .filter_map(|param| param.type_annotation.as_ref())
+                    .map(|ann| self.lower_type_annotation(ann))
+                    .collect::<Vec<_>>();
+                let ret = method
+                    .return_type
+                    .as_ref()
+                    .map(|ann| self.lower_type_annotation(ann))
+                    .unwrap_or(IRType::Void);
+                let return_type = if method.is_async {
+                    IRType::Task {
+                        output: Box::new(ret),
+                    }
+                } else {
+                    ret
+                };
+                (method.name.clone(), (params, return_type))
+            })
+            .collect::<HashMap<_, _>>();
+        self.trait_method_signatures
+            .insert(trait_decl.name.clone(), signatures);
     }
 
     /// Pre-register `Option<T>` and `Result<T, E>` as built-in generic enums so
@@ -955,6 +1079,22 @@ impl ASTLowering {
                 .or_insert(ir_ty);
         }
 
+        // Preserve trait implementations discovered in imported modules so
+        // generic-bound checks and dyn coercions use the same coherence facts
+        // as the semantic pass.
+        for (trait_name, type_name, _) in &ast_module.imported_trait_impls {
+            self.trait_implementations
+                .insert((type_name.clone(), trait_name.clone()), true);
+        }
+        for function in &ast_module.imported_generic_functions {
+            self.generic_functions
+                .entry(function.name.clone())
+                .or_insert_with(|| function.clone());
+        }
+        for trait_decl in &ast_module.imported_trait_decls {
+            self.register_trait_metadata(trait_decl);
+        }
+
         // First pass: collect struct and enum definitions, and trait implementations
         for item in &ast_module.items {
             if let Item::Struct(struct_def) = item {
@@ -1076,6 +1216,48 @@ impl ASTLowering {
                 self.trait_method_signatures
                     .insert(trait_decl.name.clone(), signatures);
             }
+        }
+
+        // Normalize trait metadata after every declaration has been seen so
+        // child traits can be declared before their parents. Vtable slots are
+        // parent-first, while a child declaration may override a parent's
+        // signature under the same method name.
+        let trait_names: Vec<String> = self.trait_declarations.keys().cloned().collect();
+        for trait_name in trait_names {
+            let mut order = Vec::new();
+            let mut seen = HashSet::new();
+            self.collect_trait_method_order_recursive(&trait_name, &mut seen, &mut order);
+            self.trait_method_order.insert(trait_name.clone(), order);
+
+            let mut methods = HashMap::new();
+            self.collect_trait_methods_recursive(&trait_name, &mut methods);
+            let signatures = methods
+                .into_iter()
+                .map(|(name, method)| {
+                    let params = method
+                        .params
+                        .iter()
+                        .filter(|param| !param.is_self)
+                        .filter_map(|param| param.type_annotation.as_ref())
+                        .map(|ann| self.lower_type_annotation(ann))
+                        .collect::<Vec<_>>();
+                    let ret = method
+                        .return_type
+                        .as_ref()
+                        .map(|ann| self.lower_type_annotation(ann))
+                        .unwrap_or(IRType::Void);
+                    let return_type = if method.is_async {
+                        IRType::Task {
+                            output: Box::new(ret),
+                        }
+                    } else {
+                        ret
+                    };
+                    (name, (params, return_type))
+                })
+                .collect::<HashMap<_, _>>();
+            self.trait_method_signatures
+                .insert(trait_name, signatures);
         }
 
         // Second pass: pre-register return types for regular functions and impl methods
@@ -1802,6 +1984,16 @@ impl ASTLowering {
         match ty {
             IRType::Float => self.builder.build_const_float(ir_func, 0.0),
             IRType::Bool => self.builder.build_const_bool(ir_func, false),
+            IRType::ExactFloat { .. } => {
+                self.builder
+                    .build_const_float_typed(ir_func, 0.0, ty.clone())
+            }
+            IRType::ExactInt { .. } => {
+                self.builder.build_const_int_typed(ir_func, 0, ty.clone())
+            }
+            IRType::Char => self
+                .builder
+                .build_const_int_typed(ir_func, 0, IRType::Char),
             IRType::String => self.lower_string_literal("", ir_func),
             IRType::Struct { name, .. } => self.lower_default_struct_value(name, &[], ir_func),
             _ => self.builder.build_const_int(ir_func, 0),
@@ -1949,15 +2141,29 @@ impl ASTLowering {
                         .iter()
                         .enumerate()
                         .map(|(tag, variant)| {
-                            let data_types = variant.data.as_ref().map(|types| {
-                                types
-                                    .iter()
-                                    .map(|ty| {
-                                        let substituted = self.substitute_type(ty, &type_map);
-                                        self.lower_type_annotation(&substituted)
-                                    })
-                                    .collect::<Vec<_>>()
-                            });
+                            let data_types = if let Some(types) = variant.data.as_ref() {
+                                Some(
+                                    types
+                                        .iter()
+                                        .map(|ty| {
+                                            let substituted = self.substitute_type(ty, &type_map);
+                                            self.lower_type_annotation(&substituted)
+                                        })
+                                        .collect::<Vec<_>>(),
+                                )
+                            } else if let Some(fields) = variant.struct_data.as_ref() {
+                                Some(
+                                    fields
+                                        .iter()
+                                        .map(|(_, ty)| {
+                                            let substituted = self.substitute_type(ty, &type_map);
+                                            self.lower_type_annotation(&substituted)
+                                        })
+                                        .collect::<Vec<_>>(),
+                                )
+                            } else {
+                                None
+                            };
                             (variant.name.clone(), tag, data_types)
                         })
                         .collect();
@@ -2547,6 +2753,15 @@ impl ASTLowering {
                         .struct_definitions
                         .get(&struct_name)
                         .cloned()
+                        .or_else(|| {
+                            if let Some(IRType::Struct { fields, .. }) =
+                                self.variable_types.get(name)
+                            {
+                                Some(fields)
+                            } else {
+                                None
+                            }
+                        })
                         .unwrap_or_default();
                     IRType::Struct {
                         name: struct_name,
@@ -2607,6 +2822,16 @@ impl ASTLowering {
             } => {
                 // R-212: UFCS Trait::method(obj, args) return type from the trait.
                 if self.trait_method_order.contains_key(enum_name.as_str()) {
+                    if let Some(receiver_expr) = data.as_ref().and_then(|args| args.first()) {
+                        if let IRType::Struct { name, .. } = self.infer_expr_ir_type(receiver_expr)
+                        {
+                            let function_name = format!("{}_{}", name, variant_name);
+                            if let Some(return_type) = self.function_return_types.get(&function_name)
+                            {
+                                return return_type.clone();
+                            }
+                        }
+                    }
                     if let Some((_, return_type)) = self
                         .trait_method_signatures
                         .get(enum_name.as_str())
@@ -3191,7 +3416,6 @@ impl ASTLowering {
             Some(scrutinee_type),
             &mut bindings,
         );
-
         self.variable_types.push_scope();
         for (name, ty) in bindings {
             self.variable_types.insert(name, ty);
@@ -3262,6 +3486,7 @@ impl ASTLowering {
         self.array_map.clear();
         self.range_map.clear();
         self.struct_var_map.clear();
+        self.drop_excluded_names.clear();
         for (idx, param) in params.iter().enumerate() {
             let value = Value { id: idx };
             self.value_map.insert(param.name.clone(), value);
@@ -3319,14 +3544,19 @@ impl ASTLowering {
                 }
                 // Lower the last expression for side effects. Only treat it as an
                 // implicit return value when the function does not return void.
+                let last_type = self.infer_expr_ir_type(expr);
                 let last_value = self.lower_expression(expr, &mut ir_func);
                 if body_return_type != IRType::Void {
+                    self.emit_escape_for_value(last_value, &last_type, &mut ir_func);
                     implicit_return_value = Some(self.wrap_async_return_value(
                         &mut ir_func,
                         Some(last_value),
                         body_return_type.clone(),
                     ));
                 }
+                let mut skipped_names = HashSet::new();
+                Self::collect_moved_identifiers(expr, &mut skipped_names);
+                self.emit_scope_drops(&mut ir_func, &skipped_names);
             } else {
                 // No implicit return, lower all statements
                 self.lower_block(&ast_func.body.statements, &mut ir_func);
@@ -3443,8 +3673,12 @@ impl ASTLowering {
         self.array_map.clear();
         self.range_map.clear();
         self.struct_var_map.clear();
+        self.drop_excluded_names.clear();
 
         for (idx, param) in params.iter().enumerate() {
+            if method.params.get(idx).map(|param| param.is_self).unwrap_or(false) {
+                self.drop_excluded_names.insert(param.name.clone());
+            }
             let value = Value { id: idx };
             self.value_map.insert(param.name.clone(), value);
 
@@ -3495,14 +3729,19 @@ impl ASTLowering {
                         self.lower_statement(stmt, &mut ir_func);
                     }
                 }
+                let last_type = self.infer_expr_ir_type(expr);
                 let last_value = self.lower_expression(expr, &mut ir_func);
                 if body_return_type != IRType::Void {
+                    self.emit_escape_for_value(last_value, &last_type, &mut ir_func);
                     implicit_return_value = Some(self.wrap_async_return_value(
                         &mut ir_func,
                         Some(last_value),
                         body_return_type.clone(),
                     ));
                 }
+                let mut skipped_names = HashSet::new();
+                Self::collect_moved_identifiers(expr, &mut skipped_names);
+                self.emit_scope_drops(&mut ir_func, &skipped_names);
             } else {
                 self.lower_block(&method.body.statements, &mut ir_func);
             }
@@ -3625,6 +3864,7 @@ impl ASTLowering {
         self.array_map.clear();
         self.range_map.clear();
         self.struct_var_map.clear();
+        self.drop_excluded_names.clear();
 
         let mut lambda_func = IRFunction::new(&name, ir_params.clone(), return_type.clone());
         let entry_block = lambda_func.add_block("entry");
@@ -4119,6 +4359,47 @@ impl ASTLowering {
         }
     }
 
+    fn collect_trait_method_order_recursive(
+        &self,
+        trait_name: &str,
+        seen: &mut HashSet<String>,
+        out: &mut Vec<String>,
+    ) {
+        let Some(trait_decl) = self.trait_declarations.get(trait_name) else {
+            return;
+        };
+
+        for parent_trait in &trait_decl.parent_traits {
+            self.collect_trait_method_order_recursive(parent_trait, seen, out);
+        }
+
+        for method in &trait_decl.methods {
+            if seen.insert(method.name.clone()) {
+                out.push(method.name.clone());
+            }
+        }
+    }
+
+    fn collect_trait_methods_recursive(
+        &self,
+        trait_name: &str,
+        out: &mut HashMap<String, spectra_compiler::ast::TraitMethod>,
+    ) {
+        let Some(trait_decl) = self.trait_declarations.get(trait_name) else {
+            return;
+        };
+
+        for parent_trait in &trait_decl.parent_traits {
+            self.collect_trait_methods_recursive(parent_trait, out);
+        }
+
+        // Insertion at the child level deliberately replaces an inherited
+        // signature when a child trait overrides a method.
+        for method in &trait_decl.methods {
+            out.insert(method.name.clone(), method.clone());
+        }
+    }
+
     fn collect_default_trait_methods(
         &self,
         trait_name: &str,
@@ -4168,6 +4449,276 @@ impl ASTLowering {
 
     fn lower_block(&mut self, statements: &[Statement], ir_func: &mut IRFunction) {
         self.lower_block_with_scope(statements, ir_func, true);
+    }
+
+    fn type_has_drop(&self, ty: &IRType) -> bool {
+        match ty {
+            IRType::Struct { name, fields } => {
+                self.trait_implementations
+                    .contains_key(&(name.clone(), "Drop".to_string()))
+                    || fields.iter().any(|(_, field_ty)| self.type_has_drop(field_ty))
+            }
+            IRType::Tuple { elements } => elements.iter().any(|ty| self.type_has_drop(ty)),
+            IRType::Array { element_type, .. } => self.type_has_drop(element_type),
+            _ => false,
+        }
+    }
+
+    /// Emit recursive destructor calls for a value represented by an
+    /// aggregate pointer.  A user-defined Drop implementation runs for the
+    /// owning record, followed by its droppable fields in declaration order.
+    /// Fields are themselves stored as pointers, so loading a nested struct
+    /// value produces the pointer expected by its drop glue.
+    fn emit_drop_for_value(
+        &mut self,
+        value: Value,
+        ty: &IRType,
+        ir_func: &mut IRFunction,
+    ) {
+        match ty {
+            IRType::Struct { name, fields } => {
+                if self
+                    .trait_implementations
+                    .contains_key(&(name.clone(), "Drop".to_string()))
+                {
+                    self.builder.build_call(
+                        ir_func,
+                        format!("{}_drop", name),
+                        vec![value],
+                        false,
+                    );
+                }
+
+                let owned_fields = if fields.is_empty() {
+                    self.struct_definitions.get(name).cloned().unwrap_or_default()
+                } else {
+                    fields.clone()
+                };
+                let layout = layout::layout_of(owned_fields.iter().map(|(_, field_ty)| field_ty));
+                for (index, (_, field_ty)) in owned_fields.iter().enumerate() {
+                    if !self.type_has_drop(field_ty) {
+                        continue;
+                    }
+                    let Some(offset) = layout.offsets.get(index).copied() else {
+                        continue;
+                    };
+                    let field_ptr = self
+                        .builder
+                        .build_field_ptr(ir_func, value, offset as i64);
+                    let field_value = self
+                        .builder
+                        .build_load_typed(ir_func, field_ptr, field_ty.clone());
+                    self.emit_drop_for_value(field_value, field_ty, ir_func);
+                }
+            }
+            IRType::Tuple { elements } => {
+                let layout = layout::layout_of(elements.iter());
+                for (index, element_ty) in elements.iter().enumerate() {
+                    if !self.type_has_drop(element_ty) {
+                        continue;
+                    }
+                    let Some(offset) = layout.offsets.get(index).copied() else {
+                        continue;
+                    };
+                    let element_ptr =
+                        self.builder
+                            .build_field_ptr(ir_func, value, offset as i64);
+                    let element_value = self
+                        .builder
+                        .build_load_typed(ir_func, element_ptr, element_ty.clone());
+                    self.emit_drop_for_value(element_value, element_ty, ir_func);
+                }
+            }
+            IRType::Array { element_type, size } => {
+                if !self.type_has_drop(element_type) {
+                    return;
+                }
+                for index in (0..*size).rev() {
+                    let index_value = self.builder.build_const_int(ir_func, index as i64);
+                    let element_ptr = self.builder.build_getelementptr(
+                        ir_func,
+                        value,
+                        index_value,
+                        element_type.as_ref().clone(),
+                    );
+                    let element_value = self.builder.build_load_typed(
+                        ir_func,
+                        element_ptr,
+                        element_type.as_ref().clone(),
+                    );
+                    self.emit_drop_for_value(element_value, element_type, ir_func);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Preserve every manual allocation reachable from an aggregate returned
+    /// by the current function.  The backend already escapes the root return
+    /// pointer, but nested aggregate fields are independent manual
+    /// allocations and would otherwise be reclaimed by the callee's frame
+    /// exit.  Returning such a value must transfer the complete ownership
+    /// graph, not just its outer pointer.
+    fn emit_escape_for_value(
+        &mut self,
+        value: Value,
+        ty: &IRType,
+        ir_func: &mut IRFunction,
+    ) {
+        match ty {
+            IRType::Struct { name, fields } => {
+                self.builder.build_escape_manual_alloc(ir_func, value);
+                let owned_fields = if fields.is_empty() {
+                    self.struct_definitions.get(name).cloned().unwrap_or_default()
+                } else {
+                    fields.clone()
+                };
+                let layout = layout::layout_of(owned_fields.iter().map(|(_, field_ty)| field_ty));
+                for (index, (_, field_ty)) in owned_fields.iter().enumerate() {
+                    if !matches!(
+                        field_ty,
+                        IRType::Struct { .. }
+                            | IRType::Tuple { .. }
+                            | IRType::Array { .. }
+                            | IRType::Enum { .. }
+                            | IRType::DynTrait { .. }
+                    ) {
+                        continue;
+                    }
+                    let Some(offset) = layout.offsets.get(index).copied() else {
+                        continue;
+                    };
+                    let field_ptr = self
+                        .builder
+                        .build_field_ptr(ir_func, value, offset as i64);
+                    let field_value = self
+                        .builder
+                        .build_load_typed(ir_func, field_ptr, field_ty.clone());
+                    self.emit_escape_for_value(field_value, field_ty, ir_func);
+                }
+            }
+            IRType::Tuple { elements } => {
+                self.builder.build_escape_manual_alloc(ir_func, value);
+                let layout = layout::layout_of(elements.iter());
+                for (index, element_ty) in elements.iter().enumerate() {
+                    if !matches!(
+                        element_ty,
+                        IRType::Struct { .. }
+                            | IRType::Tuple { .. }
+                            | IRType::Array { .. }
+                            | IRType::Enum { .. }
+                            | IRType::DynTrait { .. }
+                    ) {
+                        continue;
+                    }
+                    let Some(offset) = layout.offsets.get(index).copied() else {
+                        continue;
+                    };
+                    let element_ptr = self
+                        .builder
+                        .build_field_ptr(ir_func, value, offset as i64);
+                    let element_value = self
+                        .builder
+                        .build_load_typed(ir_func, element_ptr, element_ty.clone());
+                    self.emit_escape_for_value(element_value, element_ty, ir_func);
+                }
+            }
+            IRType::Array { element_type, size } => {
+                self.builder.build_escape_manual_alloc(ir_func, value);
+                for index in 0..*size {
+                    if !matches!(
+                        element_type.as_ref(),
+                        IRType::Struct { .. }
+                            | IRType::Tuple { .. }
+                            | IRType::Array { .. }
+                            | IRType::Enum { .. }
+                            | IRType::DynTrait { .. }
+                    ) {
+                        break;
+                    }
+                    let index_value = self.builder.build_const_int(ir_func, index as i64);
+                    let element_ptr = self.builder.build_getelementptr(
+                        ir_func,
+                        value,
+                        index_value,
+                        element_type.as_ref().clone(),
+                    );
+                    let element_value = self.builder.build_load_typed(
+                        ir_func,
+                        element_ptr,
+                        element_type.as_ref().clone(),
+                    );
+                    self.emit_escape_for_value(element_value, element_type, ir_func);
+                }
+            }
+            IRType::Enum { .. } | IRType::DynTrait { .. } => {
+                self.builder.build_escape_manual_alloc(ir_func, value);
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_moved_identifiers(expr: &Expression, out: &mut HashSet<String>) {
+        match &expr.kind {
+            ExpressionKind::Identifier(name) => {
+                out.insert(name.clone());
+            }
+            ExpressionKind::StructLiteral { fields, .. } => {
+                for (_, value) in fields {
+                    Self::collect_moved_identifiers(value, out);
+                }
+            }
+            ExpressionKind::TupleLiteral { elements }
+            | ExpressionKind::ArrayLiteral { elements } => {
+                for element in elements {
+                    Self::collect_moved_identifiers(element, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn emit_scope_drops(
+        &mut self,
+        ir_func: &mut IRFunction,
+        skipped_names: &HashSet<String>,
+    ) {
+        let scopes: Vec<Vec<(String, Value, String)>> = self
+            .struct_var_map
+            .scopes
+            .iter()
+            .rev()
+            .map(|scope| {
+                scope
+                .iter()
+                .filter(|(name, _)| {
+                    !skipped_names.contains(*name) && !self.drop_excluded_names.contains(*name)
+                })
+                .map(|(name, (value, struct_name))| {
+                    (name.clone(), *value, struct_name.clone())
+                })
+                .collect()
+            })
+            .collect();
+        for mut values in scopes {
+            // StructScopeStack intentionally remains a compact hash map; sort
+            // names to keep destructor output deterministic until declaration
+            // ordering is represented explicitly in the scope structure.
+            values.sort_by(|left, right| right.0.cmp(&left.0));
+            for (_, value, struct_name) in values {
+                let ty = IRType::Struct {
+                    name: struct_name.clone(),
+                    fields: self
+                        .struct_definitions
+                        .get(&struct_name)
+                        .cloned()
+                        .unwrap_or_default(),
+                };
+                if self.type_has_drop(&ty) {
+                    self.emit_drop_for_value(value, &ty, ir_func);
+                }
+            }
+        }
     }
 
     fn wrap_async_return_value(
@@ -4242,27 +4793,7 @@ impl ASTLowering {
                 return;
             }
 
-            // Drop semantics: before leaving the scope, call `StructName_drop(ptr)` for every
-            // struct variable whose type implements the `Drop` trait (in reverse order).
-            let drop_calls: Vec<(String, Value)> = self
-                .struct_var_map
-                .scopes
-                .last()
-                .map(|scope| {
-                    scope
-                        .values()
-                        .filter(|(_, struct_name)| {
-                            self.trait_implementations
-                                .contains_key(&(struct_name.clone(), "Drop".to_string()))
-                        })
-                        .map(|(ptr, struct_name)| (struct_name.clone(), *ptr))
-                        .collect()
-                })
-                .unwrap_or_default();
-            for (struct_name, ptr) in drop_calls.iter().rev() {
-                let fn_name = format!("{}_drop", struct_name);
-                self.builder.build_call(ir_func, fn_name, vec![*ptr], false);
-            }
+            self.emit_scope_drops(ir_func, &HashSet::new());
 
             self.struct_var_map.pop_scope();
             self.array_map.pop_scope();
@@ -5128,11 +5659,24 @@ impl ASTLowering {
             }
             StatementKind::Assignment(assign) => {
                 let value = self.lower_expression(&assign.value, ir_func);
+                let value_type = self.infer_expr_ir_type(&assign.value);
 
                 match &assign.target {
                     spectra_compiler::ast::LValue::Identifier(name) => {
                         // Assignment to simple variable (uses memory)
                         if let Some(&alloca_ptr) = self.alloca_map.get(name) {
+                            let value = self
+                                .variable_types
+                                .get(name)
+                                .map(|target| {
+                                    self.coerce_value_to_type(
+                                        value,
+                                        &value_type,
+                                        &target,
+                                        ir_func,
+                                    )
+                                })
+                                .unwrap_or(value);
                             self.builder.build_store(ir_func, alloca_ptr, value);
 
                             if let Some((_, struct_name)) = self.struct_var_map.get(name) {
@@ -5194,10 +5738,16 @@ impl ASTLowering {
                             ir_func,
                             array_ptr,
                             index_value,
-                            elem_type,
+                            elem_type.clone(),
                         );
 
                         // Store valor no elemento
+                        let value = self.coerce_value_to_type(
+                            value,
+                            &value_type,
+                            &elem_type,
+                            ir_func,
+                        );
                         self.builder.build_store(ir_func, elem_ptr, value);
                     }
                     spectra_compiler::ast::LValue::FieldAccess { object, field } => {
@@ -5247,7 +5797,7 @@ impl ASTLowering {
                             };
 
                         // Step 3: field pointer (padded layout) + store
-                        if let Some((field_idx, _field_type)) = field_info {
+                        if let Some((field_idx, field_type)) = field_info {
                             let offsets = match self.infer_expr_ir_type(object) {
                                 IRType::Struct { fields, .. } => {
                                     layout::layout_of(fields.iter().map(|(_, ty)| ty)).offsets
@@ -5284,21 +5834,40 @@ impl ASTLowering {
                                 struct_ptr,
                                 byte_offset as i64,
                             );
+                            let value = self.coerce_value_to_type(
+                                value,
+                                &value_type,
+                                &field_type,
+                                ir_func,
+                            );
                             self.builder.build_store(ir_func, field_ptr, value);
                         }
                     }
                 }
             }
             StatementKind::Return(ret) => {
+                let mut skipped_names = HashSet::new();
+                let return_type = ret
+                    .value
+                    .as_ref()
+                    .map(|expr| self.infer_expr_ir_type(expr))
+                    .unwrap_or(IRType::Void);
+                if let Some(expr) = ret.value.as_ref() {
+                    Self::collect_moved_identifiers(expr, &mut skipped_names);
+                }
                 let value = ret
                     .value
                     .as_ref()
                     .map(|expr| self.lower_expression(expr, ir_func));
+                if let Some(value) = value {
+                    self.emit_escape_for_value(value, &return_type, ir_func);
+                }
                 let value = if let Some(output_type) = self.current_async_output_type.clone() {
                     Some(self.wrap_async_return_value(ir_func, value, output_type))
                 } else {
                     value
                 };
+                self.emit_scope_drops(ir_func, &skipped_names);
                 self.builder.build_return(ir_func, value);
             }
             StatementKind::Expression(expr) => {
@@ -5813,8 +6382,29 @@ impl ASTLowering {
         value_type: IRType,
         ir_func: &mut IRFunction,
     ) -> Value {
-        let runtime_fn = match value_type {
+        let (value, value_type) = match value_type {
             IRType::String => return value,
+            ty @ IRType::ExactFloat { .. } => {
+                let converted = self.builder.build_cast(
+                    ir_func,
+                    value,
+                    ty.clone(),
+                    IRType::Float,
+                );
+                (converted, IRType::Float)
+            }
+            ty @ (IRType::ExactInt { .. } | IRType::Char) => {
+                let converted = self.builder.build_cast(
+                    ir_func,
+                    value,
+                    ty.clone(),
+                    IRType::Int,
+                );
+                (converted, IRType::Int)
+            }
+            ty => (value, ty),
+        };
+        let runtime_fn = match value_type {
             IRType::Float => "spectra.std.convert.float_to_string",
             IRType::Bool => "spectra.std.convert.bool_to_string",
             _ => "spectra.std.convert.int_to_string",
@@ -5880,11 +6470,69 @@ impl ASTLowering {
             };
         }
 
+        // Numeric literals are intentionally inferred as the language's
+        // default `int`/`float` types.  Aggregate fields and exact-width
+        // loads, however, retain their declared ABI type.  Normalize the
+        // right-hand side to the left-hand side before emitting Cranelift's
+        // comparison so f32-vs-f64 and i32-vs-i64 never reach the verifier.
+        let rhs = if lhs_type != rhs_type {
+            self.coerce_value_to_type(rhs, rhs_type, lhs_type, ir_func)
+        } else {
+            rhs
+        };
+
         if negate {
             self.builder.build_ne(ir_func, lhs, rhs)
         } else {
             self.builder.build_eq(ir_func, lhs, rhs)
         }
+    }
+
+    /// Convert a lowered value to the declared type of an aggregate field,
+    /// tuple element, array element, or assignment target.  Semantic analysis
+    /// already rejects incompatible source programs; this helper only
+    /// materializes the ABI conversion required by the backend for numeric
+    /// literals and exact-width values.
+    fn coerce_value_to_type(
+        &mut self,
+        value: Value,
+        from_ty: &IRType,
+        to_ty: &IRType,
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        if from_ty == to_ty {
+            return value;
+        }
+
+        let numeric = |ty: &IRType| {
+            matches!(
+                ty,
+                IRType::Int
+                    | IRType::Float
+                    | IRType::ExactInt { .. }
+                    | IRType::ExactFloat { .. }
+                    | IRType::Char
+            )
+        };
+
+        if numeric(from_ty) && numeric(to_ty) {
+            return self
+                .builder
+                .build_cast(ir_func, value, from_ty.clone(), to_ty.clone());
+        }
+
+        value
+    }
+
+    fn lower_expression_as_type(
+        &mut self,
+        expr: &Expression,
+        expected_type: &IRType,
+        ir_func: &mut IRFunction,
+    ) -> Value {
+        let value = self.lower_expression(expr, ir_func);
+        let actual_type = self.infer_expr_ir_type(expr);
+        self.coerce_value_to_type(value, &actual_type, expected_type, ir_func)
     }
 
     fn lower_expression(&mut self, expr: &Expression, ir_func: &mut IRFunction) -> Value {
@@ -6488,7 +7136,7 @@ impl ASTLowering {
 
                 // Inicializar cada elemento
                 for (i, elem_expr) in elements.iter().enumerate() {
-                    let elem_value = self.lower_expression(elem_expr, ir_func);
+                    let elem_value = self.lower_expression_as_type(elem_expr, &elem_type, ir_func);
                     let index_value = self.builder.build_const_int(ir_func, i as i64);
                     let elem_ptr = self.builder.build_getelementptr(
                         ir_func,
@@ -6552,7 +7200,8 @@ impl ASTLowering {
                 // Inicializar cada elemento (offsets com padding)
                 let layout = layout::layout_of(&elem_types);
                 for (i, elem_expr) in elements.iter().enumerate() {
-                    let elem_value = self.lower_expression(elem_expr, ir_func);
+                    let elem_value =
+                        self.lower_expression_as_type(elem_expr, &elem_types[i], ir_func);
                     let elem_ptr =
                         self.builder
                             .build_field_ptr(ir_func, tuple_ptr, layout.offsets[i] as i64);
@@ -6620,9 +7269,7 @@ impl ASTLowering {
 
                 // Inicializar cada campo
                 for (field_name, field_expr) in fields.iter() {
-                    let field_value = self.lower_expression(field_expr, ir_func);
-
-                    let (field_idx, _field_type) = field_defs
+                    let (field_idx, field_type) = field_defs
                         .iter()
                         .enumerate()
                         .find(|(_, (fname, _))| fname == field_name)
@@ -6634,6 +7281,8 @@ impl ASTLowering {
                             ));
                             (0, IRType::Int)
                         });
+                    let field_value =
+                        self.lower_expression_as_type(field_expr, &field_type, ir_func);
 
                     let byte_offset = struct_layout
                         .offsets
@@ -6745,11 +7394,18 @@ impl ASTLowering {
                         IRType::Int
                     };
                     if let IRType::DynTrait { trait_name, .. } = &receiver_ty {
+                        // The receiver is the first UFCS argument; the
+                        // remaining arguments must be forwarded to the
+                        // dynamic signature as well (R-218/R-262).
+                        let dyn_arguments: Vec<Expression> = data
+                            .as_ref()
+                            .map(|expressions| expressions.iter().skip(1).cloned().collect())
+                            .unwrap_or_default();
                         return self.lower_dyn_method_call(
                             receiver,
                             trait_name.clone(),
                             variant_name,
-                            &[],
+                            &dyn_arguments,
                             ir_func,
                         );
                     }
@@ -7284,7 +7940,9 @@ impl ASTLowering {
                     .build_call(ir_func, function_name, call_args, true)
                     .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
             }
-            ExpressionKind::CharLiteral(c) => self.builder.build_const_int(ir_func, *c as i64),
+            ExpressionKind::CharLiteral(c) => self
+                .builder
+                .build_const_int_typed(ir_func, *c as i64, IRType::Char),
             ExpressionKind::FString(parts) => {
                 // Lower each part to a string value:
                 // - Literal parts: inline string literals (already String type)
@@ -7452,6 +8110,12 @@ impl ASTLowering {
                 }
 
                 let last = &stmts[stmts.len() - 1];
+                let last_type = match &last.kind {
+                    spectra_compiler::ast::StatementKind::Expression(expr) => {
+                        Some(self.infer_expr_ir_type(expr))
+                    }
+                    _ => None,
+                };
                 let last_value = match &last.kind {
                     spectra_compiler::ast::StatementKind::Expression(expr) => {
                         self.lower_expression(expr, ir_func)
@@ -7463,28 +8127,14 @@ impl ASTLowering {
                 };
 
                 if !self.current_block_is_terminated(ir_func) {
-                    // Drop semantics: before leaving the block scope, call
-                    // `StructName_drop(ptr)` for every struct variable whose
-                    // type implements `Drop` (in reverse order).
-                    let drop_calls: Vec<(String, Value)> = self
-                        .struct_var_map
-                        .scopes
-                        .last()
-                        .map(|scope| {
-                            scope
-                                .values()
-                                .filter(|(_, struct_name)| {
-                                    self.trait_implementations
-                                        .contains_key(&(struct_name.clone(), "Drop".to_string()))
-                                })
-                                .map(|(ptr, struct_name)| (struct_name.clone(), *ptr))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    for (struct_name, ptr) in drop_calls.iter().rev() {
-                        let fn_name = format!("{}_drop", struct_name);
-                        self.builder.build_call(ir_func, fn_name, vec![*ptr], false);
+                    let mut skipped_names = HashSet::new();
+                    if let spectra_compiler::ast::StatementKind::Expression(expr) = &last.kind {
+                        Self::collect_moved_identifiers(expr, &mut skipped_names);
                     }
+                    if let Some(last_type) = last_type.as_ref() {
+                        self.emit_escape_for_value(last_value, last_type, ir_func);
+                    }
+                    self.emit_scope_drops(ir_func, &skipped_names);
                 }
 
                 self.struct_var_map.pop_scope();
@@ -7746,6 +8396,11 @@ impl ASTLowering {
                 self.builder.build_store(ir_func, slot_ptr, fn_addr);
             }
 
+            // The concrete receiver can escape the current function through
+            // the dyn object.  The backend therefore lowers this alloca to
+            // the manual heap; explicitly promote it to the base frame along
+            // with the vtable so returned/stored dyn values remain valid.
+            self.builder.build_escape_manual_alloc(ir_func, data_ptr);
             self.builder.build_escape_manual_alloc(ir_func, vtable_storage);
             vtable_storage
         } else {
@@ -8051,7 +8706,9 @@ impl ASTLowering {
                             variant_name,
                             named_patterns,
                         )
-                        .unwrap_or_default()
+                        .unwrap_or_else(|| {
+                            named_patterns.iter().map(|(_, pattern)| pattern).collect()
+                        })
                     } else {
                         Vec::new()
                     };
@@ -8289,6 +8946,12 @@ impl ASTLowering {
                     }
                 }
 
+                if self.generic_structs.contains_key(name.as_str()) {
+                    if let Some(struct_type) = self.resolve_struct_type(name, type_args) {
+                        return struct_type;
+                    }
+                }
+
                 // Resolve to the monomorphized enum type.
                 // First, try the already-specialized version (e.g., "Option_int").
                 let type_names: Vec<String> = type_args
@@ -8319,15 +8982,29 @@ impl ASTLowering {
                         .variants
                         .iter()
                         .map(|v| {
-                            let data = v.data.as_ref().map(|types| {
-                                types
-                                    .iter()
-                                    .map(|ty| {
-                                        let subst = self.substitute_type(ty, &type_map);
-                                        self.lower_type_annotation_with_map(&subst, substitutions)
-                                    })
-                                    .collect()
-                            });
+                            let data = if let Some(types) = v.data.as_ref() {
+                                Some(
+                                    types
+                                        .iter()
+                                        .map(|ty| {
+                                            let subst = self.substitute_type(ty, &type_map);
+                                            self.lower_type_annotation_with_map(&subst, substitutions)
+                                        })
+                                        .collect(),
+                                )
+                            } else if let Some(fields) = v.struct_data.as_ref() {
+                                Some(
+                                    fields
+                                        .iter()
+                                        .map(|(_, ty)| {
+                                            let subst = self.substitute_type(ty, &type_map);
+                                            self.lower_type_annotation_with_map(&subst, substitutions)
+                                        })
+                                        .collect(),
+                                )
+                            } else {
+                                None
+                            };
                             (v.name.clone(), data)
                         })
                         .collect();

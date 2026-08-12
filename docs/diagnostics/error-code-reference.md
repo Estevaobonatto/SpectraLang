@@ -73,6 +73,7 @@ records, traits, impl blocks, and `dyn` casts.
 | `E023` | semantic | trait impl signature mismatch (parameter count/types or return type) | match the exact signature declared by the trait |
 | `E024` | semantic | `self` receiver appears after other parameters | move the `self` receiver to the first parameter position |
 | `E025` | semantic | impl type arguments do not match the target type's type parameters | use the type parameters declared by the generic record, in order |
+| `E027` | semantic | module-qualified inherent impl target cannot be resolved | import or declare the module and use an exported struct or enum as the `impl module::Type` target |
 
 ## Phase 21 Async Diagnostics
 

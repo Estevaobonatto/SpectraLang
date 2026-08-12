@@ -30,7 +30,7 @@ pub mod module_registry;
 use builtin_modules::register_builtin_modules;
 use module_registry::{
     ExportVisibility, ExportedFunction, ExportedMethod, ExportedSelfParamKind, ExportedTrait,
-    ExportedType, ModuleExports, ModuleRegistry,
+    ExportedTraitImpl, ExportedTraitMethod, ExportedType, ModuleExports, ModuleRegistry,
 };
 
 #[derive(Debug, Clone)]
@@ -400,6 +400,9 @@ pub struct SemanticAnalyzer {
     trait_type_params: HashMap<String, Vec<crate::ast::TypeParameter>>,
     // Trait implementations: maps (trait_name, type_name) to validation status
     trait_impls: HashMap<(String, String), bool>,
+    // Concrete arguments used by generic trait implementations, keyed by the
+    // same pair as `trait_impls` (R-216).
+    trait_impl_type_args: HashMap<(String, String), Vec<Type>>,
     // Struct metadata for validation and lookup
     struct_infos: HashMap<String, StructInfo>,
     json_struct_derives: HashMap<String, JsonDerivedStructInfo>,
@@ -694,6 +697,7 @@ impl SemanticAnalyzer {
             drop_types: HashSet::new(),
             traits: HashMap::new(),
             trait_impls: HashMap::new(),
+            trait_impl_type_args: HashMap::new(),
             trait_type_params: HashMap::new(),
             struct_infos: HashMap::new(),
             json_struct_derives: HashMap::new(),
@@ -993,6 +997,11 @@ impl SemanticAnalyzer {
                             is_async: func.is_async,
                         },
                     );
+                    if !func.type_params.is_empty() {
+                        exports
+                            .generic_functions
+                            .insert(func.name.clone(), func.clone());
+                    }
                 }
                 Item::Struct(s)
                     if s.visibility == Visibility::Public
@@ -1072,6 +1081,62 @@ impl SemanticAnalyzer {
                         },
                     );
                 }
+                Item::Trait(trait_decl) =>
+                {
+                    let methods = trait_decl
+                        .methods
+                        .iter()
+                        .map(|method| {
+                            let mut params = Vec::new();
+                            let mut self_kind = None;
+                            for param in &method.params {
+                                if param.is_self {
+                                    self_kind = Some(if param.is_reference {
+                                        ExportedSelfParamKind::Reference {
+                                            mutable: param.is_mutable,
+                                        }
+                                    } else {
+                                        ExportedSelfParamKind::Value
+                                    });
+                                    params.push(Type::Unknown);
+                                } else {
+                                    params.push(
+                                        param
+                                            .type_annotation
+                                            .as_ref()
+                                            .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                                            .unwrap_or(Type::Unknown),
+                                    );
+                                }
+                            }
+                            let return_type = Self::async_task_type(
+                                method.is_async,
+                                method
+                                    .return_type
+                                    .as_ref()
+                                    .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                                    .unwrap_or(Type::Unit),
+                            );
+                            (
+                                method.name.clone(),
+                                ExportedTraitMethod {
+                                    params,
+                                    return_type,
+                                    self_kind,
+                                    is_async: method.is_async,
+                                    has_default: method.body.is_some(),
+                                },
+                            )
+                        })
+                        .collect();
+                    exports.traits.insert(
+                        trait_decl.name.clone(),
+                        ExportedTrait {
+                            methods,
+                            visibility: ExportVisibility::Public,
+                        },
+                    );
+                }
                 Item::Impl(impl_block) if impl_block.trait_name.is_none() => {
                     for method in &impl_block.methods {
                         if method.visibility != Visibility::Public
@@ -1124,6 +1189,30 @@ impl SemanticAnalyzer {
                                 },
                             );
                     }
+                }
+                Item::Impl(impl_block) => {
+                    if let Some(trait_name) = &impl_block.trait_name {
+                        exports.trait_impls.push(ExportedTraitImpl {
+                            trait_name: trait_name.clone(),
+                            type_name: impl_block.type_name.clone(),
+                            type_args: impl_block
+                                .type_args
+                                .iter()
+                                .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                                .collect(),
+                        });
+                    }
+                }
+                Item::TraitImpl(trait_impl) => {
+                    exports.trait_impls.push(ExportedTraitImpl {
+                        trait_name: trait_impl.trait_name.clone(),
+                        type_name: trait_impl.type_name.clone(),
+                        type_args: trait_impl
+                            .type_args
+                            .iter()
+                            .map(|ann| self.type_annotation_to_type(&Some(ann.clone())))
+                            .collect(),
+                    });
                 }
                 _ => {}
             }
@@ -1917,6 +2006,13 @@ impl SemanticAnalyzer {
                         name: self.mangle_generic_type_name(name, type_args),
                     }
                 }
+                TypeAnnotationKind::Generic { name, type_args }
+                    if self.generic_structs.contains_key(name) =>
+                {
+                    Type::Struct {
+                        name: self.mangle_generic_type_name(name, type_args),
+                    }
+                }
                 TypeAnnotationKind::DynTrait {
                     trait_name,
                     auto_traits,
@@ -1987,6 +2083,42 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn type_mangle_part_from_type(&self, ty: &Type) -> String {
+        match ty {
+            Type::Array { element_type, size } => match size {
+                Some(size) => format!(
+                    "array_{}_{}",
+                    self.type_mangle_part_from_type(element_type),
+                    size
+                ),
+                None => format!("array_{}", self.type_mangle_part_from_type(element_type)),
+            },
+            Type::Tuple { elements } => format!(
+                "tuple_{}",
+                elements
+                    .iter()
+                    .map(|element| self.type_mangle_part_from_type(element))
+                    .collect::<Vec<_>>()
+                    .join("_")
+            ),
+            Type::Task { output } => {
+                format!("Task_{}", self.type_mangle_part_from_type(output))
+            }
+            Type::DynTrait {
+                trait_name,
+                auto_traits,
+            } => format!(
+                "dyn_{}{}",
+                trait_name,
+                auto_traits
+                    .iter()
+                    .map(|bound| format!("_{}", bound))
+                    .collect::<String>()
+            ),
+            _ => type_name(ty),
+        }
+    }
+
     /// R-211: resolve the method signature for an instantiated generic struct
     /// (e.g. `Par_int`) from the template impl (registered under `Par`),
     /// substituting the type parameters with the concrete type arguments.
@@ -2053,13 +2185,111 @@ impl SemanticAnalyzer {
                 .position(|p| &p.name == name)
                 .and_then(|idx| concrete_types.get(idx).cloned())
                 .unwrap_or_else(|| ty.clone()),
-            Type::Struct { name } if type_params.iter().any(|p| &p.name == name) => type_params
-                .iter()
-                .position(|p| &p.name == name)
-                .and_then(|idx| concrete_types.get(idx).cloned())
+            Type::Struct { name } => {
+                if let Some(idx) = type_params.iter().position(|p| &p.name == name) {
+                    return concrete_types.get(idx).cloned().unwrap_or_else(|| ty.clone());
+                }
+                self.substitute_mangled_generic_name(name, type_params, concrete_types)
+                    .map(|name| Type::Struct { name })
+                    .unwrap_or_else(|| ty.clone())
+            }
+            Type::Enum { name } => self
+                .substitute_mangled_generic_name(name, type_params, concrete_types)
+                .map(|name| Type::Enum { name })
                 .unwrap_or_else(|| ty.clone()),
+            Type::Array { element_type, size } => Type::Array {
+                element_type: Box::new(self.substitute_generic_types(
+                    element_type,
+                    type_params,
+                    concrete_types,
+                )),
+                size: *size,
+            },
+            Type::Tuple { elements } => Type::Tuple {
+                elements: elements
+                    .iter()
+                    .map(|element| {
+                        self.substitute_generic_types(element, type_params, concrete_types)
+                    })
+                    .collect(),
+            },
+            Type::Fn {
+                params,
+                return_type,
+            } => Type::Fn {
+                params: params
+                    .iter()
+                    .map(|param| {
+                        self.substitute_generic_types(param, type_params, concrete_types)
+                    })
+                    .collect(),
+                return_type: Box::new(self.substitute_generic_types(
+                    return_type,
+                    type_params,
+                    concrete_types,
+                )),
+            },
+            Type::Task { output } => Type::Task {
+                output: Box::new(self.substitute_generic_types(
+                    output,
+                    type_params,
+                    concrete_types,
+                )),
+            },
             other => other.clone(),
         }
+    }
+
+    fn substitute_mangled_generic_name(
+        &self,
+        name: &str,
+        type_params: &[crate::ast::TypeParameter],
+        concrete_types: &[Type],
+    ) -> Option<String> {
+        let mut candidates = self
+            .generic_structs
+            .keys()
+            .chain(self.generic_enums.keys())
+            .filter_map(|base| {
+                name.strip_prefix(&format!("{}_", base))
+                    .map(|suffix| (base.as_str(), suffix))
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| right.0.len().cmp(&left.0.len()));
+
+        for (base, suffix) in candidates {
+            let generic_param_count = self
+                .generic_structs
+                .get(base)
+                .map(|(params, _)| params.len())
+                .or_else(|| self.generic_enums.get(base).map(|(params, _)| params.len()))?;
+            let parts = if generic_param_count == 1 {
+                vec![suffix]
+            } else {
+                suffix.split('_').collect::<Vec<_>>()
+            };
+            if parts.len() != generic_param_count {
+                continue;
+            }
+
+            let mut changed = false;
+            let mapped_parts = parts
+                .into_iter()
+                .map(|part| {
+                    if let Some(idx) = type_params.iter().position(|param| param.name == part) {
+                        if let Some(concrete) = concrete_types.get(idx) {
+                            changed = true;
+                            return self.type_mangle_part_from_type(concrete);
+                        }
+                    }
+                    part.to_string()
+                })
+                .collect::<Vec<_>>();
+            if changed {
+                return Some(format!("{}_{}", base, mapped_parts.join("_")));
+            }
+        }
+        None
     }
 
     fn type_from_mangle_part(&self, part: &str) -> Type {        match part {
@@ -2140,6 +2370,48 @@ impl SemanticAnalyzer {
         None
     }
 
+    fn specialized_struct_context(
+        &self,
+        struct_type_name: &str,
+    ) -> Option<(String, StructInfo, HashMap<String, Type>)> {
+        let mut candidates = self
+            .generic_structs
+            .iter()
+            .filter_map(|(base, (params, _))| {
+                let prefix = format!("{}_", base);
+                struct_type_name
+                    .strip_prefix(&prefix)
+                    .map(|suffix| (base.clone(), params.clone(), suffix.to_string()))
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| right.0.len().cmp(&left.0.len()));
+
+        for (base, params, suffix) in candidates {
+            let parts = if params.len() == 1 {
+                vec![suffix.as_str()]
+            } else {
+                suffix.split('_').collect::<Vec<_>>()
+            };
+            if parts.len() != params.len() {
+                continue;
+            }
+            let Some(info) = self.struct_infos.get(&base).cloned() else {
+                continue;
+            };
+            let substitutions = params
+                .iter()
+                .zip(parts.iter())
+                .map(|(param, part)| (param.name.clone(), self.type_from_mangle_part(part)))
+                .collect::<HashMap<_, _>>();
+            return Some((base, info, substitutions));
+        }
+
+        self.struct_infos
+            .get(struct_type_name)
+            .cloned()
+            .map(|info| (struct_type_name.to_string(), info, HashMap::new()))
+    }
+
     fn type_annotation_to_type_with_substitutions(
         &self,
         ann: &crate::ast::TypeAnnotation,
@@ -2207,6 +2479,34 @@ impl SemanticAnalyzer {
                         auto_traits: auto_traits.clone(),
                     },
                     _ => Type::Unknown,
+                }
+            }
+            TypeAnnotationKind::Generic { name, type_args }
+                if self.generic_structs.contains_key(name) =>
+            {
+                let concrete_args = type_args
+                    .iter()
+                    .map(|arg| {
+                        self.type_annotation_to_type_with_substitutions(arg, substitutions)
+                    })
+                    .map(|ty| self.type_mangle_part_from_type(&ty))
+                    .collect::<Vec<_>>();
+                Type::Struct {
+                    name: format!("{}_{}", name, concrete_args.join("_")),
+                }
+            }
+            TypeAnnotationKind::Generic { name, type_args }
+                if self.generic_enums.contains_key(name) =>
+            {
+                let concrete_args = type_args
+                    .iter()
+                    .map(|arg| {
+                        self.type_annotation_to_type_with_substitutions(arg, substitutions)
+                    })
+                    .map(|ty| self.type_mangle_part_from_type(&ty))
+                    .collect::<Vec<_>>();
+                Type::Enum {
+                    name: format!("{}_{}", name, concrete_args.join("_")),
                 }
             }
             _ => self.type_annotation_to_type(&Some(ann.clone())),
@@ -4447,12 +4747,18 @@ impl SemanticAnalyzer {
         let mut new_user_fn_types: Vec<(String, crate::ast::Type)> = Vec::new();
         let mut new_enum_defs: Vec<crate::ast::Enum> = Vec::new();
         let mut new_struct_defs: Vec<crate::ast::Struct> = Vec::new();
+        let mut new_trait_impls: Vec<(String, String, Vec<crate::ast::Type>)> = Vec::new();
+        let mut new_generic_functions: Vec<crate::ast::Function> = Vec::new();
+        let mut new_trait_decls: Vec<crate::ast::TraitDeclaration> = Vec::new();
         for import in &imports {
             let aliases = self.analyze_import(
                 import,
                 &mut new_user_fn_types,
                 &mut new_enum_defs,
                 &mut new_struct_defs,
+                &mut new_trait_impls,
+                &mut new_generic_functions,
+                &mut new_trait_decls,
             );
             new_aliases.extend(aliases);
         }
@@ -4462,6 +4768,11 @@ impl SemanticAnalyzer {
             .extend(new_user_fn_types);
         module.imported_enum_defs.extend(new_enum_defs);
         module.imported_struct_defs.extend(new_struct_defs);
+        module.imported_trait_impls.extend(new_trait_impls);
+        module
+            .imported_generic_functions
+            .extend(new_generic_functions);
+        module.imported_trait_decls.extend(new_trait_decls);
 
         // First pass: collect all declarations (functions, generic structs, generic enums)
         for item in &module.items {
@@ -4759,6 +5070,9 @@ impl SemanticAnalyzer {
         user_fn_types: &mut Vec<(String, crate::ast::Type)>,
         user_enum_defs: &mut Vec<crate::ast::Enum>,
         user_struct_defs: &mut Vec<crate::ast::Struct>,
+        user_trait_impls: &mut Vec<(String, String, Vec<crate::ast::Type>)>,
+        user_generic_functions: &mut Vec<crate::ast::Function>,
+        user_trait_decls: &mut Vec<crate::ast::TraitDeclaration>,
     ) -> Vec<(String, Vec<String>)> {
         let module_path = import.path.join(".");
         let mut aliases: Vec<(String, Vec<String>)> = Vec::new();
@@ -5108,7 +5422,128 @@ impl SemanticAnalyzer {
             if let Some(trait_export) = exports.traits.get(name.as_str()) {
                 let local_name = import_local_name(alias.as_deref(), named_alias.as_deref(), name);
                 self.import_exported_trait(&local_name, trait_export);
+                let methods = trait_export
+                    .methods
+                    .iter()
+                    .map(|(method_name, method_export)| {
+                        let mut params = Vec::new();
+                        if let Some(self_kind) = &method_export.self_kind {
+                            let (is_reference, is_mutable) = match self_kind {
+                                ExportedSelfParamKind::Value => (false, false),
+                                ExportedSelfParamKind::Reference { mutable } => (true, *mutable),
+                            };
+                            params.push(crate::ast::Parameter {
+                                name: "self".to_string(),
+                                type_annotation: None,
+                                is_self: true,
+                                is_reference,
+                                is_mutable,
+                                span: import.span,
+                            });
+                        }
+                        let regular_params = if method_export.self_kind.is_some() {
+                            method_export.params.iter().skip(1)
+                        } else {
+                            method_export.params.iter().skip(0)
+                        };
+                        for (index, param_type) in regular_params.enumerate() {
+                            params.push(crate::ast::Parameter {
+                                name: format!("arg{index}"),
+                                type_annotation: Some(self.type_to_annotation(param_type)),
+                                is_self: false,
+                                is_reference: false,
+                                is_mutable: false,
+                                span: import.span,
+                            });
+                        }
+                        let return_type = if method_export.is_async {
+                            match &method_export.return_type {
+                                crate::ast::Type::Task { output } => {
+                                    Some(self.type_to_annotation(output))
+                                }
+                                other => Some(self.type_to_annotation(other)),
+                            }
+                        } else {
+                            Some(self.type_to_annotation(&method_export.return_type))
+                        };
+                        crate::ast::TraitMethod {
+                            name: method_name.clone(),
+                            is_async: method_export.is_async,
+                            params,
+                            return_type,
+                            body: None,
+                            span: import.span,
+                        }
+                    })
+                    .collect();
+                user_trait_decls.push(crate::ast::TraitDeclaration {
+                    name: local_name,
+                    parent_traits: Vec::new(),
+                    methods,
+                    span: import.span,
+                    type_params: Vec::new(),
+                });
             }
+        }
+
+        if stdlib_path_prefix.is_none() {
+            for (exported_name, template) in &exports.generic_functions {
+                let Some((_, named_alias)) = names_to_import
+                    .iter()
+                    .find(|(name, _)| name == exported_name)
+                else {
+                    continue;
+                };
+                let local_name = import_local_name(
+                    alias.as_deref(),
+                    named_alias.as_deref(),
+                    exported_name,
+                );
+                let mut imported = template.clone();
+                imported.name = local_name;
+                user_generic_functions.push(imported);
+            }
+        }
+
+        // Trait implementations are coherence metadata and are not represented
+        // by a callable export.  Import them alongside the trait/type symbols
+        // so casts, UFCS, and generic bounds work across module boundaries.
+        for exported_impl in &exports.trait_impls {
+            let Some((_, trait_alias)) = names_to_import.iter().find(|(name, _)| {
+                name == &exported_impl.trait_name && exports.traits.contains_key(name)
+            }) else {
+                continue;
+            };
+            let local_trait = import_local_name(
+                alias.as_deref(),
+                trait_alias.as_deref(),
+                &exported_impl.trait_name,
+            );
+            let local_type = names_to_import
+                .iter()
+                .find(|(name, _)| {
+                    name == &exported_impl.type_name && exports.types.contains_key(name)
+                })
+                .map(|(_, type_alias)| {
+                    import_local_name(
+                        alias.as_deref(),
+                        type_alias.as_deref(),
+                        &exported_impl.type_name,
+                    )
+                })
+                .unwrap_or_else(|| exported_impl.type_name.clone());
+
+            self.trait_impls
+                .insert((local_trait.clone(), local_type.clone()), true);
+            self.trait_impl_type_args.insert(
+                (local_trait.clone(), local_type.clone()),
+                exported_impl.type_args.clone(),
+            );
+            user_trait_impls.push((
+                local_trait,
+                local_type,
+                exported_impl.type_args.clone(),
+            ));
         }
 
         // For user (non-stdlib) modules: reconstruct AST enum/struct definitions
@@ -5249,6 +5684,7 @@ impl SemanticAnalyzer {
     fn analyze_trait_impl(&mut self, trait_impl: &crate::ast::TraitImpl) {
         let derived_impl = crate::ast::ImplBlock {
             type_name: trait_impl.type_name.clone(),
+            module_path: None,
             trait_name: Some(trait_impl.trait_name.clone()),
             methods: trait_impl.methods.clone(),
             span: trait_impl.span,
@@ -5279,6 +5715,58 @@ impl SemanticAnalyzer {
         } else {
             false
         };
+
+        // Preserve the public contract of module-qualified inherent impls:
+        // the target must resolve to an exported type in the named module.
+        // The parser used to collect this prefix and then discard it, which
+        // made `impl missing::Foreign { ... }` silently compile.
+        if impl_block.trait_name.is_none() {
+            if let Some(module_path) = impl_block.module_path.as_deref() {
+                let registry_path = module_path.replace("::", ".");
+                let exports = self
+                    .registry
+                    .read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .get_module(&registry_path)
+                    .cloned();
+
+                match exports {
+                    None => self.error_coded_with_hint(
+                        "E027",
+                        format!(
+                            "Qualified impl target module '{}' is not defined",
+                            module_path
+                        ),
+                        impl_block.span,
+                        format!(
+                            "Import or declare a module exporting '{}', then use `impl {}::{} {{ ... }}`.",
+                            impl_block.type_name, module_path, impl_block.type_name
+                        ),
+                    ),
+                    Some(exports) if !exports.types.contains_key(&impl_block.type_name) => {
+                        self.error_coded_with_hint(
+                            "E027",
+                            format!(
+                                "Module '{}' does not export impl target type '{}'",
+                                module_path, impl_block.type_name
+                            ),
+                            impl_block.span,
+                            format!(
+                                "Use an exported struct or enum from '{}'; available types: {}",
+                                module_path,
+                                exports
+                                    .types
+                                    .keys()
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                        );
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
 
         // Validate impl type arguments against the target type's type parameters.
         // For trait impls the type arguments belong to the trait and are validated
@@ -5936,6 +6424,10 @@ impl SemanticAnalyzer {
         }
 
         // Registrar que este tipo implementa este trait
+        self.trait_impl_type_args.insert(
+            (trait_name.to_string(), impl_block.type_name.clone()),
+            trait_concrete_args,
+        );
         self.trait_impls
             .insert((trait_name.to_string(), impl_block.type_name.clone()), true);
     }
@@ -7351,13 +7843,25 @@ impl SemanticAnalyzer {
                 let object_type = self.infer_expression_type(object);
                 match object_type {
                     Type::Struct { name } => {
-                        if let Some(expected_ann) = self
-                            .struct_infos
-                            .get(&name)
-                            .and_then(|info| info.fields.get(field))
-                            .map(|field_info| field_info.ty.clone())
+                        if let Some(info) = self.struct_infos.get(&name) {
+                            info.fields
+                                .get(field)
+                                .map(|field_info| {
+                                    self.type_annotation_to_type(&Some(field_info.ty.clone()))
+                                })
+                                .unwrap_or(Type::Unknown)
+                        } else if let Some((_, info, substitutions)) =
+                            self.specialized_struct_context(&name)
                         {
-                            self.type_annotation_to_type(&Some(expected_ann))
+                            info.fields
+                                .get(field)
+                                .map(|field_info| {
+                                    self.type_annotation_to_type_with_substitutions(
+                                        &field_info.ty,
+                                        &substitutions,
+                                    )
+                                })
+                                .unwrap_or(Type::Unknown)
                         } else {
                             Type::Unknown
                         }
@@ -7370,7 +7874,8 @@ impl SemanticAnalyzer {
                 variant_name,
                 type_args,
                 data,
-                ..
+                struct_data,
+                module_path: _,
             } => {
                 if self.generic_enums.contains_key(enum_name) {
                     if !type_args.is_empty() {
@@ -7400,6 +7905,20 @@ impl SemanticAnalyzer {
                         let inferred_args =
                             self.infer_enum_type_args(enum_name, variant_name, args.as_slice());
                         if !inferred_args.is_empty() {
+                            return Type::Enum {
+                                name: self.mangle_generic_type_name(enum_name, &inferred_args),
+                            };
+                        }
+                    }
+
+                    if let Some(fields) = struct_data {
+                        let inferred_args = self
+                            .infer_enum_type_args_from_named_fields(
+                                enum_name,
+                                variant_name,
+                                fields,
+                            );
+                        if let Some(inferred_args) = inferred_args {
                             return Type::Enum {
                                 name: self.mangle_generic_type_name(enum_name, &inferred_args),
                             };
@@ -8308,7 +8827,10 @@ impl SemanticAnalyzer {
                             for (i, (arg, expected_type)) in
                                 arguments.iter().zip(&signature.params).enumerate()
                             {
+                                let saved_expected = self.current_expected_type.clone();
+                                self.current_expected_type = Some(expected_type.clone());
                                 let arg_type = self.infer_expression_type(arg);
+                                self.current_expected_type = saved_expected;
                                 if matches!(arg_type, Type::Unknown) {
                                     self.error_with_hint(
                                         format!(
@@ -8637,6 +9159,15 @@ impl SemanticAnalyzer {
                     }
                 }
 
+                let substitutions = struct_info
+                    .type_params
+                    .iter()
+                    .zip(type_args.iter())
+                    .map(|(param, arg)| {
+                        (param.clone(), self.type_annotation_to_type(&Some(arg.clone())))
+                    })
+                    .collect::<HashMap<_, _>>();
+
                 let mut provided_fields = HashSet::new();
 
                 for (field_name, field_value) in fields {
@@ -8655,8 +9186,10 @@ impl SemanticAnalyzer {
 
                     if let Some(expected_field) = struct_info.fields.get(field_name) {
                         let value_type = self.infer_expression_type(field_value);
-                        let expected_type =
-                            self.type_annotation_to_type(&Some(expected_field.ty.clone()));
+                        let expected_type = self.type_annotation_to_type_with_substitutions(
+                            &expected_field.ty,
+                            &substitutions,
+                        );
 
                         if !self.types_match(&value_type, &expected_type) {
                             let mut message = format!(
@@ -8704,7 +9237,7 @@ impl SemanticAnalyzer {
                         // Collect all info from immutable borrows first, then emit errors.
                         enum FieldLookup {
                             Found {
-                                ty: crate::ast::TypeAnnotation,
+                                ty: Type,
                                 span: Span,
                                 visibility: Visibility,
                             },
@@ -8714,7 +9247,23 @@ impl SemanticAnalyzer {
                         let lookup = if let Some(struct_info) = self.struct_infos.get(name) {
                             if let Some(field_info) = struct_info.fields.get(field.as_str()) {
                                 FieldLookup::Found {
-                                    ty: field_info.ty.clone(),
+                                    ty: self
+                                        .type_annotation_to_type(&Some(field_info.ty.clone())),
+                                    span: field_info.span,
+                                    visibility: field_info.visibility,
+                                }
+                            } else {
+                                FieldLookup::NoField
+                            }
+                        } else if let Some((_, struct_info, substitutions)) =
+                            self.specialized_struct_context(name)
+                        {
+                            if let Some(field_info) = struct_info.fields.get(field.as_str()) {
+                                FieldLookup::Found {
+                                    ty: self.type_annotation_to_type_with_substitutions(
+                                        &field_info.ty,
+                                        &substitutions,
+                                    ),
                                     span: field_info.span,
                                     visibility: field_info.visibility,
                                 }
@@ -8746,7 +9295,7 @@ impl SemanticAnalyzer {
                                         expr.span,
                                     );
                                 }
-                                field_ty = self.type_annotation_to_type(&Some(ty));
+                                field_ty = ty;
                                 field_def_span = Some(fspan);
                             }
                             FieldLookup::NoField => {
@@ -9176,7 +9725,42 @@ impl SemanticAnalyzer {
                         }
 
                         // Validate the remaining arguments against the trait signature.
-                        let sig = &method_info.signature;
+                        // Generic trait implementations carry concrete arguments
+                        // (e.g. `PairView<int, string> for IntText`); apply them to
+                        // the UFCS return and parameter types before checking.
+                        let concrete_signature = receiver_name
+                            .as_ref()
+                            .and_then(|receiver_name| {
+                                self.trait_impl_type_args
+                                    .get(&(trait_name.to_string(), receiver_name.clone()))
+                            })
+                            .map(|concrete_args| {
+                                let trait_params = self
+                                    .trait_type_params
+                                    .get(trait_name)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let mut signature = method_info.signature.clone();
+                                signature.params = signature
+                                    .params
+                                    .iter()
+                                    .map(|param| {
+                                        self.substitute_generic_types(
+                                            param,
+                                            &trait_params,
+                                            concrete_args,
+                                        )
+                                    })
+                                    .collect();
+                                signature.return_type = self.substitute_generic_types(
+                                    &signature.return_type,
+                                    &trait_params,
+                                    concrete_args,
+                                );
+                                signature
+                            })
+                            .unwrap_or_else(|| method_info.signature.clone());
+                        let sig = &concrete_signature;
                         let expected = sig.params.len().saturating_sub(1);
                         if call_args.len() - 1 != expected {
                             self.error_coded(
@@ -9220,7 +9804,7 @@ impl SemanticAnalyzer {
                             SymbolInfo {
                                 is_local: false,
                                 def_span: None,
-                                ty: method_info.signature.return_type.clone(),
+                                ty: sig.return_type.clone(),
                             },
                         );
                     } else {
@@ -11802,6 +12386,42 @@ impl SemanticAnalyzer {
         }
 
         result
+    }
+
+    fn infer_enum_type_args_from_named_fields(
+        &mut self,
+        enum_name: &str,
+        variant_name: &str,
+        fields: &[(String, Expression)],
+    ) -> Option<Vec<crate::ast::TypeAnnotation>> {
+        let (type_params, _) = self.generic_enums.get(enum_name)?.clone();
+        let variant_info = self
+            .enum_infos
+            .get(enum_name)
+            .and_then(|info| info.variants.get(variant_name))
+            .cloned()?;
+        let field_templates = variant_info.struct_data?;
+
+        let mut type_map = HashMap::new();
+        for (field_name, field_ann) in &field_templates {
+            let field_expr = fields
+                .iter()
+                .find(|(actual_name, _)| actual_name == field_name)
+                .map(|(_, expr)| expr)?;
+            let value_type = self.infer_expression_type(field_expr);
+            self.unify_type_annotation(field_ann, &value_type, &mut type_map);
+        }
+
+        let mut result = Vec::with_capacity(type_params.len());
+        for param in type_params {
+            match type_map.get(&param.name) {
+                Some(mapped) if !matches!(mapped, Type::Unknown) => {
+                    result.push(self.type_to_annotation(mapped));
+                }
+                _ => return None,
+            }
+        }
+        Some(result)
     }
 
     /// Unify a type annotation (potentially containing type variables) with a concrete type

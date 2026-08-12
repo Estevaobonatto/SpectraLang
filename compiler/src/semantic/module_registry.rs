@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Type, TypeAnnotation};
+use crate::ast::{Function, Type, TypeAnnotation};
 
 /// How visible an exported symbol is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +58,18 @@ pub struct ExportedTrait {
     pub visibility: ExportVisibility,
 }
 
+/// A trait implementation made available by an imported module.
+///
+/// Trait implementations are coherence metadata rather than callable exports,
+/// so they must travel through the registry even when the implementation's
+/// methods are not independently public.
+#[derive(Debug, Clone)]
+pub struct ExportedTraitImpl {
+    pub trait_name: String,
+    pub type_name: String,
+    pub type_args: Vec<Type>,
+}
+
 /// A type (struct or enum) exported from a module.
 #[derive(Debug, Clone)]
 pub struct ExportedType {
@@ -79,8 +91,13 @@ pub struct ExportedType {
 #[derive(Debug, Clone, Default)]
 pub struct ModuleExports {
     pub functions: HashMap<String, ExportedFunction>,
+    /// Public generic function templates retained for downstream
+    /// monomorphization in a multi-module build.
+    pub generic_functions: HashMap<String, Function>,
     pub types: HashMap<String, ExportedType>,
     pub traits: HashMap<String, ExportedTrait>,
+    /// Trait implementations available to downstream modules.
+    pub trait_impls: Vec<ExportedTraitImpl>,
     /// Inherent methods exported by type name, then method name.
     pub methods: HashMap<String, HashMap<String, ExportedMethod>>,
     /// Package this module belongs to (from `spectra.toml` `name` field).

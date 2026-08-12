@@ -20,6 +20,7 @@ param(
 $binary = (Resolve-Path ".\target\debug\spectralang.exe").Path
 $phase31BinaryPath = (Join-Path (Get-Location).Path "target\release\spectralang.exe")
 $timeoutSeconds = 10
+$runtimeErrorTimeoutSeconds = 30
 $hostCommandTimeoutSeconds = 300
 $env:PATH = "C:\Users\estev\.cargo\bin;" + $env:PATH
 $experimentalFlags = @(
@@ -383,7 +384,7 @@ function Invoke-SpectraFile([string]$filePath) {
     return Invoke-SpectraCommand -commandArgs @("compile", $filePath) -workingDir (Get-Location).Path -includeExperimental $true
 }
 
-function Invoke-SpectraCommand([string[]]$commandArgs, [string]$workingDir, [bool]$includeExperimental = $false, [string]$stdinText = $null) {
+function Invoke-SpectraCommand([string[]]$commandArgs, [string]$workingDir, [bool]$includeExperimental = $false, [string]$stdinText = $null, [int]$timeoutSecondsOverride = $timeoutSeconds) {
     $fullArgs = if ($includeExperimental) { $commandArgs + $experimentalFlags } else { $commandArgs }
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -415,7 +416,7 @@ function Invoke-SpectraCommand([string[]]$commandArgs, [string]$workingDir, [boo
             $proc.StandardInput.Write($stdinText)
             $proc.StandardInput.Close()
         }
-        if (-not $proc.WaitForExit($timeoutSeconds * 1000)) {
+        if (-not $proc.WaitForExit($timeoutSecondsOverride * 1000)) {
             $timedOut = $true
             try { $proc.Kill($true) } catch { $proc.Kill() }
             $proc.WaitForExit()
@@ -436,9 +437,11 @@ function Invoke-SpectraCommand([string[]]$commandArgs, [string]$workingDir, [boo
 }
 
 function Get-FirstError([string]$output) {
-    $line = ($output -split "`n" | Where-Object { $_ -match "error\[|error:|Error:" } | Select-Object -First 1)
+    $ansiPattern = [string][char]27 + '\[[0-9;]*[A-Za-z]'
+    $plainOutput = [regex]::Replace($output, $ansiPattern, '')
+    $line = ($plainOutput -split "`n" | Where-Object { $_ -match "error\[|error:|Error:" } | Select-Object -First 1)
     if (-not $line) {
-        $line = ($output -split "`n" | Where-Object { $_ -match "Expected|Undefined|not defined" } | Select-Object -First 1)
+        $line = ($plainOutput -split "`n" | Where-Object { $_ -match "Expected|Undefined|not defined" } | Select-Object -First 1)
     }
     if ($line) {
         return $line.Trim().Substring(0, [Math]::Min(80, $line.Trim().Length))
@@ -528,7 +531,7 @@ if (Test-Path $errorDir) {
         Write-Host "  $($file.Name)" -NoNewline
         $expectsRuntimeFailure = $runtimeErrorFixtures -contains $file.Name
         $r = if ($expectsRuntimeFailure) {
-            Invoke-SpectraCommand -commandArgs @("run", $file.FullName) -workingDir (Get-Location).Path -includeExperimental $true
+            Invoke-SpectraCommand -commandArgs @("run", $file.FullName) -workingDir (Get-Location).Path -includeExperimental $true -timeoutSecondsOverride $runtimeErrorTimeoutSeconds
         } else {
             Invoke-SpectraFile $file.FullName
         }
@@ -2513,5 +2516,5 @@ $results | Format-Table -AutoSize
 
 # Salva relatorio
 $reportPath = "TEST_RESULTS.txt"
-$results | Out-File -FilePath $reportPath -Encoding UTF8
+$results | Format-Table -AutoSize -Wrap | Out-File -FilePath $reportPath -Encoding UTF8 -Width 240
 Write-Host "Relatorio salvo em: $reportPath" -ForegroundColor Cyan

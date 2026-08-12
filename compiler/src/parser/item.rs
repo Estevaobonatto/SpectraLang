@@ -832,6 +832,7 @@ impl Parser {
 
         Ok(Item::Impl(ImplBlock {
             type_name,
+            module_path,
             trait_name: None, // impl regular
             methods,
             span: span_union(start_span, end_span),

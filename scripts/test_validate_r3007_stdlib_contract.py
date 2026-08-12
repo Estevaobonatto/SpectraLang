@@ -85,6 +85,14 @@ class R3007ContractTests(unittest.TestCase):
         audit.runtime_inventory('const DEMO: &str = "spectra.std.demo.from_insert"; register_host_function(DEMO, demo);', "runtime", runtime)
         self.assertTrue(runtime["std.demo.from_insert"].runtime_registered)
 
+    def test_record_declarations_are_types_not_functions(self) -> None:
+        symbols = {}
+        audit.semantic_inventory(
+            'pub const TYPES: &[(&str, &str)] = &[("std.time.Duration", "record Duration")];',
+            symbols,
+        )
+        self.assertEqual(symbols["std.time.Duration"].kind, "type")
+
     def test_lowering_modes_are_distinguished(self) -> None:
         symbols = {}
         generic, api = audit.lowering_inventory(
@@ -97,7 +105,10 @@ class R3007ContractTests(unittest.TestCase):
         self.assertIn("api_external_lowering", symbols["std.api.http.method_get"].lowering_modes)
 
     def test_probe_coverage_is_pattern_based(self) -> None:
-        self.assertEqual([p["id"] for p in audit.probe_matches("std.tensor.arange", self.manifest)], ["tensor-kernels"])
+        self.assertEqual(
+            [p["id"] for p in audit.probe_matches("std.tensor.arange", self.manifest)],
+            ["tensor-kernels", "tensor-ir-device-lowering"],
+        )
         self.assertEqual([p["id"] for p in audit.probe_matches("std.api.http.method_get", self.manifest)], ["api-http", "api-conformance"])
 
     def test_canonicalizes_legacy_spectra_prefixes(self) -> None:

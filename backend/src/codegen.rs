@@ -134,6 +134,10 @@ pub struct CodeGenerator {
     builder_context: FunctionBuilderContext,
     /// Mapping from IR function names to Cranelift function IDs
     function_map: HashMap<String, FuncId>,
+    /// Raw addresses for functions finalized by an earlier module.  JIT
+    /// `func_addr` references are module-local during lowering; using the
+    /// finalized address makes cross-module dyn-vtable entries callable.
+    finalized_function_ptrs: HashMap<String, i64>,
     /// Runtime imports declared from the runtime-owned ABI catalog.
     runtime_bindings: RuntimeBindings,
     /// Dedup table for string literals (R-3126). Each unique `ConstString`
@@ -242,6 +246,7 @@ impl CodeGenerator {
             ctx,
             builder_context: FunctionBuilderContext::new(),
             function_map: HashMap::new(),
+            finalized_function_ptrs: HashMap::new(),
             runtime_bindings,
             string_literal_data: HashMap::new(),
             string_literal_storage: Vec::new(),
@@ -286,6 +291,14 @@ impl CodeGenerator {
         self.module.finalize_definitions().map_err(|e| {
             BackendCodegenError::cranelift(format!("Failed to finalize definitions: {}", e))
         })?;
+
+        for func in &ir_module.functions {
+            let Some(&func_id) = self.function_map.get(&func.name) else {
+                continue;
+            };
+            let ptr = self.module.get_finalized_function(func_id) as usize as i64;
+            self.finalized_function_ptrs.insert(func.name.clone(), ptr);
+        }
 
         Ok(())
     }
@@ -473,6 +486,7 @@ impl CodeGenerator {
             string_literal_data: &mut self.string_literal_data,
             string_literal_storage: &mut self.string_literal_storage,
             batch_stats: &mut self.hostcall_batch_stats,
+            finalized_function_ptrs: Some(&self.finalized_function_ptrs),
         };
         for ir_block in &blocks {
             Self::generate_block(
@@ -514,8 +528,8 @@ impl CodeGenerator {
             .define_function(func_id, &mut self.ctx)
             .map_err(|e| {
                 BackendCodegenError::cranelift(format!(
-                    "Failed to define function '{}': {}",
-                    ir_func.name, e
+                    "Failed to define function '{}': {e:?}",
+                    ir_func.name
                 ))
             })?;
 
@@ -1018,6 +1032,7 @@ impl CodeGenerator {
                         return true;
                     }
                     InstructionKind::HostCall { .. } => return true,
+                    InstructionKind::MakeDynFatPtr { .. } => return true,
                     _ => {}
                 }
             }
@@ -2862,10 +2877,20 @@ impl CodeGenerator {
                     .get(function)
                     .ok_or_else(|| BackendCodegenError::missing_function(function))?;
 
-                let func_ref = module.declare_func_in_func(func_id, builder.func);
-                let func_addr = builder
-                    .ins()
-                    .func_addr(module.target_config().pointer_type(), func_ref);
+                let func_addr = if let Some(address) = hostcall
+                    .finalized_function_ptrs
+                    .and_then(|ptrs| ptrs.get(function))
+                {
+                    builder.ins().iconst(
+                        module.target_config().pointer_type(),
+                        *address,
+                    )
+                } else {
+                    let func_ref = module.declare_func_in_func(func_id, builder.func);
+                    builder
+                        .ins()
+                        .func_addr(module.target_config().pointer_type(), func_ref)
+                };
                 value_map.insert(result.id, func_addr);
             }
 
@@ -3064,19 +3089,46 @@ impl CodeGenerator {
                 data_ptr,
                 vtable_ptr,
             } => {
-                // Allocate 16 bytes on stack: [data_ptr i64, vtable_ptr i64]
-                let slot =
-                    builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                        16,
-                        0,
-                    ));
+                // The IR value is an address of a stable 16-byte pair, not
+                // an inline two-register aggregate.  A stack slot would
+                // dangle as soon as a function/block returning the dyn value
+                // exits, so use the same frame-tracked manual heap as the
+                // vtable and escape the pair to the base frame.
+                let size_value = builder.ins().iconst(types::I64, 16);
+                let alloc_ref = module.declare_func_in_func(
+                    hostcall.runtime_func(RuntimeImport::ManualAlloc),
+                    builder.func,
+                );
+                let alloc_call = builder.ins().call(alloc_ref, &[size_value]);
+                let pair_ptr = *builder
+                    .inst_results(alloc_call)
+                    .first()
+                    .ok_or_else(|| {
+                        BackendCodegenError::invalid_ir(
+                            "dyn fat pointer allocation did not return a pointer",
+                        )
+                    })?;
                 let data_val = get_value(data_ptr)?;
                 let vtable_val = get_value(vtable_ptr)?;
-                builder.ins().stack_store(data_val, slot, 0);
-                builder.ins().stack_store(vtable_val, slot, 8);
-                let fat_ptr = builder.ins().stack_addr(types::I64, slot, 0);
-                value_map.insert(result.id, fat_ptr);
+                builder.ins().store(
+                    cranelift_codegen::ir::MemFlags::new(),
+                    data_val,
+                    pair_ptr,
+                    0,
+                );
+                builder.ins().store(
+                    cranelift_codegen::ir::MemFlags::new(),
+                    vtable_val,
+                    pair_ptr,
+                    8,
+                );
+                let escape_ref = module.declare_func_in_func(
+                    hostcall.runtime_func(RuntimeImport::ManualEscape),
+                    builder.func,
+                );
+                let frame_value = builder.use_var(frame_var);
+                builder.ins().call(escape_ref, &[pair_ptr, frame_value]);
+                value_map.insert(result.id, pair_ptr);
             }
 
             InstructionKind::LoadDynDataPtr { result, fat_ptr } => {

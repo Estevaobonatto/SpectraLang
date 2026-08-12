@@ -9079,3 +9079,136 @@ existem.
 - regressões de sucesso e erro em `tests/validation/` e `tests/errors/`
 - docs/reference/03-tipos-compostos.md documenta traits genéricos
 - `scripts/validate_r213_generic_trait_impls.py` + gate `phase2_r213_generic_trait_impls`
+
+## R-214 OOP Aggregate ABI and Dynamic Fat-Pointer Safety
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `backend`
+- Risk: `high`
+- Dependencies: `R-207`, `R-210`
+
+Harden scalar-width coercion, nested aggregate layout, dynamic fat pointers,
+and JIT/AOT field access so mixed records and dyn values preserve their ABI
+contract.
+
+### Acceptance
+
+- mixed scalar and nested aggregate records pass check/run without verifier failures or incorrect comparisons
+- aggregate literals, assignments, defaults, and equality coerce exact scalar values to declared field types
+- `MakeDynFatPtr` preserves the data/vtable pair and dyn UFCS forwards receiver data
+- regressions `258`, `260`, and `274` pass in `tests/validation/`
+- `scripts/validate_language_bug_hunt.py` validates the aggregate/dyn matrix
+
+## R-215 Aggregate Drop Glue and Return Ownership
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `midend`
+- Risk: `high`
+- Dependencies: `R-207`, `R-210`
+
+Emit recursive Drop and manual-allocation escape handling for nested aggregates,
+returns, implicit block values, methods, and closures without duplicate destruction.
+
+### Acceptance
+
+- nested droppable fields are destroyed exactly once and moved return values are excluded from the source scope
+- returned aggregate values recursively escape owned manual allocations
+- explicit and implicit return paths share the ownership rules
+- regression `259` passes three consecutive runs with all lifetime markers
+- `scripts/validate_language_bug_hunt.py` repeats and checks the lifetime case
+
+## R-216 Generic Aggregate and Trait Substitution
+
+- Status: `complete`
+- Priority: `P1`
+- Owner: `semantic`
+- Risk: `high`
+- Dependencies: `R-211`, `R-213`
+
+Propagate concrete type arguments through multi-parameter generic records,
+nested fields, generic enum constructors/patterns, and UFCS trait signatures.
+
+### Acceptance
+
+- generic record field lookup and nested construction resolve all concrete arguments in declaration order
+- generic enum unit, tuple, and named-field constructors infer one specialized enum type
+- UFCS and concrete trait calls substitute independent concrete arguments
+- regressions `263`, `264`, and `268` pass in `tests/validation/`
+- `scripts/validate_language_bug_hunt.py` validates generic substitution
+
+## R-217 Generic Method Monomorphization Across Modules
+
+- Status: `complete`
+- Priority: `P1`
+- Owner: `midend`
+- Risk: `high`
+- Dependencies: `R-211`, `R-213`
+
+Carry imported generic templates into lowering and resolve concrete cross-module
+calls without losing specialization or return types.
+
+### Acceptance
+
+- imported generic templates are retained in the AST/semantic registry and registered before lowering
+- cross-module generic calls lower to concrete symbols
+- `tests/projects/valid/oop_cross_module_dispatch` passes check and run
+- `scripts/validate_language_bug_hunt.py` validates the project path
+
+## R-218 Inherited Trait Vtable Slots and UFCS Dispatch
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `midend`
+- Risk: `high`
+- Dependencies: `R-210`, `R-212`
+
+Construct parent-first inherited trait metadata and route concrete, default,
+UFCS, and dyn calls through the same vtable slot ordering.
+
+### Acceptance
+
+- inherited methods precede child methods and overrides retain the inherited slot
+- default and explicit methods work through concrete and dyn receivers
+- UFCS forwards receiver data for concrete and dyn values
+- regressions `261` and `262` pass in `tests/validation/`
+- `scripts/validate_language_bug_hunt.py` validates the vtable/UFCS matrix
+
+## R-219 Cross-Module Trait Registry and Qualified-Target Diagnostics
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `semantic`
+- Risk: `high`
+- Dependencies: `R-211`, `R-213`, `R-218`
+
+Export/import trait declarations, trait implementations, and generic templates
+across modules, while rejecting unresolved module-qualified inherent impl
+targets with stable `E027` diagnostics.
+
+### Acceptance
+
+- module exports carry generic templates, trait declarations, and impl metadata
+- imported traits reconstruct method order/signatures for downstream vtables
+- `impl missing::Foreign` is rejected with `E027` and an actionable hint
+- `tests/errors/oop_module_qualified_unknown_type.spectra` asserts `E027` and the valid cross-module project passes
+- `E027` is documented and checked by `scripts/validate_language_bug_hunt.py`
+
+## R-2113 Async API Trait Objects Preserve Task Response Types
+
+- Status: `complete`
+- Priority: `P0`
+- Owner: `web`
+- Risk: `high`
+- Dependencies: `R-2108`, `R-2203`
+
+Register async API handler contracts so dynamic `AsyncHandler` calls lower as
+`Task<Response>` and `await` remains type-correct through the public API.
+
+### Acceptance
+
+- `AsyncHandler` and related API traits expose stable Request/Response signatures to semantic analysis and lowering
+- dynamic async handler calls return `Task<Response>` and await successfully
+- regression `273` passes through the normal CLI path
+- `scripts/validate_language_bug_hunt.py` validates the async API contract

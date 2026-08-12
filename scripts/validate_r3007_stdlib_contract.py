@@ -110,7 +110,7 @@ def semantic_inventory(text: str, symbols: dict[str, SymbolEvidence]) -> None:
     for match in re.finditer(r'register_module\("((?:std|spectra\.std|spectra\.api)[^"]+)"', clean):
         add_symbol(symbols, match.group(1), "semantic", kind="module")
     for match in FULL_DECL_RE.finditer(clean):
-        kind = "type" if match.group(2).startswith(("struct", "enum", "type")) else "function"
+        kind = "type" if match.group(2).startswith(("struct", "record", "enum", "type")) else "function"
         add_symbol(symbols, match.group(1), "semantic", kind=kind)
     for match in re.finditer(r"fn\s+make_std_([a-z0-9_]+)\s*\([^)]*\)\s*(?:->\s*[^{]+)?\{", clean):
         name = match.group(1)
