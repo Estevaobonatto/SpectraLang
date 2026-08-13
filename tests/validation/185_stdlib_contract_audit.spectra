@@ -2,6 +2,7 @@ module stdlib_contract_audit
 
 import std.math as math
 import std.string as string
+import std.error as error
 import std.fs as fs
 import std.time as time
 import std.range
@@ -19,17 +20,38 @@ public func main() returns int {
         return 2
     }
     let path = "target/r3007-stdlib-contract/probe.txt"
-    if fs.fs_write(path, "stdlib-contract") {
+    let write_result = fs.fs_write(path, "stdlib-contract")
+    if let Result::Ok(wrote) = write_result {
+        if wrote != true {
+            return 3
+        }
     } else {
         return 3
     }
-    if fs.fs_exists(path) {
+    let exists_result = fs.fs_exists(path)
+    if let Result::Ok(exists) = exists_result {
+        if exists != true {
+            return 4
+        }
     } else {
         return 4
     }
-    if fs.fs_remove(path) {
+    let remove_result = fs.fs_remove(path)
+    if let Result::Ok(removed) = remove_result {
+        if removed != true {
+            return 5
+        }
     } else {
         return 5
+    }
+
+    let invalid_read = fs.fs_read("")
+    if let Result::Err(fs_error) = invalid_read {
+        if error.code(fs_error) != 0 {
+            return 16
+        }
+    } else {
+        return 16
     }
 
     let r = create(2, 5, false)

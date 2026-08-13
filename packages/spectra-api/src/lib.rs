@@ -11,6 +11,7 @@ use spectra_runtime::ffi::{
 
 pub mod client;
 pub mod conformance;
+mod handles;
 pub mod cors;
 pub mod db;
 pub mod errors;
@@ -1297,10 +1298,9 @@ mod tests {
             call("spectra.api.server.listen", &[server, 0]),
             (HOST_STATUS_SUCCESS, 1)
         );
-        assert_eq!(
-            call("spectra.api.server.serve", &[server, router]),
-            (HOST_STATUS_SUCCESS, 1)
-        );
+        let serve = call("spectra.api.server.serve", &[server, router]);
+        assert_eq!(serve.0, HOST_STATUS_SUCCESS);
+        assert!(serve.1 > 0, "serve returns a typed Task handle");
         let (_, port) = call("spectra.api.server.local_port", &[server]);
         assert!(port > 0);
 

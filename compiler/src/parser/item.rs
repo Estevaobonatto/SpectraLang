@@ -148,6 +148,17 @@ impl Parser {
                 }
                 self.parse_static_decl(Visibility::Private)
             }
+            crate::token::TokenKind::Keyword(Keyword::Class) => {
+                self.push_error_coded(
+                    "P007",
+                    "Class declarations are reserved and are not supported in the stable language",
+                    self.current().span,
+                    Some("Use `struct` with `impl` and `trait`; class layout and inheritance are deferred.".to_string()),
+                    Some("`class` is reserved for a future language contract".to_string()),
+                );
+                self.consume_reserved_class_item();
+                Err(())
+            }
             _ => {
                 self.error("Expected item declaration (import, fn, etc.)");
                 Err(())
@@ -298,6 +309,17 @@ impl Parser {
                     return Err(());
                 }
                 self.parse_static_decl(visibility)
+            }
+            crate::token::TokenKind::Keyword(Keyword::Class) => {
+                self.push_error_coded(
+                    "P007",
+                    "Class declarations are reserved and are not supported in the stable language",
+                    self.current().span,
+                    Some("Use `struct` with `impl` and `trait`; class layout and inheritance are deferred.".to_string()),
+                    Some("`class` is reserved for a future language contract".to_string()),
+                );
+                self.consume_reserved_class_item();
+                Err(())
             }
             _ => {
                 self.error("Expected function, struct, enum, or impl declaration");
@@ -1546,5 +1568,38 @@ impl Parser {
             ty,
             value,
         }))
+    }
+
+    /// Consume the remainder of a reserved `class` item so parser recovery
+    /// reports the stable P007 once instead of cascading on its body tokens.
+    fn consume_reserved_class_item(&mut self) {
+        if self.check_keyword(Keyword::Class) {
+            self.advance();
+        }
+
+        let mut brace_depth = 0usize;
+        while !self.is_at_end() {
+            if self.check_symbol('{') {
+                brace_depth += 1;
+                self.advance();
+                continue;
+            }
+            if self.check_symbol('}') {
+                self.advance();
+                if brace_depth == 0 {
+                    return;
+                }
+                brace_depth -= 1;
+                if brace_depth == 0 {
+                    return;
+                }
+                continue;
+            }
+
+            if brace_depth == 0 && self.is_at_boundary() {
+                return;
+            }
+            self.advance();
+        }
     }
 }

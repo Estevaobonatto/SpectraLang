@@ -240,6 +240,7 @@ impl Parser {
                             | TokenKind::Symbol(')')    // end of parameter list / tuple
                             | TokenKind::Keyword(Keyword::Returns) // function return type
                             | TokenKind::Symbol('[') // array index after type
+                            | TokenKind::Symbol('>') // nested generic closing delimiter
                         );
                     }
                 }

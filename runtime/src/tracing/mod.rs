@@ -1,7 +1,7 @@
 //! Opt-in W3C tracing with a bounded OTLP/HTTP exporter.
 
+use crate::handles::{HandleId, HandleKind, HandleTable};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -129,25 +129,36 @@ struct ExporterHandle {
     timeout: Duration,
 }
 
-#[derive(Default)]
 struct State {
-    configs: HashMap<u64, TraceConfig>,
-    spans: HashMap<u64, Span>,
+    configs: HandleTable<TraceConfig>,
+    spans: HandleTable<Span>,
     last_error: Option<String>,
     active_config: Option<u64>,
     exporter: Option<ExporterHandle>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            configs: HandleTable::new(HandleKind::TracingConfig),
+            spans: HandleTable::new(HandleKind::TracingSpan),
+            last_error: None,
+            active_config: None,
+            exporter: None,
+        }
+    }
 }
 
 fn state() -> &'static Mutex<State> {
     static STATE: OnceLock<Mutex<State>> = OnceLock::new();
     STATE.get_or_init(|| Mutex::new(State::default()))
 }
-fn next_id() -> u64 {
+fn fallback_id() -> u64 {
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 fn new_context(parent: Option<&TraceContext>) -> TraceContext {
-    let n = next_id();
+    let n = fallback_id();
     let mut trace_id = [0u8; 16];
     let mut span_id = [0u8; 8];
     if let Some(parent) = parent {
@@ -179,10 +190,11 @@ pub fn config_new(endpoint: &str, service_name: &str) -> Result<u64, &'static st
     {
         return Err("E2701");
     }
-    let id = next_id();
-    state().lock().unwrap().configs.insert(
-        id,
-        TraceConfig {
+    let id = state()
+        .lock()
+        .unwrap()
+        .configs
+        .insert(TraceConfig {
             endpoint: endpoint.to_string(),
             service_name: service_name.to_string(),
             sample_rate: 1.0,
@@ -190,33 +202,35 @@ pub fn config_new(endpoint: &str, service_name: &str) -> Result<u64, &'static st
             queue_capacity: 4096,
             flush_interval: DEFAULT_FLUSH_INTERVAL,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
-        },
-    );
+        })
+        .raw() as u64;
     Ok(id)
 }
 pub fn config_set_sample_rate(id: u64, rate: f64) -> Result<(), &'static str> {
     if !(0.0..=1.0).contains(&rate) {
         return Err("E2701");
     }
+    let handle = HandleId::from_raw(id as i64).map_err(|_| "E2701")?;
     state()
         .lock()
         .unwrap()
         .configs
-        .get_mut(&id)
+        .get_mut(handle)
         .map(|c| c.sample_rate = rate)
-        .ok_or("E2701")
+        .map_err(|_| "E2701")
 }
 pub fn config_set_batch_size(id: u64, size: usize) -> Result<(), &'static str> {
     if size == 0 || size > 65536 {
         return Err("E2701");
     }
+    let handle = HandleId::from_raw(id as i64).map_err(|_| "E2701")?;
     state()
         .lock()
         .unwrap()
         .configs
-        .get_mut(&id)
+        .get_mut(handle)
         .map(|c| c.batch_size = size)
-        .ok_or("E2701")
+        .map_err(|_| "E2701")
 }
 pub fn config_start(id: u64) -> Result<(), &'static str> {
     let config = {
@@ -224,7 +238,8 @@ pub fn config_start(id: u64) -> Result<(), &'static str> {
         if s.active_config.is_some() || s.exporter.is_some() {
             return Err("E2701");
         }
-        let config = s.configs.get(&id).cloned().ok_or("E2701")?;
+        let handle = HandleId::from_raw(id as i64).map_err(|_| "E2701")?;
+        let config = s.configs.get(handle).map_err(|_| "E2701")?.clone();
         s.active_config = Some(id);
         config
     };
@@ -306,10 +321,9 @@ pub fn span_start_with_parent(
         return Err("E2704");
     }
     let context = new_context(parent.as_ref());
-    let id = next_id();
-    s.spans.insert(
-        id,
-        Span {
+    let id = s
+        .spans
+        .insert(Span {
             context: context.clone(),
             parent,
             name: name.to_string(),
@@ -318,8 +332,8 @@ pub fn span_start_with_parent(
             status: SpanStatus::Unset,
             started: Instant::now(),
             start_unix_nanos: unix_nanos(),
-        },
-    );
+        })
+        .raw() as u64;
     if let Some(exporter) = &s.exporter {
         exporter.stats.created.fetch_add(1, Ordering::Relaxed);
     }
@@ -340,7 +354,8 @@ fn set_attribute(id: u64, key: &str, value: AttributeValue) -> Result<(), &'stat
         return Err("E2701");
     }
     let mut s = state().lock().unwrap();
-    let span = s.spans.get_mut(&id).ok_or("E2703")?;
+    let handle = HandleId::from_raw(id as i64).map_err(|_| "E2703")?;
+    let span = s.spans.get_mut(handle).map_err(|_| "E2703")?;
     if let Some(existing) = span.attributes.iter_mut().find(|(name, _)| name == key) {
         existing.1 = value;
         return Ok(());
@@ -362,9 +377,10 @@ pub fn span_set_attribute_bool(id: u64, key: &str, value: bool) -> Result<(), &'
 }
 pub fn span_set_status(id: u64, status: SpanStatus) -> Result<(), &'static str> {
     let mut s = state().lock().unwrap();
+    let handle = HandleId::from_raw(id as i64).map_err(|_| "E2703")?;
     s.spans
-        .get_mut(&id)
-        .ok_or("E2703")
+        .get_mut(handle)
+        .map_err(|_| "E2703")
         .map(|span| span.status = status)
 }
 pub fn span_end(id: u64) -> Result<(), &'static str> {
@@ -373,7 +389,8 @@ pub fn span_end(id: u64) -> Result<(), &'static str> {
     }
     let span = {
         let mut s = state().lock().unwrap();
-        s.spans.remove(&id).ok_or("E2703")?
+        let handle = HandleId::from_raw(id as i64).map_err(|_| "E2703")?;
+        s.spans.remove(handle).map_err(|_| "E2703")?
     };
     let result = {
         let s = state().lock().unwrap();
@@ -429,13 +446,14 @@ pub fn current() -> Option<u64> {
     SPAN_STACK.with(|stack| stack.borrow().last().copied())
 }
 pub fn context(id: u64) -> Result<TraceContext, &'static str> {
+    let handle = HandleId::from_raw(id as i64).map_err(|_| "E2703")?;
     state()
         .lock()
         .unwrap()
         .spans
-        .get(&id)
+        .get(handle)
+        .map_err(|_| "E2703")
         .map(|s| s.context.clone())
-        .ok_or("E2703")
 }
 pub fn inject(id: u64) -> Result<String, &'static str> {
     Ok(context(id)?.traceparent())

@@ -120,6 +120,15 @@ impl IRBuilder {
         self.try_emit(func, |result| InstructionKind::Alloca { result, ty })
     }
 
+    pub fn build_global_addr(
+        &self,
+        func: &mut Function,
+        name: String,
+        ty: crate::ir::Type,
+    ) -> Value {
+        self.try_emit(func, |result| InstructionKind::GlobalAddr { result, name, ty })
+    }
+
     pub fn build_load(&self, func: &mut Function, ptr: Value) -> Value {
         self.try_emit(func, |result| InstructionKind::Load {
             result,

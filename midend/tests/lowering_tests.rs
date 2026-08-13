@@ -189,11 +189,13 @@ fn make_module(name: &str, items: Vec<Item>) -> Module {
         items,
         std_import_aliases: Vec::new(),
         imported_function_return_types: Vec::new(),
+        imported_function_signatures: Vec::new(),
         imported_struct_defs: Vec::new(),
         imported_enum_defs: Vec::new(),
         imported_trait_impls: Vec::new(),
         imported_generic_functions: Vec::new(),
         imported_trait_decls: Vec::new(),
+        imported_static_globals: Vec::new(),
     }
 }
 
@@ -264,7 +266,7 @@ fn std_io_input_lowers_to_string_hostcall() {
 }
 
 #[test]
-fn stdlib_boolean_host_results_keep_bool_ir_types() {
+fn stdlib_fs_result_and_env_boolean_host_types_are_preserved() {
     let fs_exists = call(
         field_path(&["std", "fs", "fs_exists"]),
         vec![string_lit("target/stdlib-bug-hunt-missing")],
@@ -284,7 +286,7 @@ fn stdlib_boolean_host_results_keep_bool_ir_types() {
     let ir = ASTLowering::new()
         .lower_module(&module)
         .expect("lowering should pass");
-    let boolean_hosts: Vec<(&str, &IRType)> = ir
+    let host_types: Vec<(&str, &IRType)> = ir
         .functions
         .iter()
         .flat_map(|function| function.blocks.iter())
@@ -301,10 +303,20 @@ fn stdlib_boolean_host_results_keep_bool_ir_types() {
         })
         .collect();
 
-    assert_eq!(boolean_hosts.len(), 2);
-    assert!(boolean_hosts
+    assert_eq!(host_types.len(), 2);
+    let fs_result_type = host_types
         .iter()
-        .all(|(_, result_type)| *result_type == &IRType::Bool));
+        .find(|(host, _)| *host == "spectra.std.fs.fs_exists")
+        .map(|(_, result_type)| *result_type);
+    assert!(matches!(
+        fs_result_type,
+        Some(IRType::Enum { name, .. }) if name == "Result_bool_Error"
+    ));
+    let env_set_type = host_types
+        .iter()
+        .find(|(host, _)| *host == "spectra.std.env.env_set")
+        .map(|(_, result_type)| *result_type);
+    assert_eq!(env_set_type, Some(&IRType::Bool));
 }
 
 #[test]

@@ -1,6 +1,9 @@
 module stdlib_io_fs_env
 
 import std.env as env
+import std.option as option
+import std.compat.env as compat_env
+import std.error as error
 import std.fs as fs
 import std.io as io
 
@@ -12,48 +15,114 @@ public func main() returns int {
     io.flush()
 
     let path = "target/stdlib-core-hunt/fs/roundtrip.txt"
-    if fs.fs_write(path, "one") {
+    let write_result = fs.fs_write(path, "one")
+    if let Result::Ok(wrote) = write_result {
+        if wrote != true {
+            return 1
+        }
     } else {
         return 1
     }
-    if fs.fs_append(path, "-two") {
+    let append_result = fs.fs_append(path, "-two")
+    if let Result::Ok(appended) = append_result {
+        if appended != true {
+            return 2
+        }
     } else {
         return 2
     }
-    if fs.fs_exists(path) {
+    let exists_result = fs.fs_exists(path)
+    if let Result::Ok(exists) = exists_result {
+        if exists != true {
+            return 3
+        }
     } else {
         return 3
     }
-    if fs.fs_read(path) != "one-two" {
+    let read_result = fs.fs_read(path)
+    if let Result::Ok(content) = read_result {
+        if content != "one-two" {
+            return 4
+        }
+    } else {
         return 4
     }
-    if fs.fs_remove(path) {
+    let remove_result = fs.fs_remove(path)
+    if let Result::Ok(removed) = remove_result {
+        if removed != true {
+            return 5
+        }
     } else {
         return 5
     }
-    if fs.fs_exists(path) {
+    let missing_result = fs.fs_exists(path)
+    if let Result::Ok(exists_after_remove) = missing_result {
+        if exists_after_remove != false {
+            return 6
+        }
+    } else {
         return 6
     }
-    if fs.fs_remove("") {
+    let invalid_remove = fs.fs_remove("")
+    if let Result::Err(invalid_error) = invalid_remove {
+        if error.code(invalid_error) != 0 {
+            return 7
+        }
+        if error.operation(invalid_error) != "fs_remove" {
+            return 8
+        }
+    } else {
         return 7
     }
-    if fs.fs_read("") != "" {
-        return 8
+    let invalid_read = fs.fs_read("")
+    if let Result::Err(read_error) = invalid_read {
+        if error.code(read_error) != 0 {
+            return 9
+        }
+    } else {
+        return 9
     }
 
     let key = "SPECTRALANG_STDLIB_CORE_HUNT"
     if env.env_set(key, "active") {
     } else {
-        return 9
-    }
-    if env.env_get(key) != "active" {
         return 10
     }
-    if env.env_args_count() < 1 {
+    let value = env.env_get(key)
+    if option.is_none(value) {
         return 11
     }
-    if env.env_arg(999999) != "" {
+    if option.option_unwrap(value) != "active" {
+        return 11
+    }
+    let empty_key = "SPECTRALANG_STDLIB_CORE_HUNT_EMPTY"
+    if env.env_set(empty_key, "") {
+    } else {
         return 12
+    }
+    let empty_value = env.env_get(empty_key)
+    if option.is_none(empty_value) {
+        return 13
+    }
+    if option.option_unwrap(empty_value) != "" {
+        return 14
+    }
+    let missing = env.env_get("__SPECTRALANG_STDLIB_CORE_HUNT_MISSING__")
+    if option.is_some(missing) {
+        return 15
+    }
+    if env.env_args_count() < 1 {
+        return 16
+    }
+    let missing_arg = env.env_arg(999999)
+    if option.is_some(missing_arg) {
+        return 17
+    }
+    if compat_env.env_get("__SPECTRALANG_STDLIB_CORE_HUNT_MISSING__") != "" {
+        return 18
+    }
+    if compat_env.env_arg(999999) != "" {
+        return 19
     }
     return 0
 }

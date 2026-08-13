@@ -146,6 +146,7 @@ fn is_pure(kind: &InstructionKind) -> bool {
             | InstructionKind::Or { .. }
             | InstructionKind::Not { .. }
             | InstructionKind::Load { .. }
+            | InstructionKind::GlobalAddr { .. }
             | InstructionKind::Copy { .. }
             | InstructionKind::ConstInt { .. }
             | InstructionKind::ConstIntTyped { .. }
@@ -196,6 +197,7 @@ fn instruction_inputs(kind: &InstructionKind) -> Vec<Value> {
         InstructionKind::MakeDynFatPtr { data_ptr, vtable_ptr, .. } => vec![*data_ptr, *vtable_ptr],
         InstructionKind::LoadVtableSlot { vtable_ptr, .. } => vec![*vtable_ptr],
         InstructionKind::Alloca { .. }
+        | InstructionKind::GlobalAddr { .. }
         | InstructionKind::ManualAlloc { .. }
         | InstructionKind::FuncAddr { .. }
         | InstructionKind::ConstInt { .. }

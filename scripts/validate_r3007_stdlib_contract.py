@@ -107,44 +107,136 @@ def matching_brace(text: str, opening: int) -> int:
 
 def semantic_inventory(text: str, symbols: dict[str, SymbolEvidence]) -> None:
     clean = strip_rust_comments(text)
-    for match in re.finditer(r'register_module\("((?:std|spectra\.std|spectra\.api)[^"]+)"', clean):
+    for match in re.finditer(r'register_module\(\s*"((?:std|spectra\.std|spectra\.api)[^"]+)"', clean):
         add_symbol(symbols, match.group(1), "semantic", kind="module")
     for match in FULL_DECL_RE.finditer(clean):
         kind = "type" if match.group(2).startswith(("struct", "record", "enum", "type")) else "function"
         add_symbol(symbols, match.group(1), "semantic", kind=kind)
-    for match in re.finditer(r"fn\s+make_std_([a-z0-9_]+)\s*\([^)]*\)\s*(?:->\s*[^{]+)?\{", clean):
+
+    function_matches = list(
+        re.finditer(r"fn\s+make_std_([a-z0-9_]+)\s*\([^)]*\)\s*(?:->\s*[^{]+)?\{", clean)
+    )
+
+    def body_for(match: re.Match[str]) -> str:
+        return clean[match.end() : matching_brace(clean, clean.find("{", match.start()))]
+
+    def functions_for(body: str) -> set[str]:
+        functions = set(re.findall(r'\.functions\.insert\(\s*"([A-Za-z_][A-Za-z0-9_]*)"', body))
+        functions.update(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"\.to_string\(\),\s*pub_fn', body))
+        functions.update(re.findall(r'\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*vec!', body))
+        return functions
+
+    legacy_exports: dict[str, set[str]] = {}
+    legacy_types: dict[str, set[str]] = {}
+    for match in function_matches:
         name = match.group(1)
-        module = "std.api." + name[4:] if name.startswith("api_") else "std." + name
-        body = clean[match.end() : matching_brace(clean, clean.find("{", match.start()))]
-        for function in set(re.findall(r'\.functions\.insert\(\s*"([A-Za-z_][A-Za-z0-9_]*)"', body)):
-            add_symbol(symbols, f"{module}.{function}", "semantic")
-        for function in set(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"\.to_string\(\),\s*pub_fn', body)):
-            add_symbol(symbols, f"{module}.{function}", "semantic")
-        for function in set(re.findall(r'\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*vec!', body)):
-            add_symbol(symbols, f"{module}.{function}", "semantic")
-        for type_name in re.findall(r'exports\.types\.insert\(\s*"([A-Za-z_][A-Za-z0-9_]*)"', body):
-            add_symbol(symbols, f"{module}.{type_name}", "semantic", kind="type")
+        if not name.endswith("_legacy"):
+            continue
+        base = name[: -len("_legacy")]
+        body = body_for(match)
+        legacy_exports[base] = functions_for(body)
+        legacy_types[base] = set(
+            re.findall(r'exports\.types\.insert\(\s*"([A-Za-z_][A-Za-z0-9_]*)"', body)
+        )
+
+    for match in function_matches:
+        name = match.group(1)
+        if name.startswith("api_"):
+            modules = ["std.api." + name[4:]]
+        elif name.startswith("compat_"):
+            modules = ["std.compat." + name[len("compat_"):]]
+        elif name.endswith("_legacy"):
+            base = name[: -len("_legacy")]
+            modules = [f"std.{base}"]
+        else:
+            modules = ["std." + name]
+        body = body_for(match)
+        functions = functions_for(body)
+        # Numeric operations are registered from a compact loop rather than
+        # one literal `.functions.insert` per width.  Expand that known source
+        # pattern so the audit sees the public functions, not the `(name,
+        # Type::...)` metadata tuples used to drive the loop.
+        if name == "numeric" and "wrapping_{op}_{name}" in body:
+            for width in ("i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"):
+                for operation in ("add", "sub", "mul"):
+                    functions.add(f"wrapping_{operation}_{width}")
+            for width in ("i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"):
+                functions.add(f"checked_{width}")
+                functions.add(f"checked_float_{width}")
+                for operation in ("add", "sub", "mul"):
+                    functions.add(f"checked_{operation}_{width}")
+        if name == "error" and '"code", "int"' in body:
+            functions.update({"code", "message", "operation", "context", "origin", "retryable"})
+        base = name[len("compat_") :] if name.startswith("compat_") else name
+        if base in legacy_exports and f"make_std_{base}_legacy" in body:
+            if name.startswith("compat_") and ".retain" in body:
+                # Keep only the names explicitly retained by the adapter.
+                retained_names = set(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"', body))
+                functions = legacy_exports[base] & retained_names
+            elif name.startswith("compat_"):
+                functions = set(legacy_exports[base])
+            else:
+                functions.update(legacy_exports[base])
+        type_names = re.findall(r'exports\.types\.insert\(\s*"([A-Za-z_][A-Za-z0-9_]*)"', body)
+        if base in legacy_types and f"make_std_{base}_legacy" in body:
+            type_names = sorted(set(type_names) | legacy_types[base])
+        for module in modules:
+            for function in functions:
+                add_symbol(symbols, f"{module}.{function}", "semantic")
+            for type_name in type_names:
+                add_symbol(symbols, f"{module}.{type_name}", "semantic", kind="type")
 
 
-def runtime_inventory(text: str, source: str, symbols: dict[str, SymbolEvidence]) -> None:
+def runtime_inventory(
+    text: str,
+    source: str,
+    symbols: dict[str, SymbolEvidence],
+    generated_bindings: dict[str, str] | None = None,
+) -> None:
     clean = strip_rust_comments(text)
+    generated_bindings = generated_bindings or {}
     constants: dict[str, str] = {}
     for name, path in re.findall(r'const\s+([A-Z][A-Z0-9_]*)\s*:\s*&str\s*=\s*"((?:spectra\.std|spectra\.api)\.[^"]+)"', clean):
         constants[name] = path
+    for name, generated_name in re.findall(
+        r'const\s+([A-Z][A-Z0-9_]*)\s*:\s*&str\s*=\s*spectra_contract::([A-Z][A-Z0-9_]*)',
+        clean,
+    ):
+        if generated_name in generated_bindings:
+            constants[name] = generated_bindings[generated_name]
     registered = set(re.findall(r"register_host_function\(\s*([A-Z][A-Z0-9_]*)\s*,", clean))
     for name in registered:
         if name in constants:
             add_symbol(symbols, constants[name], source)
+    for path in re.findall(
+        r'register_host_function\(\s*"((?:spectra\.std|spectra\.api)\.[^"]+)"',
+        clean,
+    ):
+        add_symbol(symbols, path, source)
     for path in STRING_PATH_RE.findall(clean):
         if source == "api_runtime" and re.search(r"name\s*:\s*\"" + re.escape(path), clean):
             add_symbol(symbols, path, source)
 
 
-def lowering_inventory(text: str, symbols: dict[str, SymbolEvidence]) -> tuple[bool, bool]:
+def lowering_inventory(
+    text: str,
+    symbols: dict[str, SymbolEvidence],
+    generated_bindings: dict[str, str] | None = None,
+) -> tuple[bool, bool]:
     clean = strip_rust_comments(text)
+    generated_bindings = generated_bindings or {}
     in_api = "fn lookup_std_api_host_function" in clean
     for path in STRING_PATH_RE.findall(clean):
         add_symbol(symbols, path, "lowering", mode="api_external_lowering" if path.startswith(("std.api.", "spectra.api.")) else "explicit_lowering")
+    for generated_name in re.findall(r"spectra_contract::([A-Z][A-Z0-9_]*)", clean):
+        path = generated_bindings.get(generated_name)
+        if path:
+            add_symbol(
+                symbols,
+                path,
+                "lowering",
+                mode="api_external_lowering" if path.startswith(("std.api.", "spectra.api.")) else "explicit_lowering",
+            )
     return "lookup_std_host_function" in clean, in_api
 
 
@@ -159,6 +251,16 @@ def discover_sources(root: Path, manifest: dict[str, Any]) -> SourceInventory:
     signals: list[dict[str, Any]] = []
     generic_lowering = False
     api_lowering = False
+    catalog_path = root / manifest["catalog"]
+    catalog = tomllib.loads(catalog_path.read_text(encoding="utf-8"))
+    generated_bindings = {
+        "_".join(
+            [part.upper() for part in str(entry["path"]).replace(".", "_").split("_")]
+        )
+        + "_BINDING": str(entry["binding"])
+        for entry in catalog.get("entry", [])
+        if entry.get("path") and entry.get("binding")
+    }
     for category in SOURCE_KEYS:
         paths = source_paths(root, manifest.get("sources", {}).get(category, []))
         files[category] = [str(path.relative_to(root)) for path in paths]
@@ -167,9 +269,9 @@ def discover_sources(root: Path, manifest: dict[str, Any]) -> SourceInventory:
             if category == "semantic":
                 semantic_inventory(text, symbols)
             elif category in {"runtime", "api_runtime"}:
-                runtime_inventory(text, category, symbols)
+                runtime_inventory(text, category, symbols, generated_bindings)
             elif category == "lowering":
-                generic, api = lowering_inventory(text, symbols)
+                generic, api = lowering_inventory(text, symbols, generated_bindings)
                 generic_lowering = generic_lowering or generic
                 api_lowering = api_lowering or api
             else:
@@ -201,6 +303,79 @@ def validate_manifest(root: Path, manifest: dict[str, Any]) -> list[str]:
         errors.append("manifest contract_version is required")
     if not manifest.get("namespace"):
         errors.append("manifest must declare namespaces")
+    catalog_raw = manifest.get("catalog")
+    if not catalog_raw:
+        errors.append("manifest must declare the typed catalog path")
+    else:
+        catalog_path = root / catalog_raw
+        if not catalog_path.is_file():
+            errors.append(f"typed catalog is missing: {catalog_raw}")
+        else:
+            try:
+                catalog = tomllib.loads(catalog_path.read_text(encoding="utf-8"))
+            except (OSError, tomllib.TOMLDecodeError) as exc:
+                errors.append(f"typed catalog is invalid: {exc}")
+            else:
+                if catalog.get("schema") != "spectralang.stdlib_catalog.v1":
+                    errors.append("typed catalog has an unexpected schema")
+                entries = catalog.get("entry", [])
+                paths = [entry.get("path") for entry in entries]
+                if any(not path for path in paths):
+                    errors.append("typed catalog entries require a path")
+                if len(paths) != len(set(paths)):
+                    errors.append("typed catalog contains duplicate paths")
+                for entry in entries:
+                    kind = str(entry.get("kind", "function"))
+                    if kind not in {"module", "type", "function"}:
+                        errors.append(
+                            f"typed catalog entry {entry.get('path')} has an invalid kind"
+                        )
+                    for field_name in (
+                        "namespace",
+                        "signature",
+                        "abi",
+                        "error_model",
+                        "binding",
+                        "maturity",
+                        "owner",
+                        "docs",
+                        "fixture",
+                    ):
+                        if not str(entry.get(field_name, "")).strip():
+                            errors.append(
+                                f"typed catalog entry {entry.get('path')} is missing {field_name}"
+                            )
+                    path = str(entry.get("path", ""))
+                    namespace = str(entry.get("namespace", ""))
+                    binding = str(entry.get("binding", ""))
+                    if path and namespace and not path.startswith(namespace + "."):
+                        errors.append(
+                            f"typed catalog entry {path} is outside namespace {namespace}"
+                        )
+                    valid_binding = (
+                        (kind == "function" and (binding.startswith("spectra.std.") or binding.startswith("spectra.api.")))
+                        or (kind == "type" and binding.startswith("spectra.type."))
+                        or (kind == "module" and binding.startswith("spectra.module."))
+                    )
+                    if path and binding and not valid_binding:
+                        errors.append(
+                            f"typed catalog entry {path} has an invalid host binding"
+                        )
+                    if entry.get("maturity") not in {
+                        "stable",
+                        "beta",
+                        "experimental",
+                        "deferred",
+                        "reserved",
+                        "unsupported",
+                    }:
+                        errors.append(
+                            f"typed catalog entry {path} has an invalid maturity"
+                        )
+                    if entry.get("owner") not in ALLOWED_OWNERS:
+                        errors.append(
+                            f"typed catalog entry {path} has an invalid owner"
+                        )
     roadmap_ids = load_roadmap_ids(root)
     prefixes: list[str] = []
     for namespace in manifest.get("namespace", []):
@@ -362,10 +537,20 @@ def build_report(root: Path, manifest: dict[str, Any], inventory: SourceInventor
     semantic = {symbol for symbol, evidence in inventory.symbols.items() if evidence.semantic_declared and evidence.kind == "function"}
     runtime = {symbol for symbol, evidence in inventory.symbols.items() if evidence.runtime_registered}
     lowered = {symbol for symbol, evidence in inventory.symbols.items() if evidence.lowering_modes}
-    runtime_without_semantic = sorted(runtime - semantic)
-    semantic_without_runtime = sorted(semantic - runtime)
-    semantic_without_lowering = sorted(semantic - lowered)
-    lowering_without_runtime = sorted(lowered - runtime)
+    runtime_functions = {
+        symbol
+        for symbol, evidence in inventory.symbols.items()
+        if evidence.runtime_registered and evidence.kind == "function"
+    }
+    lowered_functions = {
+        symbol
+        for symbol, evidence in inventory.symbols.items()
+        if evidence.lowering_modes and evidence.kind == "function"
+    }
+    runtime_without_semantic = sorted(runtime_functions - semantic)
+    semantic_without_runtime = sorted(semantic - runtime_functions)
+    semantic_without_lowering = sorted(semantic - lowered_functions)
+    lowering_without_runtime = sorted(lowered_functions - runtime_functions)
     divergences = {
         "semantic_without_runtime": semantic_without_runtime,
         "runtime_without_semantic": runtime_without_semantic,
@@ -396,6 +581,27 @@ def build_report(root: Path, manifest: dict[str, Any], inventory: SourceInventor
         covered_count = sum(bool(covered[item]["probe_coverage"]) for item in symbols)
         coverage_by_namespace[prefix] = {"symbol_count": len(symbols), "covered_symbols": covered_count, "uncovered_symbols": len(symbols) - covered_count, "classification": namespace["classification"]}
     production_symbols = [item for item in covered.values() if item["classification"] == "production"]
+    catalog_path = root / manifest["catalog"]
+    catalog = tomllib.loads(catalog_path.read_text(encoding="utf-8"))
+    catalog_paths = {
+        str(entry.get("path"))
+        for entry in catalog.get("entry", [])
+        if entry.get("path")
+    }
+    inventory_paths = set(inventory.symbols)
+    catalog_missing = sorted(inventory_paths - catalog_paths)
+    catalog_extra = sorted(catalog_paths - inventory_paths)
+    catalog_policy = manifest.get("catalog_policy", "strict")
+    catalog_status = "complete" if not catalog_missing else "partial"
+    if catalog_missing:
+        warnings.append(
+            {
+                "kind": "catalog_migration_gap",
+                "policy": catalog_policy,
+                "missing_count": len(catalog_missing),
+                "missing_symbols": catalog_missing,
+            }
+        )
     return {
         "schema": REPORT_SCHEMA,
         "contract_version": manifest["contract_version"],
@@ -406,6 +612,15 @@ def build_report(root: Path, manifest: dict[str, Any], inventory: SourceInventor
         "passed": not blockers,
         "counts": dict(sorted(counts.items())),
         "source_files": inventory.files,
+        "catalog_coverage": {
+            "path": manifest["catalog"],
+            "policy": catalog_policy,
+            "status": catalog_status,
+            "catalog_symbol_count": len(catalog_paths),
+            "inventory_symbol_count": len(inventory_paths),
+            "missing_symbols": catalog_missing,
+            "extra_symbols": catalog_extra,
+        },
         "symbols": covered,
         "source_reconciliation": divergences,
         "probe_coverage": {"covered_symbols": sum(bool(item["probe_coverage"]) for item in covered.values()), "uncovered_symbols": sum(not item["probe_coverage"] for item in covered.values()), "coverage_by_namespace": coverage_by_namespace},
@@ -434,6 +649,11 @@ def main() -> int:
     parser.add_argument("--binary", default="target/debug/spectralang.exe")
     parser.add_argument("--report", default="target/r3007-stdlib-contract/report.json")
     parser.add_argument("--timeout-seconds", type=int, default=45)
+    parser.add_argument(
+        "--require-catalog",
+        action="store_true",
+        help="fail when every discovered public symbol is not represented in the typed catalog",
+    )
     args = parser.parse_args()
     manifest_path = Path(args.manifest)
     manifest_path = manifest_path if manifest_path.is_absolute() else ROOT / manifest_path
@@ -460,6 +680,16 @@ def main() -> int:
         else:
             probe_results.append({"id": probe["id"], "kind": "spectra", "path": probe.get("path"), "status": "binary_missing", "exit_code": None, "command": []})
     report = build_report(ROOT, manifest, inventory, probe_results)
+    if args.require_catalog and report["catalog_coverage"]["status"] != "complete":
+        report["blockers"].append(
+            {
+                "kind": "typed_catalog_incomplete",
+                "missing_count": len(report["catalog_coverage"]["missing_symbols"]),
+                "missing_symbols": report["catalog_coverage"]["missing_symbols"],
+            }
+        )
+        report["status"] = "failed"
+        report["passed"] = False
     report_path = Path(args.report)
     report_path = report_path if report_path.is_absolute() else ROOT / report_path
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -468,6 +698,12 @@ def main() -> int:
     print(f"[R-3007] classification counts: {json.dumps(report['counts'], sort_keys=True)}")
     print(f"[R-3007] probes: {json.dumps({x['id']: x['status'] for x in probe_results}, sort_keys=True)}")
     print(f"[R-3007] tracked follow-ups: {len(report['follow_up_tasks'])}")
+    print(
+        "[R-3007] catalog: "
+        f"{report['catalog_coverage']['status']} "
+        f"({report['catalog_coverage']['catalog_symbol_count']}/"
+        f"{report['catalog_coverage']['inventory_symbol_count']})"
+    )
     print(f"[R-3007] blockers: {len(report['blockers'])}")
     print(f"[R-3007] wrote {report_path}")
     for blocker in report["blockers"][:20]:

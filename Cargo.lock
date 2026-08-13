@@ -2374,6 +2374,15 @@ name = "spectra-compiler"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "spectra-contract",
+]
+
+[[package]]
+name = "spectra-contract"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -2413,6 +2422,7 @@ name = "spectra-midend"
 version = "0.1.0"
 dependencies = [
  "spectra-compiler",
+ "spectra-contract",
 ]
 
 [[package]]
@@ -2426,6 +2436,7 @@ dependencies = [
  "pollster",
  "serde_json",
  "sha2 0.10.9",
+ "spectra-contract",
  "wgpu",
 ]
 

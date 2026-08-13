@@ -440,10 +440,10 @@ impl FastHostCall {
             Self::BuilderFinish => "spectra.std.string.builder_finish",
             Self::BuilderFree => "spectra.std.string.builder_free",
             Self::MapSet => "spectra.std.collections.map_set",
-            Self::MapGet => "spectra.std.collections.map_get",
+            Self::MapGet => spectra_contract::STD_COMPAT_COLLECTIONS_MAP_GET_BINDING,
             Self::MapContains => "spectra.std.collections.map_contains",
             Self::MapNew => "spectra.std.collections.map_new",
-            Self::MapRemove => "spectra.std.collections.map_remove",
+            Self::MapRemove => spectra_contract::STD_COMPAT_COLLECTIONS_MAP_REMOVE_BINDING,
             Self::MapLen => "spectra.std.collections.map_len",
             Self::MapClear => "spectra.std.collections.map_clear",
             Self::MapFree => "spectra.std.collections.map_free",
@@ -629,11 +629,11 @@ mod tests {
     #[test]
     fn incorrect_fast_arity_resolves_to_generic_lowering() {
         assert_eq!(
-            resolve_host_call("spectra.std.collections.map_get", 2),
+            resolve_host_call("spectra.std.compat.collections.map_get", 2),
             HostCallClass::Fast(FastHostCall::MapGet)
         );
         assert_eq!(
-            resolve_host_call("spectra.std.collections.map_get", 1),
+            resolve_host_call("spectra.std.compat.collections.map_get", 1),
             HostCallClass::Generic
         );
     }

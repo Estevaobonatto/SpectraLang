@@ -1,7 +1,9 @@
 use crate::{alloc_spectra_string, read_args, read_spectra_string, write_result};
+use crate::handles::ApiHandleTable;
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
 };
+use spectra_runtime::handles::HandleKind;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::{Mutex, OnceLock};
@@ -300,12 +302,9 @@ impl FormBinding {
 }
 
 struct FormStore {
-    next_form: SpectraHostValue,
-    next_schema: SpectraHostValue,
-    next_binding: SpectraHostValue,
-    forms: HashMap<SpectraHostValue, Form>,
-    schemas: HashMap<SpectraHostValue, FormSchema>,
-    bindings: HashMap<SpectraHostValue, FormBinding>,
+    forms: ApiHandleTable<Form>,
+    schemas: ApiHandleTable<FormSchema>,
+    bindings: ApiHandleTable<FormBinding>,
     last_error_code: SpectraHostValue,
     last_error_message: String,
 }
@@ -313,36 +312,24 @@ struct FormStore {
 impl FormStore {
     fn new() -> Self {
         Self {
-            next_form: 1,
-            next_schema: 1,
-            next_binding: 1,
-            forms: HashMap::new(),
-            schemas: HashMap::new(),
-            bindings: HashMap::new(),
+            forms: ApiHandleTable::new(HandleKind::ApiForm),
+            schemas: ApiHandleTable::new(HandleKind::ApiFormSchema),
+            bindings: ApiHandleTable::new(HandleKind::ApiFormBinding),
             last_error_code: 0,
             last_error_message: String::new(),
         }
     }
 
     fn form_handle(&mut self, form: Form) -> SpectraHostValue {
-        let handle = self.next_form;
-        self.next_form = self.next_form.saturating_add(1).max(1);
-        self.forms.insert(handle, form);
-        handle
+        self.forms.insert(form)
     }
 
     fn schema_handle(&mut self, schema: FormSchema) -> SpectraHostValue {
-        let handle = self.next_schema;
-        self.next_schema = self.next_schema.saturating_add(1).max(1);
-        self.schemas.insert(handle, schema);
-        handle
+        self.schemas.insert(schema)
     }
 
     fn binding_handle(&mut self, binding: FormBinding) -> SpectraHostValue {
-        let handle = self.next_binding;
-        self.next_binding = self.next_binding.saturating_add(1).max(1);
-        self.bindings.insert(handle, binding);
-        handle
+        self.bindings.insert(binding)
     }
 
     fn clear_error(&mut self) {

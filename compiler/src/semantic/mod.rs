@@ -29,8 +29,9 @@ pub mod module_registry;
 
 use builtin_modules::register_builtin_modules;
 use module_registry::{
-    ExportVisibility, ExportedFunction, ExportedMethod, ExportedSelfParamKind, ExportedTrait,
-    ExportedTraitImpl, ExportedTraitMethod, ExportedType, ModuleExports, ModuleRegistry,
+    ExportVisibility, ExportedFunction, ExportedMethod, ExportedSelfParamKind, ExportedStatic,
+    ExportedTrait, ExportedTraitImpl, ExportedTraitMethod, ExportedType, ModuleExports,
+    ModuleRegistry,
 };
 
 #[derive(Debug, Clone)]
@@ -604,6 +605,9 @@ impl SemanticAnalyzer {
             "std.io",
             "std.math",
             "std.collections",
+            "std.compat",
+            "std.compat.collections",
+            "std.compat.env",
             "std.string",
             "std.convert",
             "std.random",
@@ -636,6 +640,9 @@ impl SemanticAnalyzer {
             "spectra.std.io",
             "spectra.std.math",
             "spectra.std.collections",
+            "spectra.std.compat",
+            "spectra.std.compat.collections",
+            "spectra.std.compat.env",
             "spectra.std.string",
             "spectra.std.convert",
             "spectra.std.random",
@@ -955,6 +962,91 @@ impl SemanticAnalyzer {
                 },
             );
         }
+
+        // `std.error.Error` is a runtime-owned record used by stable
+        // `Result<_, Error>` signatures.  Registering its shape globally is
+        // necessary even when a module imports only `std.fs`: generic Result
+        // specialization must resolve the `Error` payload as a struct rather
+        // than silently degrading it to an enum-shaped name.
+        {
+            let fields = [
+                "code",
+                "message",
+                "operation",
+                "context",
+                "origin",
+                "retryable",
+            ]
+            .into_iter()
+            .map(|name| {
+                (
+                    name.to_string(),
+                    StructFieldInfo {
+                        ty: simple_type_ann(match name {
+                            "code" => "int",
+                            "message" | "operation" | "context" | "origin" => "string",
+                            "retryable" => "bool",
+                            _ => "unknown",
+                        }),
+                        span: dummy,
+                        visibility: Visibility::Public,
+                    },
+                )
+            })
+            .collect();
+            self.struct_infos.insert(
+                "Error".to_string(),
+                StructInfo {
+                    visibility: Visibility::Public,
+                    type_params: Vec::new(),
+                    fields,
+                },
+            );
+        }
+
+        // Runtime collections currently have a concrete scalar ABI (int
+        // elements and int keys/values), but their public type names are
+        // generic applications rather than untyped integer handles. This
+        // keeps the migration explicit while wider element ABIs are added.
+        {
+            let list_params = vec![make_type_param("T")];
+            self.generic_structs
+                .insert("List".to_string(), (list_params, Vec::new()));
+            self.struct_infos.insert(
+                "List".to_string(),
+                StructInfo {
+                    visibility: Visibility::Public,
+                    type_params: vec!["T".to_string()],
+                    fields: HashMap::new(),
+                },
+            );
+
+            let map_params = vec![make_type_param("K"), make_type_param("V")];
+            self.generic_structs
+                .insert("Map".to_string(), (map_params, Vec::new()));
+            self.struct_infos.insert(
+                "Map".to_string(),
+                StructInfo {
+                    visibility: Visibility::Public,
+                    type_params: vec!["K".to_string(), "V".to_string()],
+                    fields: HashMap::new(),
+                },
+            );
+
+            for name in ["Set", "Iterator"] {
+                let params = vec![make_type_param("T")];
+                self.generic_structs
+                    .insert(name.to_string(), (params, Vec::new()));
+                self.struct_infos.insert(
+                    name.to_string(),
+                    StructInfo {
+                        visibility: Visibility::Public,
+                        type_params: vec!["T".to_string()],
+                        fields: HashMap::new(),
+                    },
+                );
+            }
+        }
     }
 
     /// Build the `ModuleExports` for the module that was just analysed so it
@@ -1006,6 +1098,33 @@ impl SemanticAnalyzer {
                             .generic_functions
                             .insert(func.name.clone(), func.clone());
                     }
+                }
+                Item::Static(decl)
+                    if decl.visibility == Visibility::Public
+                        || decl.visibility == Visibility::Internal =>
+                {
+                    let vis = if decl.visibility == Visibility::Public {
+                        ExportVisibility::Public
+                    } else {
+                        ExportVisibility::Internal
+                    };
+                    let ty = decl
+                        .ty
+                        .as_ref()
+                        .map(|annotation| self.type_annotation_to_type(&Some(annotation.clone())))
+                        .unwrap_or_else(|| {
+                            self.eval_const_expression(&decl.value)
+                                .map(|value| value.ty())
+                                .unwrap_or(Type::Unknown)
+                        });
+                    exports.statics.insert(
+                        decl.name.clone(),
+                        ExportedStatic {
+                            ty,
+                            visibility: vis,
+                            qualified_name: format!("{}::{}", module.name, decl.name),
+                        },
+                    );
                 }
                 Item::Struct(s)
                     if s.visibility == Visibility::Public
@@ -1270,6 +1389,15 @@ impl SemanticAnalyzer {
                     )
                     .chain(
                         source
+                            .statics
+                            .iter()
+                            .filter(|(_, static_export)| {
+                                static_export.visibility == ExportVisibility::Public
+                            })
+                            .map(|(name, _)| (name.clone(), name.clone())),
+                    )
+                    .chain(
+                        source
                             .traits
                             .iter()
                             .filter(|(_, trait_export)| {
@@ -1286,6 +1414,14 @@ impl SemanticAnalyzer {
                         let mut reexported = function.clone();
                         reexported.visibility = ExportVisibility::Public;
                         exports.functions.entry(public_name.clone()).or_insert(reexported);
+                    }
+                }
+
+                if let Some(static_export) = source.statics.get(&source_name) {
+                    if static_export.visibility == ExportVisibility::Public {
+                        let mut reexported = static_export.clone();
+                        reexported.visibility = ExportVisibility::Public;
+                        exports.statics.entry(public_name.clone()).or_insert(reexported);
                     }
                 }
 
@@ -2531,6 +2667,52 @@ impl SemanticAnalyzer {
 
         let resolved = self.type_annotation_to_type(type_ann);
 
+        if let Some(ann) = type_ann {
+            match &ann.kind {
+                TypeAnnotationKind::Tuple { elements } => {
+                    for element in elements {
+                        self.type_annotation_to_type_checked(&Some(element.clone()));
+                    }
+                }
+                TypeAnnotationKind::Function {
+                    params,
+                    return_type,
+                } => {
+                    for param in params {
+                        self.type_annotation_to_type_checked(&Some(param.clone()));
+                    }
+                    self.type_annotation_to_type_checked(&Some((**return_type).clone()));
+                }
+                TypeAnnotationKind::Generic { name, type_args } => {
+                    let known_generic = matches!(name.as_str(), "Tensor" | "array" | "Task" | "Box")
+                        || self.generic_enums.contains_key(name)
+                        || self.generic_structs.contains_key(name);
+                    if !known_generic {
+                        self.error_coded_with_hint(
+                            "E010",
+                            format!("Unknown generic type '{}'", name),
+                            ann.span,
+                            "Declare the generic type or use one of the supported standard types.",
+                        );
+                    }
+
+                    // Tensor metadata arguments (rank, dimensions, layout and
+                    // device) are not types. Every other generic argument is
+                    // recursively checked so `Option<MissingType>` cannot
+                    // become a mangled `Option_unknown` type silently.
+                    let checked_args = if name == "Tensor" {
+                        type_args.iter().take(1).cloned().collect::<Vec<_>>()
+                    } else {
+                        type_args.clone()
+                    };
+                    for arg in checked_args {
+                        self.type_annotation_to_type_checked(&Some(arg));
+                    }
+                }
+                TypeAnnotationKind::Simple { .. } | TypeAnnotationKind::DynTrait { .. } => {}
+            }
+        }
+
         if resolved == Type::Unknown {
             if let Some(ann) = type_ann {
                 if let TypeAnnotationKind::Simple { segments } = &ann.kind {
@@ -2848,9 +3030,7 @@ impl SemanticAnalyzer {
     }
 
     fn numeric_types_can_interact(&self, left: &Type, right: &Type) -> bool {
-        matches!(left, Type::Unknown)
-            || matches!(right, Type::Unknown)
-            || (Self::is_numeric_type(left) && Self::is_numeric_type(right))
+        Self::is_numeric_type(left) && Self::is_numeric_type(right)
     }
 
     fn numeric_result_type(&self, left: &Type, right: &Type) -> Type {
@@ -3029,6 +3209,17 @@ impl SemanticAnalyzer {
             return true;
         }
 
+        // Built-in generic enum signatures use the unspecialized enum name as
+        // a typed pattern. This keeps Option/Result APIs concrete without
+        // falling back to Type::Unknown as a wildcard.
+        if Self::generic_enum_pattern_matches(actual, expected)
+            || Self::generic_enum_pattern_matches(expected, actual)
+            || Self::generic_collection_pattern_matches(actual, expected)
+            || Self::generic_collection_pattern_matches(expected, actual)
+        {
+            return true;
+        }
+
         match (actual, expected) {
             // Tipos idênticos
             (Type::Int, Type::Int) => true,
@@ -3110,8 +3301,10 @@ impl SemanticAnalyzer {
                     && (device_a.is_none() || device_b.is_none() || device_a == device_b)
             }
 
-            // Unknown aceita qualquer coisa (inferência incompleta)
-            (Type::Unknown, _) | (_, Type::Unknown) => true,
+            // Unknown is an inference failure, not a type wildcard. Generic
+            // parameters are handled explicitly below and remain the only
+            // intentionally polymorphic path.
+            (Type::Unknown, _) | (_, Type::Unknown) => false,
 
             // Self type matches any Struct (will be resolved in context)
             (Type::SelfType, Type::Struct { .. }) | (Type::Struct { .. }, Type::SelfType) => true,
@@ -3147,7 +3340,7 @@ impl SemanticAnalyzer {
 
     fn return_types_match(&self, actual: &Type, expected: &Type) -> bool {
         if matches!(actual, Type::Unknown) || matches!(expected, Type::Unknown) {
-            return true;
+            return false;
         }
 
         if self.can_auto_promote(actual, expected) {
@@ -4074,12 +4267,51 @@ impl SemanticAnalyzer {
 
     fn analyze_static_decl(&mut self, decl: &StaticDecl) {
         self.analyze_expression(&decl.value);
-        let inferred = self.infer_expression_type(&decl.value);
+        let Some(value) = self.eval_const_expression(&decl.value) else {
+            self.error_coded_with_hint(
+                "E2902",
+                format!(
+                    "Static '{}' must be initialized with a compile-time constant",
+                    decl.name
+                ),
+                decl.value.span,
+                "Use literals, constants, casts, and pure arithmetic/logical expressions; runtime calls are not valid static initializers.",
+            );
+            return;
+        };
+
+        let inferred = value.ty();
         let declared = decl
             .ty
             .as_ref()
             .map(|_| self.type_annotation_to_type_checked(&decl.ty))
             .unwrap_or_else(|| inferred.clone());
+
+        if let Err(message) = Self::const_value_fits_type(&value, &declared) {
+            self.error_coded("E2903", message, decl.span);
+            return;
+        }
+
+        if !matches!(
+            declared,
+            Type::Int
+                | Type::Float
+                | Type::Bool
+                | Type::Char
+                | Type::ExactInt { .. }
+                | Type::ExactFloat { .. }
+        ) {
+            self.error_coded_with_hint(
+                "E2905",
+                format!(
+                    "Static '{}' currently supports only scalar numeric, boolean, and character types",
+                    decl.name
+                ),
+                decl.span,
+                "Keep aggregate, string, tensor, and handle globals out of the beta static surface until their storage/drop contract is defined.",
+            );
+            return;
+        }
 
         if !self.types_match(&inferred, &declared) {
             self.error_with_hint(
@@ -4712,7 +4944,8 @@ impl SemanticAnalyzer {
                 }
             }
             Type::Enum { .. } => value.is_string() || value.is_object(),
-            Type::Unknown | Type::TypeParameter { .. } | Type::SelfType => true,
+            Type::Unknown => false,
+            Type::TypeParameter { .. } | Type::SelfType => true,
             Type::Unit => value.is_null(),
             Type::Tuple { elements } => value
                 .as_array()
@@ -4751,6 +4984,12 @@ impl SemanticAnalyzer {
 
         let mut new_aliases: Vec<(String, Vec<String>)> = Vec::new();
         let mut new_user_fn_types: Vec<(String, crate::ast::Type)> = Vec::new();
+        let mut new_user_fn_signatures: Vec<(
+            String,
+            Vec<crate::ast::Type>,
+            crate::ast::Type,
+        )> = Vec::new();
+        let mut new_static_globals: Vec<(String, String, crate::ast::Type)> = Vec::new();
         let mut new_enum_defs: Vec<crate::ast::Enum> = Vec::new();
         let mut new_struct_defs: Vec<crate::ast::Struct> = Vec::new();
         let mut new_trait_impls: Vec<(String, String, Vec<crate::ast::Type>)> = Vec::new();
@@ -4760,6 +4999,8 @@ impl SemanticAnalyzer {
             let aliases = self.analyze_import(
                 import,
                 &mut new_user_fn_types,
+                &mut new_user_fn_signatures,
+                &mut new_static_globals,
                 &mut new_enum_defs,
                 &mut new_struct_defs,
                 &mut new_trait_impls,
@@ -4772,6 +5013,10 @@ impl SemanticAnalyzer {
         module
             .imported_function_return_types
             .extend(new_user_fn_types);
+        module
+            .imported_function_signatures
+            .extend(new_user_fn_signatures);
+        module.imported_static_globals.extend(new_static_globals);
         module.imported_enum_defs.extend(new_enum_defs);
         module.imported_struct_defs.extend(new_struct_defs);
         module.imported_trait_impls.extend(new_trait_impls);
@@ -4993,6 +5238,49 @@ impl SemanticAnalyzer {
             }
         }
 
+        // The declaration pass runs before aliases are registered so that
+        // names are available independent of item order.  Refresh function
+        // signatures now that aliases and aggregate definitions are known;
+        // otherwise a return type such as `Pair = (int, string)` would remain
+        // `Unknown` and only fail later when a caller binds the result.
+        for item in &module.items {
+            let Item::Function(func) = item else {
+                continue;
+            };
+            let pushed_generics = self.push_generic_params(&func.type_params);
+            let params: Vec<Type> = func
+                .params
+                .iter()
+                .map(|param| self.type_annotation_to_type(&param.ty))
+                .collect();
+            let return_type = Self::async_task_type(
+                func.is_async,
+                self.type_annotation_to_type(&func.return_type),
+            );
+            if pushed_generics {
+                self.pop_generic_params();
+            }
+            let signature = FunctionSignature {
+                params,
+                return_type: return_type.clone(),
+                self_kind: None,
+                is_async: func.is_async,
+            };
+            self.functions.insert(func.name.clone(), signature.clone());
+            let fn_type = Type::Fn {
+                params: signature.params,
+                return_type: Box::new(signature.return_type),
+            };
+            if let Some(info) = self
+                .symbols
+                .first_mut()
+                .and_then(|scope| scope.get_mut(&func.name))
+            {
+                info.ty = fn_type.clone();
+                self.symbol_resolutions.insert(func.span, info.clone());
+            }
+        }
+
         // Constants/statics are registered before body analysis so functions can
         // reference declarations regardless of item order.
         for item in &module.items {
@@ -5095,6 +5383,12 @@ impl SemanticAnalyzer {
         &mut self,
         import: &crate::ast::Import,
         user_fn_types: &mut Vec<(String, crate::ast::Type)>,
+        user_fn_signatures: &mut Vec<(
+            String,
+            Vec<crate::ast::Type>,
+            crate::ast::Type,
+        )>,
+        imported_static_globals: &mut Vec<(String, String, crate::ast::Type)>,
         user_enum_defs: &mut Vec<crate::ast::Enum>,
         user_struct_defs: &mut Vec<crate::ast::Struct>,
         user_trait_impls: &mut Vec<(String, String, Vec<crate::ast::Type>)>,
@@ -5150,6 +5444,7 @@ impl SemanticAnalyzer {
                 let name = &named_import.name;
                 if !exports.functions.contains_key(name.as_str())
                     && !exports.types.contains_key(name.as_str())
+                    && !exports.statics.contains_key(name.as_str())
                     && !exports.traits.contains_key(name.as_str())
                 {
                     self.error_with_hint(
@@ -5160,6 +5455,7 @@ impl SemanticAnalyzer {
                             exports
                                 .functions
                                 .keys()
+                                .chain(exports.statics.keys())
                                 .chain(exports.types.keys())
                                 .chain(exports.traits.keys())
                                 .cloned()
@@ -5180,6 +5476,13 @@ impl SemanticAnalyzer {
                 .iter()
                 .filter(|(_, f)| f.visibility == ExportVisibility::Public)
                 .map(|(n, _)| (n.clone(), None))
+                .chain(
+                    exports
+                        .statics
+                        .iter()
+                        .filter(|(_, s)| s.visibility == ExportVisibility::Public)
+                        .map(|(n, _)| (n.clone(), None)),
+                )
                 .chain(
                     exports
                         .types
@@ -5203,6 +5506,11 @@ impl SemanticAnalyzer {
                         .iter()
                         .filter(|(_, f)| f.visibility == ExportVisibility::Internal)
                         .map(|(n, _)| (n.clone(), None));
+                    let internal_statics = exports
+                        .statics
+                        .iter()
+                        .filter(|(_, s)| s.visibility == ExportVisibility::Internal)
+                        .map(|(n, _)| (n.clone(), None));
                     let internal_types = exports
                         .types
                         .iter()
@@ -5214,6 +5522,7 @@ impl SemanticAnalyzer {
                         .filter(|(_, t)| t.visibility == ExportVisibility::Internal)
                         .map(|(n, _)| (n.clone(), None));
                     all_names.extend(internal_fns);
+                    all_names.extend(internal_statics);
                     all_names.extend(internal_types);
                     all_names.extend(internal_traits);
                 }
@@ -5243,6 +5552,12 @@ impl SemanticAnalyzer {
                         .types
                         .get(name.as_str())
                         .map(|t| t.visibility == ExportVisibility::Internal)
+                })
+                .or_else(|| {
+                    exports
+                        .statics
+                        .get(name.as_str())
+                        .map(|s| s.visibility == ExportVisibility::Internal)
                 })
                 .or_else(|| {
                     exports
@@ -5300,6 +5615,11 @@ impl SemanticAnalyzer {
                         .unwrap_or(name.as_str())
                         .to_string();
                     user_fn_types.push((bare, func_export.return_type.clone()));
+                    user_fn_signatures.push((
+                        local_name,
+                        func_export.params.clone(),
+                        func_export.return_type.clone(),
+                    ));
                 }
 
                 // Record stdlib alias for the midend.
@@ -5312,6 +5632,21 @@ impl SemanticAnalyzer {
                         .unwrap_or(name.as_str())
                         .to_string();
                     aliases.push((bare, full_path));
+                }
+            }
+
+            if let Some(static_export) = exports.statics.get(name.as_str()) {
+                let local_name = import_local_name(alias.as_deref(), named_alias.as_deref(), name);
+                // Direct and named imports become ordinary mutable symbols.
+                // Module aliases remain reserved for qualified-static syntax;
+                // they do not silently become a second global registry.
+                if alias.is_none() {
+                    self.declare_symbol(local_name.clone(), import.span, static_export.ty.clone());
+                    imported_static_globals.push((
+                        local_name,
+                        static_export.qualified_name.clone(),
+                        static_export.ty.clone(),
+                    ));
                 }
             }
 
@@ -5982,7 +6317,7 @@ impl SemanticAnalyzer {
         // Fase 2: Analisar corpos dos métodos
         for method in &impl_block.methods {
             self.current_function = Some(format!("{}::{}", impl_block.type_name, method.name));
-            let expected_return = self.type_annotation_to_type(&method.return_type);
+            let expected_return = self.type_annotation_to_type_checked(&method.return_type);
             let previous_return = self.current_return_type.replace(expected_return.clone());
             if method.is_async {
                 self.async_context_depth += 1;
@@ -5996,7 +6331,7 @@ impl SemanticAnalyzer {
                         name: impl_block.type_name.clone(),
                     }
                 } else {
-                    self.type_annotation_to_type(&param.type_annotation)
+                    self.type_annotation_to_type_checked(&param.type_annotation)
                 };
 
                 if !self.declare_symbol(param.name.clone(), param.span, param_type) {
@@ -6514,7 +6849,7 @@ impl SemanticAnalyzer {
         let pushed_generics = self.push_generic_params(&func.type_params);
 
         self.current_function = Some(func.name.clone());
-        let expected_return = self.type_annotation_to_type(&func.return_type);
+        let expected_return = self.type_annotation_to_type_checked(&func.return_type);
         let previous_return = self.current_return_type.replace(expected_return.clone());
         if func.is_async {
             self.async_context_depth += 1;
@@ -6524,7 +6859,7 @@ impl SemanticAnalyzer {
 
         // Declare parameters in function scope
         for param in &func.params {
-            let param_type = self.type_annotation_to_type(&param.ty);
+            let param_type = self.type_annotation_to_type_checked(&param.ty);
             if !self.declare_symbol(param.name.clone(), param.span, param_type) {
                 self.error(
                     format!("Parameter '{}' is already declared", param.name),
@@ -6945,6 +7280,41 @@ impl SemanticAnalyzer {
                     _ => Type::Unknown,
                 }
             }
+            ExpressionKind::MethodCall {
+                object,
+                method_name,
+                ..
+            } => {
+                // This pass runs after the ordinary function scope has been
+                // popped.  Resolve the receiver through the event environment
+                // first; otherwise a method call on a local declared earlier
+                // in the async function degrades to Unknown and produces a
+                // false non-Send-across-await diagnostic.
+                let object_type = self.infer_async_event_expression_type(object, env);
+                match object_type {
+                    Type::Struct { name } | Type::Enum { name } => self
+                        .methods
+                        .get(&name)
+                        .and_then(|methods| methods.get(method_name))
+                        .map(|signature| signature.return_type.clone())
+                        .or_else(|| {
+                            self.instantiated_method_signature(&name, method_name)
+                                .map(|signature| signature.return_type)
+                        })
+                        .unwrap_or(Type::Unknown),
+                    Type::TypeParameter { name } => self
+                        .trait_method_signature_for_type_param(&name, method_name)
+                        .map(|(signature, _)| signature.return_type)
+                        .unwrap_or(Type::Unknown),
+                    Type::DynTrait { trait_name, .. } => self
+                        .traits
+                        .get(&trait_name)
+                        .and_then(|methods| methods.get(method_name))
+                        .map(|method| method.signature.return_type.clone())
+                        .unwrap_or(Type::Unknown),
+                    _ => self.infer_expression_type(expr),
+                }
+            }
             ExpressionKind::AsyncBlock(block) => Type::Task {
                 output: Box::new(self.infer_block_type(block)),
             },
@@ -7204,7 +7574,7 @@ impl SemanticAnalyzer {
 
     fn type_is_send(&self, ty: &Type) -> bool {
         match ty {
-            Type::Unknown => true,
+            Type::Unknown => false,
             Type::Struct { name } => {
                 if self.type_name_is_non_send(name) {
                     return false;
@@ -7251,7 +7621,7 @@ impl SemanticAnalyzer {
 
     fn type_is_sync(&self, ty: &Type) -> bool {
         match ty {
-            Type::Unknown => true,
+            Type::Unknown => false,
             Type::Struct { name } => {
                 if self.type_name_is_non_sync(name) {
                     return false;
@@ -7338,16 +7708,19 @@ impl SemanticAnalyzer {
     fn analyze_statement(&mut self, statement: &Statement) {
         match &statement.kind {
             StatementKind::Let(let_stmt) => {
-                // Check if value expression is valid (if present) BEFORE inferring
-                // its type so that qualified-path resolutions are already recorded.
-                if let Some(ref value) = let_stmt.value {
-                    self.analyze_expression(value);
-                }
-
                 let declared_type = let_stmt
                     .ty
                     .as_ref()
                     .map(|ann| self.type_annotation_to_type_checked(&Some(ann.clone())));
+
+                // Check if value expression is valid (if present) BEFORE inferring
+                // its type so that qualified-path resolutions are already recorded.
+                if let Some(ref value) = let_stmt.value {
+                    let saved_expected = self.current_expected_type.clone();
+                    self.current_expected_type = declared_type.clone();
+                    self.analyze_expression(value);
+                    self.current_expected_type = saved_expected;
+                }
 
                 // Infer type from value expression or annotation. An explicit annotation
                 // also provides context for generic constructors such as Result::Ok(v),
@@ -7445,9 +7818,19 @@ impl SemanticAnalyzer {
                         self.analyze_expression(array);
                         self.analyze_expression(index);
 
+                        self.validate_static_array_index(array, index);
+
                         // Check that index is an integer
                         let index_type = self.infer_expression_type(index);
-                        if !matches!(index_type, Type::Int | Type::Unknown) {
+                        if matches!(index_type, Type::Unknown) {
+                            if !self.has_error_at_span(index.span) {
+                                self.error_with_hint(
+                                    "Cannot determine the type of the array index",
+                                    index.span,
+                                    "Use an integer expression; unresolved index types are rejected before lowering.",
+                                );
+                            }
+                        } else if !matches!(index_type, Type::Int) {
                             self.error_with_hint(
                                 format!(
                                     "Array index must be an integer, found {}",
@@ -7569,11 +7952,26 @@ impl SemanticAnalyzer {
                 let iterator_type = match iterable_type {
                     Type::Array { element_type, .. } => *element_type,
                     Type::Range => Type::Int,
-                    Type::Unknown => Type::Unknown,
+                    Type::Struct { name } if name == "List" => Type::TypeParameter {
+                        name: "T".to_string(),
+                    },
+                    Type::Struct { name } if name.starts_with("List_") => {
+                        self.type_from_mangle_part(&name["List_".len()..])
+                    }
+                    Type::Unknown => {
+                        if !self.has_error_at_span(for_loop.iterable.span) {
+                            self.error_with_hint(
+                                "Cannot determine the type of the for-loop iterable",
+                                for_loop.iterable.span,
+                                "Use a typed array, Range, or List<T>; unresolved expressions cannot reach lowering.",
+                            );
+                        }
+                        Type::Unknown
+                    }
                     other => {
                         self.error(
                             format!(
-                                "For-loop iterable must be an array or Range, found {}",
+                                "For-loop iterable must be an array, Range, or List<T>, found {}",
                                 type_name(&other)
                             ),
                             for_loop.span,
@@ -7658,6 +8056,284 @@ impl SemanticAnalyzer {
                 self.pop_scope();
                 self.loop_depth -= 1;
             }
+        }
+    }
+
+    fn generic_enum_payload_type(&self, value_type: &Type, variant: &str) -> Option<Type> {
+        let Type::Enum { name } = value_type else {
+            return None;
+        };
+        let (_, enum_info, substitutions) = self.specialized_enum_context(name)?;
+        let payload = enum_info.variants.get(variant)?.data.as_ref()?.first()?;
+        Some(self.type_annotation_to_type_with_substitutions(payload, &substitutions))
+    }
+
+    fn std_generic_unwrap_return(
+        &mut self,
+        function_name: &str,
+        arguments: &[Expression],
+    ) -> Option<Type> {
+        let operation = function_name.rsplit('.').next().unwrap_or(function_name);
+        let first_type = arguments
+            .first()
+            .map(|argument| self.infer_expression_type(argument));
+        match operation {
+            "option_unwrap" => self
+                .generic_enum_payload_type(first_type.as_ref()?, "Some")
+                .or_else(|| Some(Type::TypeParameter { name: "T".to_string() })),
+            "option_unwrap_or" => self
+                .generic_enum_payload_type(first_type.as_ref()?, "Some")
+                .or_else(|| arguments.get(1).map(|argument| self.infer_expression_type(argument)))
+                .or_else(|| Some(Type::TypeParameter { name: "T".to_string() })),
+            "result_unwrap" => self
+                .generic_enum_payload_type(first_type.as_ref()?, "Ok")
+                .or_else(|| Some(Type::TypeParameter { name: "T".to_string() })),
+            "result_unwrap_or" => self
+                .generic_enum_payload_type(first_type.as_ref()?, "Ok")
+                .or_else(|| arguments.get(1).map(|argument| self.infer_expression_type(argument)))
+                .or_else(|| Some(Type::TypeParameter { name: "T".to_string() })),
+            "result_unwrap_err" => self
+                .generic_enum_payload_type(first_type.as_ref()?, "Err")
+                .or_else(|| Some(Type::TypeParameter { name: "E".to_string() })),
+            _ => None,
+        }
+    }
+
+    /// Built-in collection exports use unspecialized collection types as
+    /// their generic signature.  User bindings retain the concrete mangled
+    /// application (`List_int`, `List_string`, `Map_int_string`, ...), so the
+    /// generic pattern must match only the base name and never two different
+    /// concrete applications.
+    fn generic_collection_pattern_matches(actual: &Type, expected: &Type) -> bool {
+        let (Type::Struct { name: actual_name }, Type::Struct { name: expected_name }) =
+            (actual, expected)
+        else {
+            return false;
+        };
+
+        ["List", "Map", "Set", "Iterator"].iter().any(|base| {
+            let actual_is_base = actual_name == base;
+            let actual_is_application = actual_name.starts_with(&format!("{base}_"));
+            let expected_is_base = expected_name == base;
+            let expected_is_application = expected_name.starts_with(&format!("{base}_"));
+            (actual_is_base && (expected_is_base || expected_is_application))
+                || (expected_is_base && actual_is_application)
+        })
+    }
+
+    fn collection_type_arguments(&self, ty: &Type) -> Option<(&'static str, Vec<Type>)> {
+        let Type::Struct { name } = ty else {
+            return None;
+        };
+        if name == "List" {
+            return Some(("List", vec![Type::Int]));
+        }
+        if let Some(suffix) = name.strip_prefix("List_") {
+            return Some(("List", vec![self.type_from_mangle_part(suffix)]));
+        }
+        if name == "Map" {
+            return Some(("Map", vec![Type::Int, Type::Int]));
+        }
+        name.strip_prefix("Map_").and_then(|suffix| {
+            let mut parts = suffix.splitn(2, '_');
+            let key = parts.next()?;
+            let value = parts.next()?;
+            Some((
+                "Map",
+                vec![self.type_from_mangle_part(key), self.type_from_mangle_part(value)],
+            ))
+        })
+        .or_else(|| {
+            if name == "Set" {
+                return Some(("Set", vec![Type::Int]));
+            }
+            name.strip_prefix("Set_")
+                .map(|suffix| ("Set", vec![self.type_from_mangle_part(suffix)]))
+        })
+        .or_else(|| {
+            if name == "Iterator" {
+                return Some(("Iterator", vec![Type::Int]));
+            }
+            name.strip_prefix("Iterator_")
+                .map(|suffix| ("Iterator", vec![self.type_from_mangle_part(suffix)]))
+        })
+    }
+
+    fn specialize_std_collection_signature(
+        &mut self,
+        qualified_name: &str,
+        signature: &FunctionSignature,
+        arguments: &[Expression],
+    ) -> FunctionSignature {
+        let operation = qualified_name.rsplit('.').next().unwrap_or(qualified_name);
+        let mut substitutions = HashMap::new();
+        if let Some(first) = arguments.first() {
+            let first_type = self.infer_expression_type(first);
+            match self.collection_type_arguments(&first_type) {
+                Some(("List", values)) if values.len() == 1 => {
+                    substitutions.insert("T".to_string(), values[0].clone());
+                }
+                Some(("Map", values)) if values.len() == 2 => {
+                    substitutions.insert("K".to_string(), values[0].clone());
+                    substitutions.insert("V".to_string(), values[1].clone());
+                }
+                _ => {}
+            }
+        }
+
+        let mut specialized = signature.clone();
+        specialized.params = signature
+            .params
+            .iter()
+            .map(|ty| self.substitute_type_parameters(ty, &substitutions))
+            .collect();
+        specialized.return_type = self.substitute_type_parameters(
+            &signature.return_type,
+            &substitutions,
+        );
+
+        // Constructors have no value from which to infer T/K/V.  Use the
+        // expected binding type when present and keep the legacy int ABI as
+        // the deterministic default for unannotated source.
+        if matches!(operation, "list_new" | "map_new" | "set_new") {
+            if let Some(expected) = self.current_expected_type.clone() {
+                if self.collection_type_arguments(&expected).is_some() {
+                    specialized.return_type = expected;
+                }
+            } else if operation == "list_new" {
+                specialized.return_type = Type::Struct {
+                    name: "List_int".to_string(),
+                };
+            } else if operation == "map_new" {
+                specialized.return_type = Type::Struct {
+                    name: "Map_int_int".to_string(),
+                };
+            } else {
+                specialized.return_type = Type::Struct {
+                    name: "Set_int".to_string(),
+                };
+            }
+        }
+
+        let option_type = |semantic: &Self, payload: Type| Type::Enum {
+            name: format!(
+                "Option_{}",
+                semantic.type_mangle_part_from_type(&payload)
+            ),
+        };
+        let first_collection = arguments.first().and_then(|argument| {
+            let first_type = self.infer_expression_type(argument);
+            self.collection_type_arguments(&first_type)
+        });
+
+        match operation {
+            "list_iter" | "set_iter" => {
+                if let Some((_, values)) = first_collection.as_ref() {
+                    if let Some(element) = values.first() {
+                        specialized.return_type = Type::Struct {
+                            name: format!("Iterator_{}", self.type_mangle_part_from_type(element)),
+                        };
+                    }
+                }
+            }
+            "map_iter" => {
+                if let Some(("Map", values)) = first_collection.as_ref() {
+                    if let Some(key) = values.first() {
+                        specialized.return_type = Type::Struct {
+                            name: format!("Iterator_{}", self.type_mangle_part_from_type(key)),
+                        };
+                    }
+                }
+            }
+            "list_get"
+            | "list_pop"
+            | "list_pop_front"
+            | "list_remove_at"
+            | "set_get"
+            | "iterator_next" => {
+                if let Some((_, values)) = first_collection.as_ref() {
+                    if let Some(element) = values.first() {
+                        let compatibility = qualified_name.contains(".compat.collections.");
+                        specialized.return_type = if compatibility {
+                            element.clone()
+                        } else {
+                            option_type(self, element.clone())
+                        };
+                    }
+                }
+            }
+            "map_get" | "map_remove" => {
+                if let Some(("Map", values)) = first_collection.as_ref() {
+                    if let Some(value) = values.get(1) {
+                        let compatibility = qualified_name.contains(".compat.collections.");
+                        specialized.return_type = if compatibility {
+                            value.clone()
+                        } else {
+                            option_type(self, value.clone())
+                        };
+                    }
+                }
+            }
+            "list_get_option"
+            | "list_pop_option"
+            | "list_pop_front_option"
+            | "list_remove_at_option"
+            | "map_get_option"
+            | "map_remove_option" => {
+                if let Some((collection, values)) = first_collection.as_ref() {
+                    let payload = if *collection == "Map" {
+                        values.get(1)
+                    } else {
+                        values.first()
+                    };
+                    if let Some(payload) = payload {
+                        specialized.return_type = option_type(self, payload.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+        specialized
+    }
+
+    fn constant_integer_expression(expr: &Expression) -> Option<i128> {
+        match &expr.kind {
+            ExpressionKind::NumberLiteral(value) => value.replace('_', "").parse().ok(),
+            ExpressionKind::Unary {
+                operator: crate::ast::UnaryOperator::Negate,
+                operand,
+            } => Self::constant_integer_expression(operand).map(|value| -value),
+            ExpressionKind::Grouping(inner) => Self::constant_integer_expression(inner),
+            _ => None,
+        }
+    }
+
+    fn validate_static_array_index(&mut self, array: &Expression, index: &Expression) {
+        let array_type = self.infer_expression_type(array);
+        let Type::Array {
+            size: Some(length),
+            ..
+        } = array_type
+        else {
+            return;
+        };
+
+        let Some(index_value) = Self::constant_integer_expression(index) else {
+            return;
+        };
+        if index_value < 0 || index_value >= length as i128 {
+            self.error_coded_with_hint(
+                "E004",
+                format!(
+                    "Array index {} out of bounds (array has {} elements)",
+                    index_value, length
+                ),
+                index.span,
+                format!(
+                    "Use an index in the range 0..{} or validate a dynamic index before access.",
+                    length
+                ),
+            );
         }
     }
 
@@ -7746,6 +8422,9 @@ impl SemanticAnalyzer {
             ExpressionKind::Unary { operand, .. } => self.infer_expression_type(operand),
             ExpressionKind::Call { callee, arguments } => {
                 if let ExpressionKind::Identifier(name) = &callee.kind {
+                    if let Some(return_type) = self.std_generic_unwrap_return(name, arguments) {
+                        return return_type;
+                    }
                     if name == "block_on" {
                         return arguments
                             .first()
@@ -7812,9 +8491,16 @@ impl SemanticAnalyzer {
             ExpressionKind::Grouping(inner) => self.infer_expression_type(inner),
             ExpressionKind::ArrayLiteral { elements } => {
                 if elements.is_empty() {
-                    Type::Array {
-                        element_type: Box::new(Type::Unknown),
-                        size: Some(0),
+                    match self.current_expected_type.clone() {
+                        Some(Type::Array { element_type, .. })
+                            if !matches!(element_type.as_ref(), Type::Unknown) =>
+                        {
+                            Type::Array {
+                                element_type,
+                                size: Some(0),
+                            }
+                        }
+                        _ => Type::Unknown,
                     }
                 } else {
                     let elem_type = self.infer_expression_type(&elements[0]);
@@ -8024,12 +8710,23 @@ impl SemanticAnalyzer {
             ExpressionKind::MethodCall {
                 object,
                 method_name,
+                arguments,
                 ..
             } => {
                 if let Some(path) = namespace_path(object) {
                     let qualified_name = format!("{}.{}", path, method_name);
-                    if let Some(signature) = self.functions.get(&qualified_name) {
-                        return signature.return_type.clone();
+                    if let Some(return_type) =
+                        self.std_generic_unwrap_return(&qualified_name, arguments)
+                    {
+                        return return_type;
+                    }
+                    if let Some(signature) = self.functions.get(&qualified_name).cloned() {
+                        let specialized = self.specialize_std_collection_signature(
+                            &qualified_name,
+                            &signature,
+                            arguments,
+                        );
+                        return specialized.return_type;
                     }
 
                     let exports_cloned: Option<ModuleExports> = self
@@ -8040,7 +8737,18 @@ impl SemanticAnalyzer {
                         .cloned();
                     if let Some(exports) = exports_cloned {
                         if let Some(func) = exports.functions.get(method_name.as_str()) {
-                            return func.return_type.clone();
+                            let signature = FunctionSignature {
+                                params: func.params.clone(),
+                                return_type: func.return_type.clone(),
+                                self_kind: None,
+                                is_async: func.is_async,
+                            };
+                            let specialized = self.specialize_std_collection_signature(
+                                &qualified_name,
+                                &signature,
+                                arguments,
+                            );
+                            return specialized.return_type;
                         }
                     }
                 }
@@ -8126,19 +8834,43 @@ impl SemanticAnalyzer {
                     return Type::Unknown;
                 }
 
-                // Block type is the type of the last expression statement, or Unit
+                // Block-local bindings must be available while inferring the
+                // final expression. Without this, a closure body such as
+                // `let inner = |...| ...; inner(value)` was inferred as
+                // `unknown` even though the semantic analyzer had already
+                // validated the nested closure.
+                self.push_scope();
                 let mut result = Type::Unit;
                 for stmt in &block.statements {
-                    if let crate::ast::StatementKind::Expression(expr) = &stmt.kind {
-                        result = self.infer_expression_type(expr);
-                    } else if let crate::ast::StatementKind::Return(ret) = &stmt.kind {
-                        result = ret
-                            .value
-                            .as_ref()
-                            .map(|e| self.infer_expression_type(e))
-                            .unwrap_or(Type::Unit);
+                    match &stmt.kind {
+                        crate::ast::StatementKind::Let(let_stmt) => {
+                            let declared = let_stmt.ty.as_ref().map(|annotation| {
+                                self.type_annotation_to_type_checked(&Some(annotation.clone()))
+                            });
+                            let inferred = let_stmt
+                                .value
+                                .as_ref()
+                                .map(|value| self.infer_expression_type(value));
+                            let binding_type = declared.or(inferred).unwrap_or(Type::Unknown);
+                            self.register_typed_pattern_bindings(
+                                &let_stmt.pattern,
+                                &binding_type,
+                            );
+                        }
+                        crate::ast::StatementKind::Expression(expr) => {
+                            result = self.infer_expression_type(expr);
+                        }
+                        crate::ast::StatementKind::Return(ret) => {
+                            result = ret
+                                .value
+                                .as_ref()
+                                .map(|e| self.infer_expression_type(e))
+                                .unwrap_or(Type::Unit);
+                        }
+                        _ => {}
                     }
                 }
+                self.pop_scope();
                 result
             }
             ExpressionKind::DifferentiableBlock(block) => {
@@ -8148,9 +8880,25 @@ impl SemanticAnalyzer {
                     _ => Type::Unknown,
                 }
             }
-            ExpressionKind::AsyncBlock(block) => Type::Task {
-                output: Box::new(self.infer_block_type(block)),
-            },
+            ExpressionKind::AsyncBlock(block) => {
+                if let Some(Type::Task { output }) = self
+                    .symbol_resolutions
+                    .get(&expr.span)
+                    .map(|info| &info.ty)
+                {
+                    return Type::Task {
+                        output: output.clone(),
+                    };
+                }
+
+                let output = match self.current_expected_type.clone() {
+                    Some(Type::Task { output }) if !matches!(*output, Type::Unknown) => *output,
+                    _ => self.infer_block_type(block),
+                };
+                Type::Task {
+                    output: Box::new(output),
+                }
+            }
         }
     }
 
@@ -9059,6 +9807,22 @@ impl SemanticAnalyzer {
                 self.analyze_expression(inner);
             }
             ExpressionKind::ArrayLiteral { elements } => {
+                let expected_element_type = match self.current_expected_type.as_ref() {
+                    Some(Type::Array { element_type, .. })
+                        if !matches!(element_type.as_ref(), Type::Unknown) =>
+                    {
+                        Some(element_type.as_ref())
+                    }
+                    _ => None,
+                };
+                if elements.is_empty() && expected_element_type.is_none() {
+                    self.error_coded_with_hint(
+                        "E004",
+                        "Cannot infer the element type of an empty array",
+                        expr.span,
+                        "Add an explicit array type annotation or provide at least one element.",
+                    );
+                }
                 // Analyze all elements
                 for element in elements {
                     self.analyze_expression(element);
@@ -9090,9 +9854,19 @@ impl SemanticAnalyzer {
                 self.analyze_expression(array);
                 self.analyze_expression(index);
 
+                self.validate_static_array_index(array, index);
+
                 // Check that index is an integer
                 let index_type = self.infer_expression_type(index);
-                if !matches!(index_type, Type::Int | Type::Unknown) {
+                if matches!(index_type, Type::Unknown) {
+                    if !self.has_error_at_span(index.span) {
+                        self.error_with_hint(
+                            "Cannot determine the type of the array index",
+                            index.span,
+                            "Use an integer expression; unresolved index types are rejected before lowering.",
+                        );
+                    }
+                } else if !matches!(index_type, Type::Int) {
                     self.error(
                         format!(
                             "Array index must be an integer, found {}",
@@ -9104,7 +9878,15 @@ impl SemanticAnalyzer {
 
                 // Check that array is actually an array
                 let array_type = self.infer_expression_type(array);
-                if !matches!(array_type, Type::Array { .. } | Type::Unknown) {
+                if matches!(array_type, Type::Unknown) {
+                    if !self.has_error_at_span(array.span) {
+                        self.error_with_hint(
+                            "Cannot determine the type of the indexed value",
+                            array.span,
+                            "Use a typed array or string; unresolved values cannot be indexed.",
+                        );
+                    }
+                } else if !matches!(array_type, Type::Array { .. } | Type::String) {
                     self.error(
                         format!(
                             "Cannot index into non-array type {}",
@@ -9139,7 +9921,13 @@ impl SemanticAnalyzer {
                         }
                     }
                     Type::Unknown => {
-                        // Can't validate, but don't error
+                        if !self.has_error_at_span(tuple.span) {
+                            self.error_with_hint(
+                                "Cannot determine the type of the tuple expression",
+                                tuple.span,
+                                "Use a typed tuple; unresolved values cannot be accessed by position.",
+                            );
+                        }
                     }
                     _ => {
                         self.error(
@@ -10003,6 +10791,46 @@ impl SemanticAnalyzer {
                     }
                 };
 
+                // Resolve generic payload annotations before validating a
+                // constructor. Built-in Option/Result store `T`/`E` in their
+                // variant definitions, but those parameters are not pushed on
+                // the ordinary lexical generic stack. Without this local
+                // substitution, a valid `Option::Some(42)` was compared with
+                // Unknown and rejected as soon as Unknown stopped being a
+                // wildcard.
+                let mut variant_substitutions = HashMap::new();
+                if type_args.len() == enum_info.type_params.len() {
+                    for (name, annotation) in enum_info.type_params.iter().zip(type_args) {
+                        variant_substitutions.insert(
+                            name.clone(),
+                            self.type_annotation_to_type(&Some(annotation.clone())),
+                        );
+                    }
+                }
+                if let Some(Type::Enum { name: expected_name }) =
+                    self.current_expected_type.clone()
+                {
+                    if let Some((base_name, _, expected_substitutions)) =
+                        self.specialized_enum_context(&expected_name)
+                    {
+                        if base_name == *enum_name {
+                            variant_substitutions.extend(expected_substitutions);
+                        }
+                    }
+                }
+                if let (Some(expected_params), Some(actual_args)) =
+                    (&variant_info.data, data.as_ref())
+                {
+                    for (expected_ann, arg_expr) in expected_params.iter().zip(actual_args) {
+                        let arg_type = self.infer_expression_type(arg_expr);
+                        self.unify_type_annotation(
+                            expected_ann,
+                            &arg_type,
+                            &mut variant_substitutions,
+                        );
+                    }
+                }
+
                 self.symbol_resolutions.insert(
                     expr.span,
                     SymbolInfo {
@@ -10056,8 +10884,10 @@ impl SemanticAnalyzer {
                             expected_params.iter().zip(actual_args.iter()).enumerate()
                         {
                             let arg_type = self.infer_expression_type(arg_expr);
-                            let expected_type =
-                                self.type_annotation_to_type(&Some(expected_ann.clone()));
+                            let expected_type = self.type_annotation_to_type_with_substitutions(
+                                expected_ann,
+                                &variant_substitutions,
+                            );
 
                             if !self.types_match(&arg_type, &expected_type) {
                                 self.error(
@@ -10284,6 +11114,13 @@ impl SemanticAnalyzer {
                                 })
                             })
                         });
+                    let qualified_sig = qualified_sig.map(|signature| {
+                        self.specialize_std_collection_signature(
+                            &qualified_name,
+                            &signature,
+                            arguments,
+                        )
+                    });
 
                     if let Some(signature) = qualified_sig {
                         if arguments.len() != signature.params.len() {
@@ -10717,7 +11554,18 @@ impl SemanticAnalyzer {
                     self.analyze_statement(stmt);
                 }
                 self.async_context_depth = self.async_context_depth.saturating_sub(1);
+                let output_type = self.infer_block_type(block);
                 self.pop_scope();
+                self.symbol_resolutions.insert(
+                    expr.span,
+                    SymbolInfo {
+                        is_local: false,
+                        def_span: None,
+                        ty: Type::Task {
+                            output: Box::new(output_type),
+                        },
+                    },
+                );
             }
         }
 
@@ -12426,6 +13274,17 @@ impl SemanticAnalyzer {
         }
 
         result
+    }
+
+    fn generic_enum_pattern_matches(pattern: &Type, concrete: &Type) -> bool {
+        let (Type::Enum { name: pattern_name }, Type::Enum { name: concrete_name }) =
+            (pattern, concrete)
+        else {
+            return false;
+        };
+        matches!(pattern_name.as_str(), "Option" | "Result")
+            && (concrete_name == pattern_name
+                || concrete_name.starts_with(&format!("{pattern_name}_")))
     }
 
     fn infer_enum_type_args_from_named_fields(

@@ -746,6 +746,7 @@ impl SpectraCompiler {
                 &report.artifacts.ir_module,
                 &AotOptions {
                     emit_executable: true,
+                    register_api: true,
                     native_debug: matches!(
                         self.options.debug_info,
                         spectra_compiler::DebugInfoMode::Native

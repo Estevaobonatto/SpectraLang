@@ -1,10 +1,11 @@
 use crate::{read_args, write_result};
+use crate::handles::ApiHandleTable;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection};
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
 };
-use std::collections::HashMap;
+use spectra_runtime::handles::HandleKind;
 use std::fmt;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
@@ -374,15 +375,13 @@ fn io_error(message: &'static str, error: std::io::Error) -> TlsError {
 }
 
 struct TlsStore {
-    next: SpectraHostValue,
-    modes: HashMap<SpectraHostValue, SpectraHostValue>,
+    modes: ApiHandleTable<SpectraHostValue>,
 }
 
 impl TlsStore {
     fn new() -> Self {
         Self {
-            next: 1,
-            modes: HashMap::new(),
+            modes: ApiHandleTable::new(HandleKind::ApiTlsMode),
         }
     }
 }
@@ -400,10 +399,7 @@ pub extern "C" fn tls_config_new(ctx: *mut SpectraHostCallContext) -> i32 {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
     let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
-    let handle = store.next;
-    store.next = store.next.saturating_add(1).max(1);
-    store.modes.insert(handle, args[0]);
-    write_result(ctx, handle)
+    write_result(ctx, store.modes.insert(args[0]))
 }
 
 pub extern "C" fn tls_config_mode(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -546,17 +542,25 @@ mod tests {
     #[test]
     #[ignore = "requires outbound network and public WebPKI validation"]
     fn known_external_endpoint_validates_chain() {
+        let host = std::env::var("SPECTRA_TLS_EXTERNAL_HOST")
+            .unwrap_or_else(|_| "example.com".to_string());
+        let port = std::env::var("SPECTRA_TLS_EXTERNAL_PORT")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(443);
+        let path = std::env::var("SPECTRA_TLS_EXTERNAL_PATH")
+            .unwrap_or_else(|_| "/".to_string());
         let client_config = TlsClientConfig::with_webpki_roots()
             .build()
             .expect("webpki client TLS");
         let response = https_get(
-            "example.com",
-            443,
-            "/",
+            &host,
+            port,
+            &path,
             client_config,
             Duration::from_secs(10),
         )
-        .expect("example.com HTTPS chain validates");
+        .expect("configured external HTTPS chain validates");
         let parsed = parse_response(&response.raw).expect("example.com response parses");
         assert!(
             (200..400).contains(&parsed.status_code),

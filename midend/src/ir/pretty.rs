@@ -171,6 +171,12 @@ fn format_block(output: &mut String, block: &BasicBlock) -> std::fmt::Result {
             InstructionKind::Alloca { result, ty } => {
                 format!("{} = alloca {}", fmt_value(*result), fmt_type(ty))
             }
+            InstructionKind::GlobalAddr { result, name, ty } => format!(
+                "{} = global_addr {} : {}",
+                fmt_value(*result),
+                name,
+                fmt_type(ty)
+            ),
             InstructionKind::Load { result, ptr, ty } => {
                 format!(
                     "{} = load({}) {}",
@@ -434,6 +440,7 @@ fn format_terminator(term: &Terminator) -> String {
 
 fn fmt_type(ty: &Type) -> String {
     match ty {
+        Type::Unknown => "unknown".to_string(),
         Type::Void => "void".to_string(),
         Type::Int => "int".to_string(),
         Type::Float => "float".to_string(),

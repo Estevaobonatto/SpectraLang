@@ -53,6 +53,7 @@ fn test_constant_folding_add() {
                 terminator: Some(Terminator::Return { value: None }),
             }],
         }],
+        external_functions: vec![],
         globals: vec![],
         source_file: None,
     };
@@ -123,6 +124,7 @@ fn test_constant_folding_mul() {
                 terminator: Some(Terminator::Return { value: None }),
             }],
         }],
+        external_functions: vec![],
         globals: vec![],
         source_file: None,
     };
@@ -191,6 +193,7 @@ fn test_dead_code_elimination_basic() {
                 terminator: Some(Terminator::Return { value: None }),
             }],
         }],
+        external_functions: vec![],
         globals: vec![],
         source_file: None,
     };
@@ -237,6 +240,7 @@ fn test_dead_code_elimination_preserves_used() {
                 }),
             }],
         }],
+        external_functions: vec![],
         globals: vec![],
         source_file: None,
     };
@@ -301,6 +305,7 @@ fn test_combined_optimizations() {
                 terminator: Some(Terminator::Return { value: None }),
             }],
         }],
+        external_functions: vec![],
         globals: vec![],
         source_file: None,
     };
@@ -355,6 +360,7 @@ fn test_no_optimization_when_not_applicable() {
                 }),
             }],
         }],
+        external_functions: vec![],
         globals: vec![],
         source_file: None,
     };
@@ -408,6 +414,7 @@ fn test_dead_code_elimination_preserves_cast_operands() {
                 }),
             }],
         }],
+        external_functions: vec![],
         globals: vec![],
         source_file: None,
     };
@@ -516,6 +523,7 @@ fn test_function_inlining_remaps_parameters() {
                 }],
             },
         ],
+        external_functions: vec![],
         globals: vec![],
         source_file: None,
     };
@@ -672,6 +680,7 @@ fn test_function_inlining_allows_stack_safe_alloca_helpers() {
                 }],
             },
         ],
+        external_functions: vec![],
         globals: vec![],
         source_file: None,
     };

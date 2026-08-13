@@ -82,8 +82,33 @@ class R3007ContractTests(unittest.TestCase):
         self.assertTrue(symbols["std.demo.from_array"].semantic_declared)
         self.assertTrue(symbols["std.demo.from_insert"].semantic_declared)
         runtime = {}
-        audit.runtime_inventory('const DEMO: &str = "spectra.std.demo.from_insert"; register_host_function(DEMO, demo);', "runtime", runtime)
+        audit.runtime_inventory(
+            'const DEMO: &str = "spectra.std.demo.from_insert"; '
+            'register_host_function(DEMO, demo); '
+            'register_host_function("spectra.std.demo.literal", demo);',
+            "runtime",
+            runtime,
+        )
         self.assertTrue(runtime["std.demo.from_insert"].runtime_registered)
+        self.assertTrue(runtime["std.demo.literal"].runtime_registered)
+
+    def test_multiline_modules_and_generated_numeric_functions_are_discovered(self) -> None:
+        symbols = {}
+        audit.semantic_inventory(
+            'registry.register_module(\n'
+            '    "std.compat.collections".to_string(),\n'
+            '    make_std_compat_collections(),\n'
+            ');\n'
+            'fn make_std_numeric() {\n'
+            '    for op in ["add", "sub", "mul"] {\n'
+            '        format!("wrapping_{op}_{name}");\n'
+            '    }\n'
+            '}',
+            symbols,
+        )
+        self.assertEqual(symbols["std.compat.collections"].kind, "module")
+        self.assertIn("std.numeric.wrapping_add_i8", symbols)
+        self.assertNotIn("std.numeric.i8", symbols)
 
     def test_record_declarations_are_types_not_functions(self) -> None:
         symbols = {}
@@ -114,6 +139,14 @@ class R3007ContractTests(unittest.TestCase):
     def test_canonicalizes_legacy_spectra_prefixes(self) -> None:
         self.assertEqual(audit.canonical_symbol("spectra.std.math.abs"), "std.math.abs")
         self.assertEqual(audit.canonical_symbol("spectra.api.http.method_get"), "std.api.http.method_get")
+
+    def test_report_exposes_catalog_migration_coverage(self) -> None:
+        inventory = audit.discover_sources(audit.ROOT, self.manifest)
+        report = audit.build_report(audit.ROOT, self.manifest, inventory, [])
+        coverage = report["catalog_coverage"]
+        self.assertEqual(coverage["status"], "partial")
+        self.assertGreater(coverage["inventory_symbol_count"], coverage["catalog_symbol_count"])
+        self.assertTrue(any(item["kind"] == "catalog_migration_gap" for item in report["warnings"]))
 
 
 if __name__ == "__main__":

@@ -864,6 +864,23 @@ mod tests {
             Some(crate::ast::ExpressionKind::Await(_))
         ));
     }
+
+    #[test]
+    fn class_declarations_are_reserved_with_stable_diagnostic() {
+        let source = r#"
+            module demo
+            class User { }
+        "#;
+        let errors = parse_with_features(source, &[]).expect_err("class must be rejected");
+        assert!(errors.iter().any(|error| {
+            error.code.as_deref() == Some("P007")
+                && error.message.contains("reserved")
+                && error
+                    .hint
+                    .as_deref()
+                    .is_some_and(|hint| hint.contains("struct"))
+        }));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -18,6 +18,10 @@ use crate::ir::{IntWidth, FloatWidth, Type as IRType};
 /// Bytes a value of `ty` occupies when stored inside an aggregate.
 pub fn stored_size(ty: &IRType) -> usize {
     match ty {
+        // Unknown is poison, not a real storage class. Returning zero keeps
+        // diagnostics/reporting total; the verifier rejects it before layout
+        // data can reach code generation.
+        IRType::Unknown => 0,
         IRType::Void => 0,
         IRType::Bool => 1,
         IRType::Char => 4,

@@ -3,6 +3,7 @@ use crate::ffi::{
     HOST_STATUS_INVALID_ARGUMENT, HOST_STATUS_NOT_FOUND, HOST_STATUS_SUCCESS,
 };
 use crate::initialize;
+use crate::handles::{HandleId, HandleKind, HandleTable};
 use crate::memory::ManualBox;
 use crate::reactor::{self, Interest, ReactorEvent};
 use crate::tracing::{self, SpanKind, SpanStatus};
@@ -17,6 +18,9 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant as StdInstant, SystemTime, UNIX_EPOCH};
+
+mod error;
+mod option_result;
 
 #[cfg(test)]
 use crate::ffi::{clear_host_functions, lookup_host_function};
@@ -106,19 +110,27 @@ const PRINT_TAG_STR: SpectraHostValue = 1;
 const PRINT_TAG_BOOL: SpectraHostValue = 2;
 const PRINT_TAG_FLOAT: SpectraHostValue = 3;
 
-const LIST_NEW: &str = "spectra.std.collections.list_new";
+const LIST_NEW: &str = spectra_contract::STD_COLLECTIONS_LIST_NEW_BINDING;
 const LIST_PUSH: &str = "spectra.std.collections.list_push";
 const LIST_LEN: &str = "spectra.std.collections.list_len";
-const LIST_GET: &str = "spectra.std.collections.list_get";
+const LIST_GET: &str = spectra_contract::STD_COLLECTIONS_LIST_GET_BINDING;
+const LIST_GET_OPTION: &str = spectra_contract::STD_COLLECTIONS_LIST_GET_OPTION_BINDING;
+const LIST_GET_COMPAT: &str = spectra_contract::STD_COMPAT_COLLECTIONS_LIST_GET_BINDING;
 const LIST_SET: &str = "spectra.std.collections.list_set";
 const LIST_CONTAINS: &str = "spectra.std.collections.list_contains";
 const LIST_CLEAR: &str = "spectra.std.collections.list_clear";
 const LIST_FREE: &str = "spectra.std.collections.list_free";
 const LIST_FREE_ALL: &str = "spectra.std.collections.list_free_all";
-const LIST_POP: &str = "spectra.std.collections.list_pop";
-const LIST_POP_FRONT: &str = "spectra.std.collections.list_pop_front";
+const LIST_POP: &str = spectra_contract::STD_COLLECTIONS_LIST_POP_BINDING;
+const LIST_POP_FRONT: &str = spectra_contract::STD_COLLECTIONS_LIST_POP_FRONT_BINDING;
+const LIST_POP_OPTION: &str = "spectra.std.collections.list_pop_option";
+const LIST_POP_FRONT_OPTION: &str = "spectra.std.collections.list_pop_front_option";
+const LIST_POP_COMPAT: &str = spectra_contract::STD_COMPAT_COLLECTIONS_LIST_POP_BINDING;
+const LIST_POP_FRONT_COMPAT: &str = spectra_contract::STD_COMPAT_COLLECTIONS_LIST_POP_FRONT_BINDING;
 const LIST_INSERT_AT: &str = "spectra.std.collections.list_insert_at";
-const LIST_REMOVE_AT: &str = "spectra.std.collections.list_remove_at";
+const LIST_REMOVE_AT: &str = spectra_contract::STD_COLLECTIONS_LIST_REMOVE_AT_BINDING;
+const LIST_REMOVE_AT_OPTION: &str = spectra_contract::STD_COLLECTIONS_LIST_REMOVE_AT_OPTION_BINDING;
+const LIST_REMOVE_AT_COMPAT: &str = spectra_contract::STD_COMPAT_COLLECTIONS_LIST_REMOVE_AT_BINDING;
 const LIST_INDEX_OF: &str = "spectra.std.collections.list_index_of";
 const LIST_SORT: &str = "spectra.std.collections.list_sort";
 
@@ -129,30 +141,26 @@ const LIST_REDUCE: &str = "spectra.std.collections.list_reduce";
 const LIST_SORT_BY: &str = "spectra.std.collections.list_sort_by";
 
 // ── std.fs ───────────────────────────────────────────────────────────────────
-const FS_READ: &str = "spectra.std.fs.fs_read";
-const FS_WRITE: &str = "spectra.std.fs.fs_write";
-const FS_APPEND: &str = "spectra.std.fs.fs_append";
-const FS_EXISTS: &str = "spectra.std.fs.fs_exists";
-const FS_REMOVE: &str = "spectra.std.fs.fs_remove";
+const FS_READ: &str = spectra_contract::STD_FS_FS_READ_BINDING;
+const FS_WRITE: &str = spectra_contract::STD_FS_FS_WRITE_BINDING;
+const FS_APPEND: &str = spectra_contract::STD_FS_FS_APPEND_BINDING;
+const FS_EXISTS: &str = spectra_contract::STD_FS_FS_EXISTS_BINDING;
+const FS_REMOVE: &str = spectra_contract::STD_FS_FS_REMOVE_BINDING;
+const FS_READ_COMPAT: &str = spectra_contract::STD_COMPAT_FS_FS_READ_BINDING;
+const FS_WRITE_COMPAT: &str = spectra_contract::STD_COMPAT_FS_FS_WRITE_BINDING;
+const FS_APPEND_COMPAT: &str = spectra_contract::STD_COMPAT_FS_FS_APPEND_BINDING;
+const FS_EXISTS_COMPAT: &str = spectra_contract::STD_COMPAT_FS_FS_EXISTS_BINDING;
+const FS_REMOVE_COMPAT: &str = spectra_contract::STD_COMPAT_FS_FS_REMOVE_BINDING;
 
 // ── std.env ──────────────────────────────────────────────────────────────────
-const ENV_GET: &str = "spectra.std.env.env_get";
+const ENV_GET: &str = spectra_contract::STD_ENV_ENV_GET_BINDING;
+const ENV_GET_OPTION: &str = spectra_contract::STD_ENV_ENV_GET_OPTION_BINDING;
 const ENV_SET: &str = "spectra.std.env.env_set";
 const ENV_ARGS_COUNT: &str = "spectra.std.env.env_args_count";
-const ENV_ARG: &str = "spectra.std.env.env_arg";
-
-// ── std.option ───────────────────────────────────────────────────────────────
-const OPTION_IS_SOME: &str = "spectra.std.option.is_some";
-const OPTION_IS_NONE: &str = "spectra.std.option.is_none";
-const OPTION_UNWRAP: &str = "spectra.std.option.option_unwrap";
-const OPTION_UNWRAP_OR: &str = "spectra.std.option.option_unwrap_or";
-
-// ── std.result ───────────────────────────────────────────────────────────────
-const RESULT_IS_OK: &str = "spectra.std.result.is_ok";
-const RESULT_IS_ERR: &str = "spectra.std.result.is_err";
-const RESULT_UNWRAP: &str = "spectra.std.result.result_unwrap";
-const RESULT_UNWRAP_OR: &str = "spectra.std.result.result_unwrap_or";
-const RESULT_UNWRAP_ERR: &str = "spectra.std.result.result_unwrap_err";
+const ENV_ARG: &str = spectra_contract::STD_ENV_ENV_ARG_BINDING;
+const ENV_ARG_OPTION: &str = spectra_contract::STD_ENV_ENV_ARG_OPTION_BINDING;
+const ENV_GET_COMPAT: &str = spectra_contract::STD_COMPAT_ENV_ENV_GET_BINDING;
+const ENV_ARG_COMPAT: &str = spectra_contract::STD_COMPAT_ENV_ENV_ARG_BINDING;
 
 // ── std.string (novos) ───────────────────────────────────────────────────────
 const STR_SPLIT_BY: &str = "spectra.std.string.split_by";
@@ -659,14 +667,16 @@ pub fn register() {
     register_numeric();
     register_io();
     register_collections();
+    register_set();
+    register_iterator();
     register_map();
     register_string();
     register_convert();
     register_random();
     register_fs();
     register_env();
-    register_option();
-    register_result();
+    error::register();
+    option_result::register();
     register_char();
     register_time();
     register_range();
@@ -1157,16 +1167,24 @@ fn register_collections() {
     register_host_function(LIST_NEW, std_list_new);
     register_host_function(LIST_PUSH, std_list_push);
     register_host_function(LIST_LEN, std_list_len);
-    register_host_function(LIST_GET, std_list_get);
+    register_host_function(LIST_GET, std_list_get_option);
+    register_host_function(LIST_GET_OPTION, std_list_get_option);
+    register_host_function(LIST_GET_COMPAT, std_list_get);
     register_host_function(LIST_SET, std_list_set);
     register_host_function(LIST_CONTAINS, std_list_contains);
     register_host_function(LIST_CLEAR, std_list_clear);
     register_host_function(LIST_FREE, std_list_free);
     register_host_function(LIST_FREE_ALL, std_list_free_all);
-    register_host_function(LIST_POP, std_list_pop);
-    register_host_function(LIST_POP_FRONT, std_list_pop_front);
+    register_host_function(LIST_POP, std_list_pop_option);
+    register_host_function(LIST_POP_FRONT, std_list_pop_front_option);
+    register_host_function(LIST_POP_OPTION, std_list_pop_option);
+    register_host_function(LIST_POP_FRONT_OPTION, std_list_pop_front_option);
+    register_host_function(LIST_POP_COMPAT, std_list_pop);
+    register_host_function(LIST_POP_FRONT_COMPAT, std_list_pop_front);
     register_host_function(LIST_INSERT_AT, std_list_insert_at);
-    register_host_function(LIST_REMOVE_AT, std_list_remove_at);
+    register_host_function(LIST_REMOVE_AT, std_list_remove_at_option);
+    register_host_function(LIST_REMOVE_AT_OPTION, std_list_remove_at_option);
+    register_host_function(LIST_REMOVE_AT_COMPAT, std_list_remove_at);
     register_host_function(LIST_INDEX_OF, std_list_index_of);
     register_host_function(LIST_SORT, std_list_sort);
     register_host_function(LIST_MAP, std_list_map);
@@ -1626,28 +1644,22 @@ fn register_fs() {
     register_host_function(FS_APPEND, std_fs_append);
     register_host_function(FS_EXISTS, std_fs_exists);
     register_host_function(FS_REMOVE, std_fs_remove);
+    register_host_function(FS_READ_COMPAT, std_fs_compat_read);
+    register_host_function(FS_WRITE_COMPAT, std_fs_compat_write);
+    register_host_function(FS_APPEND_COMPAT, std_fs_compat_append);
+    register_host_function(FS_EXISTS_COMPAT, std_fs_compat_exists);
+    register_host_function(FS_REMOVE_COMPAT, std_fs_compat_remove);
 }
 
 fn register_env() {
-    register_host_function(ENV_GET, std_env_get);
+    register_host_function(ENV_GET, std_env_get_option);
+    register_host_function(ENV_GET_OPTION, std_env_get_option);
     register_host_function(ENV_SET, std_env_set);
     register_host_function(ENV_ARGS_COUNT, std_env_args_count);
-    register_host_function(ENV_ARG, std_env_arg);
-}
-
-fn register_option() {
-    register_host_function(OPTION_IS_SOME, std_option_is_some);
-    register_host_function(OPTION_IS_NONE, std_option_is_none);
-    register_host_function(OPTION_UNWRAP, std_option_unwrap);
-    register_host_function(OPTION_UNWRAP_OR, std_option_unwrap_or);
-}
-
-fn register_result() {
-    register_host_function(RESULT_IS_OK, std_result_is_ok);
-    register_host_function(RESULT_IS_ERR, std_result_is_err);
-    register_host_function(RESULT_UNWRAP, std_result_unwrap);
-    register_host_function(RESULT_UNWRAP_OR, std_result_unwrap_or);
-    register_host_function(RESULT_UNWRAP_ERR, std_result_unwrap_err);
+    register_host_function(ENV_ARG, std_env_arg_option);
+    register_host_function(ENV_ARG_OPTION, std_env_arg_option);
+    register_host_function(ENV_GET_COMPAT, std_env_get);
+    register_host_function(ENV_ARG_COMPAT, std_env_arg);
 }
 
 extern "C" fn std_math_abs(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -2454,8 +2466,7 @@ struct StdList {
 }
 
 struct ListRegistry {
-    next_id: usize,
-    lists: HashMap<usize, ManualBox<StdList>>,
+    lists: HandleTable<ManualBox<StdList>>,
 }
 
 // ── std.string string builder (R-3108) ──────────────────────────────────────
@@ -2514,79 +2525,57 @@ impl StringBuilder {
 }
 
 struct StringBuilderRegistry {
-    builders: Vec<Option<ManualBox<StringBuilder>>>,
-    free: Vec<usize>,
-    next_fresh: usize,
+    builders: HandleTable<ManualBox<StringBuilder>>,
 }
 
 impl StringBuilderRegistry {
     fn new() -> Self {
         Self {
-            builders: Vec::new(),
-            free: Vec::new(),
-            next_fresh: 0,
+            builders: HandleTable::new(HandleKind::StringBuilder),
         }
     }
 
     fn insert(&mut self, builder: ManualBox<StringBuilder>) -> usize {
-        let handle = if let Some(idx) = self.free.pop() {
-            self.builders[idx] = Some(builder);
-            idx
-        } else {
-            let idx = self.next_fresh;
-            self.next_fresh += 1;
-            self.builders.push(Some(builder));
-            idx
-        };
-        // Handle 0 is reserved as invalid (matches concurrent task convention).
-        handle + 1
+        self.builders.insert(builder).raw() as usize
+    }
+
+    fn id(handle: usize) -> Result<HandleId, i32> {
+        HandleId::from_raw(handle as i64).map_err(|_| HOST_STATUS_NOT_FOUND)
     }
 
     fn push_spectra_string(&mut self, handle: usize, str_ptr: i64) -> Result<(), i32> {
-        let idx = handle.checked_sub(1).ok_or(HOST_STATUS_NOT_FOUND)?;
-        match self.builders.get_mut(idx) {
-            Some(Some(b)) => {
-                b.push_spectra_string(str_ptr);
-                Ok(())
-            }
-            _ => Err(HOST_STATUS_NOT_FOUND),
-        }
+        let id = Self::id(handle)?;
+        self.builders
+            .get_mut(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .push_spectra_string(str_ptr);
+        Ok(())
     }
 
     fn len(&self, handle: usize) -> Result<usize, i32> {
-        let idx = handle.checked_sub(1).ok_or(HOST_STATUS_NOT_FOUND)?;
-        match self.builders.get(idx) {
-            Some(Some(b)) => Ok(b.current_len()),
-            _ => Err(HOST_STATUS_NOT_FOUND),
-        }
+        let id = Self::id(handle)?;
+        Ok(self
+            .builders
+            .get(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .current_len())
     }
 
     fn finish(&mut self, handle: usize) -> Result<String, i32> {
-        let idx = handle.checked_sub(1).ok_or(HOST_STATUS_NOT_FOUND)?;
-        match self.builders.get_mut(idx) {
-            Some(slot) => match slot.take() {
-                Some(mut b) => {
-                    self.free.push(idx);
-                    Ok(b.finish())
-                }
-                None => Err(HOST_STATUS_NOT_FOUND),
-            },
-            None => Err(HOST_STATUS_NOT_FOUND),
-        }
+        let id = Self::id(handle)?;
+        let mut builder = self
+            .builders
+            .remove(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        Ok(builder.finish())
     }
 
     fn discard(&mut self, handle: usize) -> Result<(), i32> {
-        let idx = handle.checked_sub(1).ok_or(HOST_STATUS_NOT_FOUND)?;
-        match self.builders.get_mut(idx) {
-            Some(slot) => match slot.take() {
-                Some(_) => {
-                    self.free.push(idx);
-                    Ok(())
-                }
-                None => Err(HOST_STATUS_NOT_FOUND),
-            },
-            None => Err(HOST_STATUS_NOT_FOUND),
-        }
+        let id = Self::id(handle)?;
+        self.builders
+            .remove(id)
+            .map(|_| ())
+            .map_err(|_| HOST_STATUS_NOT_FOUND)
     }
 }
 
@@ -2674,7 +2663,7 @@ pub fn map_new_fast() -> i64 {
 /// Returns 0 on success, `HOST_STATUS_NOT_FOUND` if the handle is invalid.
 /// Handle 0 is a sentinel for "no map" and is a no-op (returns NOT_FOUND).
 pub fn map_set_fast(handle: usize, key: i64, value: i64) -> i32 {
-    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    let map_arc = with_map_registry(|reg| reg.get(handle));
     match map_arc {
         Some(map_arc) => {
             lock_unpoisoned(&map_arc).data.insert(key, value);
@@ -2690,7 +2679,7 @@ pub fn map_set_fast(handle: usize, key: i64, value: i64) -> i32 {
 /// is invalid. Note: cannot distinguish "stored value is 0" from "key
 /// absent / invalid handle".
 pub fn map_get_fast(handle: usize, key: i64) -> i64 {
-    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    let map_arc = with_map_registry(|reg| reg.get(handle));
     match map_arc {
         Some(map_arc) => lock_unpoisoned(&map_arc)
             .data
@@ -2706,7 +2695,7 @@ pub fn map_get_fast(handle: usize, key: i64) -> i64 {
 /// Returns 1 if the key is present in the map, 0 otherwise (including
 /// invalid handle).
 pub fn map_contains_fast(handle: usize, key: i64) -> i64 {
-    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    let map_arc = with_map_registry(|reg| reg.get(handle));
     match map_arc {
         Some(map_arc) => {
             if lock_unpoisoned(&map_arc).data.contains_key(&key) {
@@ -2724,7 +2713,7 @@ pub fn map_contains_fast(handle: usize, key: i64) -> i64 {
 /// Returns the removed value, or 0 if the key was absent or the handle
 /// is invalid. Same caveat as `map_get_fast` regarding stored 0.
 pub fn map_remove_fast(handle: usize, key: i64) -> i64 {
-    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    let map_arc = with_map_registry(|reg| reg.get(handle));
     match map_arc {
         Some(map_arc) => lock_unpoisoned(&map_arc).data.remove(&key).unwrap_or(0),
         None => 0,
@@ -2735,7 +2724,7 @@ pub fn map_remove_fast(handle: usize, key: i64) -> i64 {
 ///
 /// Returns the number of entries in the map, or 0 for an invalid handle.
 pub fn map_len_fast(handle: usize) -> i64 {
-    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    let map_arc = with_map_registry(|reg| reg.get(handle));
     match map_arc {
         Some(map_arc) => lock_unpoisoned(&map_arc).data.len() as i64,
         None => 0,
@@ -2746,7 +2735,7 @@ pub fn map_len_fast(handle: usize) -> i64 {
 ///
 /// Removes all entries from the map. No-op for an invalid handle.
 pub fn map_clear_fast(handle: usize) {
-    let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+    let map_arc = with_map_registry(|reg| reg.get(handle));
     if let Some(map_arc) = map_arc {
         lock_unpoisoned(&map_arc).data.clear();
     }
@@ -2758,7 +2747,7 @@ pub fn map_clear_fast(handle: usize) {
 /// No-op for an invalid handle.
 pub fn map_free_fast(handle: usize) {
     with_map_registry(|reg| {
-        reg.maps.remove(&handle);
+        let _ = reg.remove(handle);
     });
 }
 
@@ -3046,148 +3035,200 @@ pub fn tensor_full_f_fast(n: usize, value: f64) -> SpectraHostValue {
 impl ListRegistry {
     fn new() -> Self {
         Self {
-            next_id: 1,
-            lists: HashMap::new(),
+            lists: HandleTable::new(HandleKind::List),
         }
     }
 
     fn insert(&mut self, list: ManualBox<StdList>) -> usize {
-        let mut handle = self.next_id.max(1);
-        while self.lists.contains_key(&handle) {
-            handle = handle.wrapping_add(1).max(1);
-        }
-        self.next_id = handle.wrapping_add(1);
-        if self.next_id == 0 {
-            self.next_id = 1;
-        }
-        self.lists.insert(handle, list);
-        handle
+        self.lists.insert(list).raw() as usize
+    }
+
+    fn id(handle: usize) -> Result<HandleId, i32> {
+        HandleId::from_raw(handle as i64).map_err(|_| HOST_STATUS_NOT_FOUND)
     }
 
     fn push(&mut self, handle: usize, value: SpectraHostValue) -> Result<usize, i32> {
-        match self.lists.get_mut(&handle) {
-            Some(list) => {
-                list.data.push(value);
-                Ok(list.data.len())
-            }
-            None => Err(HOST_STATUS_NOT_FOUND),
-        }
+        let id = Self::id(handle)?;
+        let list = self.lists.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        list.data.push(value);
+        Ok(list.data.len())
     }
 
     fn len(&self, handle: usize) -> Result<usize, i32> {
-        match self.lists.get(&handle) {
-            Some(list) => Ok(list.data.len()),
-            None => Err(HOST_STATUS_NOT_FOUND),
-        }
+        let id = Self::id(handle)?;
+        Ok(self
+            .lists
+            .get(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .len())
     }
 
-    fn get(&self, handle: usize, index: i64) -> SpectraHostValue {
-        match self.lists.get(&handle) {
-            Some(list) if index >= 0 && (index as usize) < list.data.len() => {
-                list.data[index as usize]
-            }
-            _ => -1,
+    fn get(&self, handle: usize, index: i64) -> Result<SpectraHostValue, i32> {
+        let id = Self::id(handle)?;
+        let list = self.lists.get(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if index < 0 || (index as usize) >= list.data.len() {
+            return Err(HOST_STATUS_NOT_FOUND);
         }
+        Ok(list.data[index as usize])
     }
 
-    fn set(&mut self, handle: usize, index: i64, value: SpectraHostValue) {
-        if let Some(list) = self.lists.get_mut(&handle) {
-            if index >= 0 && (index as usize) < list.data.len() {
-                list.data[index as usize] = value;
-            }
+    fn get_option(&self, handle: usize, index: i64) -> Result<Option<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        let list = self.lists.get(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if index < 0 || (index as usize) >= list.data.len() {
+            return Ok(None);
         }
+        Ok(Some(list.data[index as usize]))
     }
 
-    fn contains(&self, handle: usize, value: SpectraHostValue) -> bool {
-        match self.lists.get(&handle) {
-            Some(list) => list.data.contains(&value),
-            None => false,
+    fn set(&mut self, handle: usize, index: i64, value: SpectraHostValue) -> Result<(), i32> {
+        let id = Self::id(handle)?;
+        let list = self.lists.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if index < 0 || (index as usize) >= list.data.len() {
+            return Err(HOST_STATUS_NOT_FOUND);
         }
+        list.data[index as usize] = value;
+        Ok(())
+    }
+
+    fn contains(&self, handle: usize, value: SpectraHostValue) -> Result<bool, i32> {
+        let id = Self::id(handle)?;
+        Ok(self
+            .lists
+            .get(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .contains(&value))
     }
 
     fn clear_list(&mut self, handle: usize) -> Result<(), i32> {
-        match self.lists.get_mut(&handle) {
-            Some(list) => {
-                list.data.clear();
-                Ok(())
-            }
-            None => Err(HOST_STATUS_NOT_FOUND),
-        }
+        let id = Self::id(handle)?;
+        self.lists
+            .get_mut(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .clear();
+        Ok(())
     }
 
     fn remove(&mut self, handle: usize) -> Result<(), i32> {
-        if self.lists.remove(&handle).is_some() {
-            Ok(())
-        } else {
-            Err(HOST_STATUS_NOT_FOUND)
-        }
+        let id = Self::id(handle)?;
+        self.lists
+            .remove(id)
+            .map(|_| ())
+            .map_err(|_| HOST_STATUS_NOT_FOUND)
     }
 
     fn clear_all(&mut self) -> usize {
-        let count = self.lists.len();
-        self.lists.clear();
-        self.next_id = 1;
-        count
+        self.lists.clear()
     }
 
-    fn pop(&mut self, handle: usize) -> SpectraHostValue {
-        match self.lists.get_mut(&handle) {
-            Some(list) => list.data.pop().unwrap_or(-1),
-            None => -1,
-        }
+    fn pop(&mut self, handle: usize) -> Result<SpectraHostValue, i32> {
+        let id = Self::id(handle)?;
+        self.lists
+            .get_mut(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .pop()
+            .ok_or(HOST_STATUS_NOT_FOUND)
     }
 
-    fn pop_front(&mut self, handle: usize) -> SpectraHostValue {
-        match self.lists.get_mut(&handle) {
-            Some(list) if !list.data.is_empty() => list.data.remove(0),
-            _ => -1,
+    fn pop_front(&mut self, handle: usize) -> Result<SpectraHostValue, i32> {
+        let id = Self::id(handle)?;
+        let list = self.lists.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if list.data.is_empty() {
+            return Err(HOST_STATUS_NOT_FOUND);
         }
+        Ok(list.data.remove(0))
     }
 
-    fn insert_at(&mut self, handle: usize, index: i64, value: SpectraHostValue) {
-        if let Some(list) = self.lists.get_mut(&handle) {
-            let idx = index.clamp(0, list.data.len() as i64) as usize;
-            list.data.insert(idx, value);
-        }
+    fn pop_option(&mut self, handle: usize) -> Result<Option<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        let list = self.lists.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        Ok(list.data.pop())
     }
 
-    fn remove_at(&mut self, handle: usize, index: i64) -> SpectraHostValue {
-        if let Some(list) = self.lists.get_mut(&handle) {
-            if index >= 0 && (index as usize) < list.data.len() {
-                return list.data.remove(index as usize);
-            }
+    fn pop_front_option(&mut self, handle: usize) -> Result<Option<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        let list = self.lists.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if list.data.is_empty() {
+            return Ok(None);
         }
-        -1
+        Ok(Some(list.data.remove(0)))
     }
 
-    fn index_of(&self, handle: usize, value: SpectraHostValue) -> SpectraHostValue {
-        match self.lists.get(&handle) {
-            Some(list) => list
-                .data
-                .iter()
-                .position(|&v| v == value)
-                .map(|i| i as i64)
-                .unwrap_or(-1),
-            None => -1,
-        }
+    fn insert_at(&mut self, handle: usize, index: i64, value: SpectraHostValue) -> Result<(), i32> {
+        let id = Self::id(handle)?;
+        let list = self.lists.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        let idx = index.clamp(0, list.data.len() as i64) as usize;
+        list.data.insert(idx, value);
+        Ok(())
     }
 
-    fn sort_asc(&mut self, handle: usize) {
-        if let Some(list) = self.lists.get_mut(&handle) {
-            list.data.sort();
+    fn remove_at(&mut self, handle: usize, index: i64) -> Result<SpectraHostValue, i32> {
+        let id = Self::id(handle)?;
+        let list = self.lists.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if index < 0 || (index as usize) >= list.data.len() {
+            return Err(HOST_STATUS_NOT_FOUND);
         }
+        Ok(list.data.remove(index as usize))
+    }
+
+    fn remove_at_option(
+        &mut self,
+        handle: usize,
+        index: i64,
+    ) -> Result<Option<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        let list = self.lists.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if index < 0 || (index as usize) >= list.data.len() {
+            return Ok(None);
+        }
+        Ok(Some(list.data.remove(index as usize)))
+    }
+
+    fn index_of(&self, handle: usize, value: SpectraHostValue) -> Result<SpectraHostValue, i32> {
+        let id = Self::id(handle)?;
+        self.lists
+            .get(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .iter()
+            .position(|&v| v == value)
+            .map(|i| i as i64)
+            .ok_or(HOST_STATUS_NOT_FOUND)
+    }
+
+    fn sort_asc(&mut self, handle: usize) -> Result<(), i32> {
+        let id = Self::id(handle)?;
+        self.lists
+            .get_mut(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .sort();
+        Ok(())
     }
 
     /// Returns a clone of the list's data without holding any other lock.
-    fn snapshot(&self, handle: usize) -> Option<Vec<SpectraHostValue>> {
-        self.lists.get(&handle).map(|l| l.data.clone())
+    fn snapshot(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        Ok(self
+            .lists
+            .get(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .clone())
     }
 
     /// Replaces a list's data with `data` (used after an out-of-lock sort/transform).
-    fn restore(&mut self, handle: usize, data: Vec<SpectraHostValue>) {
-        if let Some(list) = self.lists.get_mut(&handle) {
-            list.data = data;
-        }
+    fn restore(&mut self, handle: usize, data: Vec<SpectraHostValue>) -> Result<(), i32> {
+        let id = Self::id(handle)?;
+        self.lists
+            .get_mut(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data = data;
+        Ok(())
     }
 }
 
@@ -3597,8 +3638,7 @@ impl StdTensor {
 }
 
 struct TensorRegistry {
-    next_id: usize,
-    tensors: HashMap<usize, ManualBox<StdTensor>>,
+    tensors: HandleTable<ManualBox<StdTensor>>,
     pool: Vec<Vec<SpectraHostValue>>,
     metrics: TensorMetrics,
     memory_step: usize,
@@ -3625,8 +3665,7 @@ struct TensorLifetimeRecord {
 impl TensorRegistry {
     fn new() -> Self {
         Self {
-            next_id: 1,
-            tensors: HashMap::new(),
+            tensors: HandleTable::new(HandleKind::Tensor),
             pool: Vec::new(),
             metrics: TensorMetrics::default(),
             memory_step: 0,
@@ -3650,19 +3689,14 @@ impl TensorRegistry {
         self.metrics.active_bytes = self.metrics.active_bytes.saturating_add(bytes);
         self.metrics.peak_bytes = self.metrics.peak_bytes.max(self.metrics.active_bytes);
 
-        let mut handle = self.next_id.max(1);
-        while self.tensors.contains_key(&handle) {
-            handle = handle.wrapping_add(1).max(1);
-        }
-        self.next_id = handle.wrapping_add(1);
-        if self.next_id == 0 {
-            self.next_id = 1;
-        }
+        let dtype = tensor.dtype;
+        let shape = tensor.shape.clone();
+        let handle = self.tensors.insert(tensor).raw() as usize;
         self.memory_step = self.memory_step.saturating_add(1);
         let record = TensorLifetimeRecord {
             handle,
-            dtype: tensor.dtype,
-            shape: tensor.shape.clone(),
+            dtype,
+            shape,
             bytes,
             allocation_step: self.memory_step,
             release_step: None,
@@ -3671,12 +3705,12 @@ impl TensorRegistry {
         let record_index = self.lifetimes.len();
         self.lifetimes.push(record);
         self.active_lifetimes.insert(handle, record_index);
-        self.tensors.insert(handle, tensor);
         handle
     }
 
     fn remove(&mut self, handle: usize) -> Result<(), i32> {
-        if let Some(tensor) = self.tensors.remove(&handle) {
+        let id = HandleId::from_raw(handle as i64).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if let Ok(tensor) = self.tensors.remove(id) {
             self.mark_released(handle);
             self.recycle_tensor(tensor);
             Ok(())
@@ -3686,25 +3720,41 @@ impl TensorRegistry {
     }
 
     fn clear_all(&mut self) -> usize {
-        let count = self.tensors.len();
-        let tensors: Vec<_> = self.tensors.drain().map(|(_, tensor)| tensor).collect();
-        let handles = self.active_lifetimes.keys().copied().collect::<Vec<_>>();
+        let tensors = self.tensors.drain();
+        let count = tensors.len();
+        let handles = tensors
+            .iter()
+            .map(|(handle, _)| handle.raw() as usize)
+            .collect::<Vec<_>>();
         for handle in handles {
             self.mark_released(handle);
         }
-        for tensor in tensors {
+        for (_, tensor) in tensors {
             self.recycle_tensor(tensor);
         }
-        self.next_id = 1;
         count
     }
 
     fn get(&self, handle: usize) -> Option<&StdTensor> {
-        self.tensors.get(&handle).map(|boxed| boxed.as_ref())
+        let id = HandleId::from_raw(handle as i64).ok()?;
+        self.tensors.get(id).ok().map(|boxed| boxed.as_ref())
     }
 
     fn get_mut(&mut self, handle: usize) -> Option<&mut StdTensor> {
-        self.tensors.get_mut(&handle).map(|boxed| boxed.as_mut())
+        let id = HandleId::from_raw(handle as i64).ok()?;
+        self.tensors.get_mut(id).ok().map(|boxed| boxed.as_mut())
+    }
+
+    fn take(&mut self, handle: usize) -> Option<ManualBox<StdTensor>> {
+        let id = HandleId::from_raw(handle as i64).ok()?;
+        self.tensors.take(id).ok()
+    }
+
+    fn put(&mut self, handle: usize, tensor: ManualBox<StdTensor>) -> bool {
+        let Some(id) = HandleId::from_raw(handle as i64).ok() else {
+            return false;
+        };
+        self.tensors.put(id, tensor).is_ok()
     }
 
     fn mark_released(&mut self, handle: usize) {
@@ -3865,7 +3915,7 @@ impl TensorRegistry {
             .iter()
             .map(|(handle, tensor)| {
                 (
-                    *handle,
+                    handle.raw() as usize,
                     tensor.dtype,
                     tensor.shape.clone(),
                     tensor.storage_bytes(),
@@ -7617,16 +7667,16 @@ fn tensor_backward_impl(loss_handle: usize) -> Result<(), i32> {
     while let Some((handle, grad)) = stack.pop() {
         let next = with_tensor_registry(|registry| {
             let grad_for_parents = grad.clone();
-            let Some(mut boxed) = registry.tensors.remove(&handle) else {
+            let Some(mut boxed) = registry.take(handle) else {
                 return Ok::<Vec<(usize, ParentGrad)>, i32>(Vec::new());
             };
             let node = boxed.as_ref().creator.clone();
             if !accumulate_parent_grad(registry, boxed.as_mut(), grad) {
-                registry.tensors.insert(handle, boxed);
+                let _ = registry.put(handle, boxed);
                 return Err(HOST_STATUS_INVALID_ARGUMENT);
             }
             visited.push(handle);
-            registry.tensors.insert(handle, boxed);
+            let _ = registry.put(handle, boxed);
             let Some(node) = node else {
                 return Ok(Vec::new());
             };
@@ -7652,12 +7702,12 @@ extern "C" fn std_tensor_requires_grad(ctx: *mut SpectraHostCallContext) -> i32 
         };
         let ok = with_tensor_registry(|registry| {
             let handle = args[0] as usize;
-            let Some(mut boxed) = registry.tensors.remove(&handle) else {
+            let Some(mut boxed) = registry.take(handle) else {
                 return false;
             };
             let tensor = boxed.as_mut();
             if tensor.dtype != TensorDType::Float {
-                registry.tensors.insert(handle, boxed);
+                let _ = registry.put(handle, boxed);
                 return false;
             }
             tensor.requires_grad = args[1] != 0;
@@ -7671,7 +7721,7 @@ extern "C" fn std_tensor_requires_grad(ctx: *mut SpectraHostCallContext) -> i32 
                     }
                 }
             }
-            registry.tensors.insert(handle, boxed);
+            let _ = registry.put(handle, boxed);
             true
         });
         if !ok {
@@ -7742,7 +7792,7 @@ extern "C" fn std_tensor_zero_grad(ctx: *mut SpectraHostCallContext) -> i32 {
         };
         let ok = with_tensor_registry(|registry| {
             let handle = args[0] as usize;
-            let Some(mut boxed) = registry.tensors.remove(&handle) else {
+            let Some(mut boxed) = registry.take(handle) else {
                 return false;
             };
             let tensor = boxed.as_mut();
@@ -7753,7 +7803,7 @@ extern "C" fn std_tensor_zero_grad(ctx: *mut SpectraHostCallContext) -> i32 {
                     registry.device_arena.release(buf);
                 }
             }
-            registry.tensors.insert(handle, boxed);
+            let _ = registry.put(handle, boxed);
             true
         });
         if !ok {
@@ -7890,41 +7940,74 @@ struct MlArtifact {
     tensors: HashMap<String, usize>,
 }
 
+/// ML resources use the same generational handle encoding as core collections
+/// and time values. This adapter keeps the existing `Option`-based call sites
+/// small while removing the old process-global `next_id` namespace.
+struct MlHandleTable<T> {
+    table: HandleTable<T>,
+}
+
+impl<T> MlHandleTable<T> {
+    fn new(kind: HandleKind) -> Self {
+        Self {
+            table: HandleTable::new(kind),
+        }
+    }
+
+    fn insert(&mut self, value: T) -> usize {
+        self.table.insert(value).raw() as usize
+    }
+
+    fn id(&self, raw: &usize) -> Option<HandleId> {
+        HandleId::from_raw(*raw as i64).ok()
+    }
+
+    fn get(&self, raw: &usize) -> Option<&T> {
+        self.id(raw).and_then(|id| self.table.get(id).ok())
+    }
+
+    fn get_mut(&mut self, raw: &usize) -> Option<&mut T> {
+        let id = self.id(raw)?;
+        self.table.get_mut(id).ok()
+    }
+
+    fn remove(&mut self, raw: &usize) -> Option<T> {
+        let id = self.id(raw)?;
+        self.table.remove(id).ok()
+    }
+
+    fn contains_key(&self, raw: &usize) -> bool {
+        self.get(raw).is_some()
+    }
+}
+
 struct MlRegistry {
-    next_id: usize,
-    modules: HashMap<usize, MlModule>,
-    datasets: HashMap<usize, MlDataset>,
-    loaders: HashMap<usize, MlDataLoader>,
-    dataframes: HashMap<usize, MlDataFrame>,
-    experiments: HashMap<usize, MlExperiment>,
-    distributed_sessions: HashMap<usize, MlDistributedSession>,
-    kv_caches: HashMap<usize, MlKvCache>,
-    tokenizers: HashMap<usize, MlWordpieceTokenizer>,
-    vector_indexes: HashMap<usize, crate::vector_index::VectorIndex>,
-    artifacts: HashMap<usize, MlArtifact>,
+    modules: MlHandleTable<MlModule>,
+    datasets: MlHandleTable<MlDataset>,
+    loaders: MlHandleTable<MlDataLoader>,
+    dataframes: MlHandleTable<MlDataFrame>,
+    experiments: MlHandleTable<MlExperiment>,
+    distributed_sessions: MlHandleTable<MlDistributedSession>,
+    kv_caches: MlHandleTable<MlKvCache>,
+    tokenizers: MlHandleTable<MlWordpieceTokenizer>,
+    vector_indexes: MlHandleTable<crate::vector_index::VectorIndex>,
+    artifacts: MlHandleTable<MlArtifact>,
 }
 
 impl MlRegistry {
     fn new() -> Self {
         Self {
-            next_id: 1,
-            modules: HashMap::new(),
-            datasets: HashMap::new(),
-            loaders: HashMap::new(),
-            dataframes: HashMap::new(),
-            experiments: HashMap::new(),
-            distributed_sessions: HashMap::new(),
-            kv_caches: HashMap::new(),
-            tokenizers: HashMap::new(),
-            vector_indexes: HashMap::new(),
-            artifacts: HashMap::new(),
+            modules: MlHandleTable::new(HandleKind::MlModule),
+            datasets: MlHandleTable::new(HandleKind::MlDataset),
+            loaders: MlHandleTable::new(HandleKind::MlDataLoader),
+            dataframes: MlHandleTable::new(HandleKind::MlDataFrame),
+            experiments: MlHandleTable::new(HandleKind::MlExperiment),
+            distributed_sessions: MlHandleTable::new(HandleKind::MlDistributedSession),
+            kv_caches: MlHandleTable::new(HandleKind::MlKvCache),
+            tokenizers: MlHandleTable::new(HandleKind::MlTokenizer),
+            vector_indexes: MlHandleTable::new(HandleKind::MlVectorIndex),
+            artifacts: MlHandleTable::new(HandleKind::MlArtifact),
         }
-    }
-
-    fn next_handle(&mut self) -> usize {
-        let handle = self.next_id.max(1);
-        self.next_id = self.next_id.wrapping_add(1).max(1);
-        handle
     }
 }
 
@@ -8355,15 +8438,10 @@ extern "C" fn std_ml_module_new(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.modules.insert(
-                handle,
-                MlModule {
-                    parameters: Vec::new(),
-                    training: true,
-                },
-            );
-            handle
+            registry.modules.insert(MlModule {
+                parameters: Vec::new(),
+                training: true,
+            })
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -8455,18 +8533,13 @@ extern "C" fn std_ml_artifact_new(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.artifacts.insert(
-                handle,
-                MlArtifact {
-                    name,
-                    model_version: version,
-                    kind,
-                    metadata: BTreeMap::new(),
-                    tensors: HashMap::new(),
-                },
-            );
-            handle
+            registry.artifacts.insert(MlArtifact {
+                name,
+                model_version: version,
+                kind,
+                metadata: BTreeMap::new(),
+                tensors: HashMap::new(),
+            })
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -8574,18 +8647,13 @@ extern "C" fn std_ml_artifact_load(ctx: *mut SpectraHostCallContext) -> i32 {
             tensors.insert(payload.name.clone(), handle);
         }
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.artifacts.insert(
-                handle,
-                MlArtifact {
-                    name: data.name,
-                    model_version: data.model_version,
-                    kind: data.kind,
-                    metadata: data.metadata,
-                    tensors,
-                },
-            );
-            handle
+            registry.artifacts.insert(MlArtifact {
+                name: data.name,
+                model_version: data.model_version,
+                kind: data.kind,
+                metadata: data.metadata,
+                tensors,
+            })
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -9440,21 +9508,21 @@ extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
         {
             let device_ok = with_tensor_registry(|registry| {
                 let handle = args[0] as usize;
-                let Some(mut boxed) = registry.tensors.remove(&handle) else {
+                let Some(mut boxed) = registry.take(handle) else {
                     return None;
                 };
                 let param = boxed.as_mut();
                 let param_buf = match param.device_storage.remove(&crate::gpu::PoolDevice::Wgpu) {
                     Some(buf) => buf.clone(),
                     None => {
-                        registry.tensors.insert(handle, boxed);
+                        let _ = registry.put(handle, boxed);
                         return Some(false);
                     }
                 };
                 let grad_buf = match param.device_grad.remove(&crate::gpu::PoolDevice::Wgpu) {
                     Some(buf) => buf,
                     None => {
-                        registry.tensors.insert(handle, boxed);
+                        let _ = registry.put(handle, boxed);
                         return Some(false);
                     }
                 };
@@ -9463,7 +9531,7 @@ extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
                         .device_storage
                         .insert(crate::gpu::PoolDevice::Wgpu, param_buf);
                     registry.device_arena.release(grad_buf);
-                    registry.tensors.insert(handle, boxed);
+                    let _ = registry.put(handle, boxed);
                     return Some(false);
                 }
                 let result = crate::gpu::with_device_queue(|device, queue| {
@@ -9487,7 +9555,7 @@ extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
                             .insert(crate::gpu::PoolDevice::Wgpu, out_buf);
                         param.grad = None;
                         registry.note_gpu_kernel();
-                        registry.tensors.insert(handle, boxed);
+                        let _ = registry.put(handle, boxed);
                         Some(true)
                     }
                     Ok((Err(err), out_buf)) => {
@@ -9497,7 +9565,7 @@ extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
                             .insert(crate::gpu::PoolDevice::Wgpu, param_buf);
                         registry.note_gpu_error(err.kind);
                         registry.note_cpu_fallback();
-                        registry.tensors.insert(handle, boxed);
+                        let _ = registry.put(handle, boxed);
                         Some(false)
                     }
                     Err(err) => {
@@ -9506,7 +9574,7 @@ extern "C" fn std_ml_sgd_step(ctx: *mut SpectraHostCallContext) -> i32 {
                             .insert(crate::gpu::PoolDevice::Wgpu, param_buf);
                         registry.note_gpu_error(err.kind);
                         registry.note_cpu_fallback();
-                        registry.tensors.insert(handle, boxed);
+                        let _ = registry.put(handle, boxed);
                         Some(false)
                     }
                 }
@@ -9775,16 +9843,11 @@ fn ml_dataset_from_flat_parts(
         f64_values_to_host(&labels),
     )?;
     let handle = with_ml_registry(|registry| {
-        let handle = registry.next_handle();
-        registry.datasets.insert(
-            handle,
-            MlDataset {
-                features: features_handle,
-                labels: labels_handle,
-                len,
-            },
-        );
-        handle
+        registry.datasets.insert(MlDataset {
+            features: features_handle,
+            labels: labels_handle,
+            len,
+        })
     });
     Ok(handle)
 }
@@ -10741,16 +10804,11 @@ extern "C" fn std_ml_dataset_from_tensors(ctx: *mut SpectraHostCallContext) -> i
             return HOST_STATUS_NOT_FOUND;
         }
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.datasets.insert(
-                handle,
-                MlDataset {
-                    features: args[0] as usize,
-                    labels: args[1] as usize,
-                    len,
-                },
-            );
-            handle
+            registry.datasets.insert(MlDataset {
+                features: args[0] as usize,
+                labels: args[1] as usize,
+                len,
+            })
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -11002,16 +11060,11 @@ extern "C" fn std_ml_dataloader_new(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_NOT_FOUND;
         }
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.loaders.insert(
-                handle,
-                MlDataLoader {
-                    dataset,
-                    batch_size: args[1] as usize,
-                    shuffle_seed: args[2] as u64,
-                },
-            );
-            handle
+            registry.loaders.insert(MlDataLoader {
+                dataset,
+                batch_size: args[1] as usize,
+                shuffle_seed: args[2] as u64,
+            })
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -11116,11 +11169,7 @@ extern "C" fn std_ml_dataframe_from_csv(ctx: *mut SpectraHostCallContext) -> i32
             Err(code) => return code,
         };
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry
-                .dataframes
-                .insert(handle, MlDataFrame { rows, cols, data });
-            handle
+            registry.dataframes.insert(MlDataFrame { rows, cols, data })
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -11213,24 +11262,19 @@ extern "C" fn std_ml_experiment_start(ctx: *mut SpectraHostCallContext) -> i32 {
             manifest_path
         );
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.experiments.insert(
-                handle,
-                MlExperiment {
-                    name,
-                    out_dir,
-                    seed: args[2],
-                    configs: Vec::new(),
-                    metrics: Vec::new(),
-                    artifacts: Vec::new(),
-                    lockfile: None,
-                    model_output: None,
-                    manifest_path,
-                    reproduction_command,
-                    finished: false,
-                },
-            );
-            handle
+            registry.experiments.insert(MlExperiment {
+                name,
+                out_dir,
+                seed: args[2],
+                configs: Vec::new(),
+                metrics: Vec::new(),
+                artifacts: Vec::new(),
+                lockfile: None,
+                model_output: None,
+                manifest_path,
+                reproduction_command,
+                finished: false,
+            })
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -11485,7 +11529,6 @@ extern "C" fn std_ml_distributed_session_start(ctx: *mut SpectraHostCallContext)
         let worker_count = worker_count as usize;
         let seed = args[3];
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
             let workers = (0..worker_count)
                 .map(|worker_id| MlDistributedWorker {
                     worker_id,
@@ -11495,20 +11538,16 @@ extern "C" fn std_ml_distributed_session_start(ctx: *mut SpectraHostCallContext)
                     active: true,
                 })
                 .collect();
-            registry.distributed_sessions.insert(
-                handle,
-                MlDistributedSession {
-                    name,
-                    out_dir,
-                    worker_count,
-                    seed,
-                    global_step: 0,
-                    interrupted_worker: None,
-                    workers,
-                    last_checkpoint_path: None,
-                },
-            );
-            handle
+            registry.distributed_sessions.insert(MlDistributedSession {
+                name,
+                out_dir,
+                worker_count,
+                seed,
+                global_step: 0,
+                interrupted_worker: None,
+                workers,
+                last_checkpoint_path: None,
+            })
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -11650,9 +11689,7 @@ extern "C" fn std_ml_distributed_resume(ctx: *mut SpectraHostCallContext) -> i32
         }
         session.interrupted_worker = None;
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.distributed_sessions.insert(handle, session);
-            handle
+            registry.distributed_sessions.insert(session)
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -11992,17 +12029,12 @@ extern "C" fn std_ml_kv_cache_new(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.kv_caches.insert(
-                handle,
-                MlKvCache {
-                    max_tokens: args[0] as usize,
-                    dim: args[1] as usize,
-                    keys: Vec::new(),
-                    values: Vec::new(),
-                },
-            );
-            handle
+            registry.kv_caches.insert(MlKvCache {
+                max_tokens: args[0] as usize,
+                dim: args[1] as usize,
+                keys: Vec::new(),
+                values: Vec::new(),
+            })
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -12144,9 +12176,7 @@ extern "C" fn std_ml_tokenizer_wordpiece(ctx: *mut SpectraHostCallContext) -> i3
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.tokenizers.insert(handle, tokenizer);
-            handle
+            registry.tokenizers.insert(tokenizer)
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -12167,9 +12197,7 @@ extern "C" fn std_ml_tokenizer_load(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.tokenizers.insert(handle, tokenizer);
-            handle
+            registry.tokenizers.insert(tokenizer)
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -12304,9 +12332,7 @@ extern "C" fn std_ml_vector_index_new(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.vector_indexes.insert(handle, index);
-            handle
+            registry.vector_indexes.insert(index)
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -12425,9 +12451,7 @@ extern "C" fn std_ml_vector_index_load(ctx: *mut SpectraHostCallContext) -> i32 
             Err(_) => return HOST_STATUS_INVALID_ARGUMENT,
         };
         let handle = with_ml_registry(|registry| {
-            let handle = registry.next_handle();
-            registry.vector_indexes.insert(handle, index);
-            handle
+            registry.vector_indexes.insert(index)
         });
         tensor_result(ctx_ref, handle as SpectraHostValue)
     }
@@ -13592,6 +13616,28 @@ fn f64_bits_to_i64_if_needed(value: SpectraHostValue) -> SpectraHostValue {
 
 // ── std.collections extras ──────────────────────────────────────────────────
 
+fn write_option_result(
+    ctx: &mut SpectraHostCallContext,
+    value: Option<SpectraHostValue>,
+) -> i32 {
+    if ctx.result_len == 0 || ctx.results.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    let (tag, payload) = match value {
+        Some(value) => (0, value),
+        None => (1, 0),
+    };
+    let handle = unsafe { alloc_tagged_payload(tag, payload) };
+    if handle == 0 {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    unsafe {
+        let results = slice::from_raw_parts_mut(ctx.results, ctx.result_len);
+        results[0] = handle;
+    }
+    HOST_STATUS_SUCCESS
+}
+
 extern "C" fn std_list_get(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
@@ -13607,11 +13653,27 @@ extern "C" fn std_list_get(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
         let index = args[1];
-        let result = with_list_registry(|registry| registry.get(handle, index));
+        let result = with_list_registry(|registry| registry.get(handle, index)).unwrap_or(-1);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = result;
     }
     HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_get_option(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let value = with_list_registry(|registry| registry.get_option(args[0] as usize, args[1]))
+            .unwrap_or(None);
+        write_option_result(ctx_ref, value)
+    }
 }
 
 extern "C" fn std_list_set(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -13627,7 +13689,7 @@ extern "C" fn std_list_set(ctx: *mut SpectraHostCallContext) -> i32 {
         let handle = args[0] as usize;
         let index = args[1];
         let value = args[2];
-        with_list_registry(|registry| registry.set(handle, index, value));
+        let _ = with_list_registry(|registry| registry.set(handle, index, value));
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = 0;
@@ -13651,7 +13713,7 @@ extern "C" fn std_list_contains(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
         let value = args[1];
-        let found = with_list_registry(|registry| registry.contains(handle, value));
+        let found = with_list_registry(|registry| registry.contains(handle, value)).unwrap_or(false);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = found as SpectraHostValue;
     }
@@ -13672,7 +13734,7 @@ extern "C" fn std_list_pop(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
-        let val = with_list_registry(|registry| registry.pop(handle));
+        let val = with_list_registry(|registry| registry.pop(handle)).unwrap_or(-1);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = val;
     }
@@ -13693,11 +13755,43 @@ extern "C" fn std_list_pop_front(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
-        let val = with_list_registry(|registry| registry.pop_front(handle));
+        let val = with_list_registry(|registry| registry.pop_front(handle)).unwrap_or(-1);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = val;
     }
     HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_pop_option(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let value = with_list_registry(|registry| registry.pop_option(args[0] as usize))
+            .unwrap_or(None);
+        write_option_result(ctx_ref, value)
+    }
+}
+
+extern "C" fn std_list_pop_front_option(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let value = with_list_registry(|registry| registry.pop_front_option(args[0] as usize))
+            .unwrap_or(None);
+        write_option_result(ctx_ref, value)
+    }
 }
 
 extern "C" fn std_list_insert_at(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -13713,7 +13807,7 @@ extern "C" fn std_list_insert_at(ctx: *mut SpectraHostCallContext) -> i32 {
         let handle = args[0] as usize;
         let index = args[1];
         let value = args[2];
-        with_list_registry(|registry| registry.insert_at(handle, index, value));
+        let _ = with_list_registry(|registry| registry.insert_at(handle, index, value));
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = 0;
@@ -13737,11 +13831,29 @@ extern "C" fn std_list_remove_at(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
         let index = args[1];
-        let val = with_list_registry(|registry| registry.remove_at(handle, index));
+        let val = with_list_registry(|registry| registry.remove_at(handle, index)).unwrap_or(-1);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = val;
     }
     HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_list_remove_at_option(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let value = with_list_registry(|registry| {
+            registry.remove_at_option(args[0] as usize, args[1])
+        })
+        .unwrap_or(None);
+        write_option_result(ctx_ref, value)
+    }
 }
 
 extern "C" fn std_list_index_of(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -13759,7 +13871,7 @@ extern "C" fn std_list_index_of(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
         let value = args[1];
-        let idx = with_list_registry(|registry| registry.index_of(handle, value));
+        let idx = with_list_registry(|registry| registry.index_of(handle, value)).unwrap_or(-1);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         results[0] = idx;
     }
@@ -13777,7 +13889,7 @@ extern "C" fn std_list_sort(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
-        with_list_registry(|registry| registry.sort_asc(handle));
+        let _ = with_list_registry(|registry| registry.sort_asc(handle));
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = 0;
@@ -13815,8 +13927,8 @@ extern "C" fn std_list_map(ctx: *mut SpectraHostCallContext) -> i32 {
         // Snapshot source data in a single lock acquisition so the lock is not
         // held while calling back into JIT code.
         let src_data = match with_list_registry(|reg| reg.snapshot(src_handle)) {
-            Some(d) => d,
-            None => return HOST_STATUS_NOT_FOUND,
+            Ok(d) => d,
+            Err(code) => return code,
         };
 
         // Allocate the destination list.
@@ -13835,7 +13947,10 @@ extern "C" fn std_list_map(ctx: *mut SpectraHostCallContext) -> i32 {
                 let _ = with_list_registry(|reg| reg.remove(dest_handle));
                 return status;
             }
-            let _ = with_list_registry(|reg| reg.push(dest_handle, out));
+            if let Err(code) = with_list_registry(|reg| reg.push(dest_handle, out)) {
+                let _ = with_list_registry(|reg| reg.remove(dest_handle));
+                return code;
+            }
         }
 
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
@@ -13869,8 +13984,8 @@ extern "C" fn std_list_filter(ctx: *mut SpectraHostCallContext) -> i32 {
         let fn_ptr = args[1];
 
         let src_data = match with_list_registry(|reg| reg.snapshot(src_handle)) {
-            Some(d) => d,
-            None => return HOST_STATUS_NOT_FOUND,
+            Ok(d) => d,
+            Err(code) => return code,
         };
 
         let memory = initialize().memory();
@@ -13888,8 +14003,15 @@ extern "C" fn std_list_filter(ctx: *mut SpectraHostCallContext) -> i32 {
                 let _ = with_list_registry(|reg| reg.remove(dest_handle));
                 return status;
             }
-            if out != 0 {
-                let _ = with_list_registry(|reg| reg.push(dest_handle, elem));
+            // Bool closures use the narrow language ABI while the generic
+            // callback slot is an i64. Consume only the canonical low byte so
+            // an unspecified upper part of a widened bool cannot turn false
+            // into a truthy predicate.
+            if (out & 0xff) != 0 {
+                if let Err(code) = with_list_registry(|reg| reg.push(dest_handle, elem)) {
+                    let _ = with_list_registry(|reg| reg.remove(dest_handle));
+                    return code;
+                }
             }
         }
 
@@ -13925,8 +14047,8 @@ extern "C" fn std_list_reduce(ctx: *mut SpectraHostCallContext) -> i32 {
         let fn_ptr = args[2];
 
         let src_data = match with_list_registry(|reg| reg.snapshot(src_handle)) {
-            Some(d) => d,
-            None => return HOST_STATUS_NOT_FOUND,
+            Ok(d) => d,
+            Err(code) => return code,
         };
 
         for &elem in &src_data {
@@ -13968,8 +14090,8 @@ extern "C" fn std_list_sort_by(ctx: *mut SpectraHostCallContext) -> i32 {
 
         // Snapshot, sort outside the lock, then restore.
         let mut data = match with_list_registry(|reg| reg.snapshot(handle)) {
-            Some(d) => d,
-            None => return HOST_STATUS_NOT_FOUND,
+            Ok(d) => d,
+            Err(code) => return code,
         };
 
         // Use a cell to propagate callback errors out of the sort closure.
@@ -13991,7 +14113,9 @@ extern "C" fn std_list_sort_by(ctx: *mut SpectraHostCallContext) -> i32 {
             return callback_err;
         }
 
-        with_list_registry(|reg| reg.restore(handle, data));
+        if let Err(code) = with_list_registry(|reg| reg.restore(handle, data)) {
+            return code;
+        }
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = 0;
@@ -14086,6 +14210,21 @@ unsafe fn alloc_spectra_string(s: &str) -> SpectraHostValue {
     raw as i64
 }
 
+/// Allocate the common two-word representation used by compiler-generated
+/// `Option<T>` and `Result<T, E>` values: tag at slot zero, payload at slot one.
+/// The allocation is intentionally manual so the value can cross a host-call
+/// boundary and remain valid after this function returns.
+unsafe fn alloc_tagged_payload(tag: SpectraHostValue, payload: SpectraHostValue) -> SpectraHostValue {
+    use crate::ffi::spectra_rt_manual_alloc;
+    let raw = spectra_rt_manual_alloc(2 * std::mem::size_of::<i64>()) as *mut i64;
+    if raw.is_null() {
+        return 0;
+    }
+    *raw = tag;
+    *raw.add(1) = payload;
+    raw as SpectraHostValue
+}
+
 /// Fast-path helper for `str.len(s)`.
 ///
 /// Mirrors `std_string_len` but skips the generic host-call dispatch AND the
@@ -14155,8 +14294,19 @@ fn ensure_file_parent(path: &Path) -> bool {
 }
 
 fn fs_write_text(path: &Path, content: &str, append: bool) -> bool {
+    fs_write_text_result(path, content, append).is_ok()
+}
+
+fn fs_write_text_result(
+    path: &Path,
+    content: &str,
+    append: bool,
+) -> Result<(), std::io::Error> {
     if !ensure_file_parent(path) {
-        return false;
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "unable to create filesystem parent directory",
+        ));
     }
 
     if append {
@@ -14165,9 +14315,8 @@ fn fs_write_text(path: &Path, content: &str, append: bool) -> bool {
             .create(true)
             .open(path)
             .and_then(|mut file| file.write_all(content.as_bytes()))
-            .is_ok()
     } else {
-        std::fs::write(path, content.as_bytes()).is_ok()
+        std::fs::write(path, content.as_bytes())
     }
 }
 
@@ -15103,7 +15252,236 @@ extern "C" fn std_random_bool(ctx: *mut SpectraHostCallContext) -> i32 {
 
 // ── std.fs host functions ────────────────────────────────────────────────────
 
+struct FsFailure {
+    code: SpectraHostValue,
+    message: String,
+    operation: &'static str,
+    context: String,
+    retryable: bool,
+}
+
+fn fs_failure(
+    code: SpectraHostValue,
+    message: impl Into<String>,
+    operation: &'static str,
+    context: impl Into<String>,
+    retryable: bool,
+) -> FsFailure {
+    FsFailure {
+        code,
+        message: message.into(),
+        operation,
+        context: context.into(),
+        retryable,
+    }
+}
+
+fn fs_error_code(error: &std::io::Error) -> SpectraHostValue {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => 1,         // ErrorCode::NotFound
+        std::io::ErrorKind::PermissionDenied => 2, // ErrorCode::PermissionDenied
+        std::io::ErrorKind::InvalidInput
+        | std::io::ErrorKind::InvalidData
+        | std::io::ErrorKind::UnexpectedEof => 0, // ErrorCode::InvalidArgument
+        _ => 3,                                   // ErrorCode::Io
+    }
+}
+
+fn fs_error_retryable(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::ConnectionReset
+    )
+}
+
+fn fs_io_failure(operation: &'static str, path: &Path, error: std::io::Error) -> FsFailure {
+    fs_failure(
+        fs_error_code(&error),
+        error.to_string(),
+        operation,
+        path.to_string_lossy(),
+        fs_error_retryable(&error),
+    )
+}
+
+fn write_fs_result(
+    ctx: &mut SpectraHostCallContext,
+    value: Result<SpectraHostValue, FsFailure>,
+) -> i32 {
+    if ctx.result_len == 0 || ctx.results.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+
+    let tagged = unsafe {
+        match value {
+            Ok(payload) => alloc_tagged_payload(0, payload),
+            Err(failure) => {
+                let error = error::alloc_error(
+                    failure.code,
+                    &failure.message,
+                    failure.operation,
+                    &failure.context,
+                    "std.fs",
+                    failure.retryable,
+                );
+                if error == 0 {
+                    return HOST_STATUS_INTERNAL_ERROR;
+                }
+                alloc_tagged_payload(1, error)
+            }
+        }
+    };
+    if tagged == 0 {
+        return HOST_STATUS_INTERNAL_ERROR;
+    }
+    unsafe {
+        let results = slice::from_raw_parts_mut(ctx.results, ctx.result_len);
+        results[0] = tagged;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+unsafe fn required_fs_path(arg: SpectraHostValue, operation: &'static str) -> Result<PathBuf, FsFailure> {
+    match read_fs_path_arg(arg) {
+        Ok(Some(path)) => Ok(path),
+        Ok(None) => Err(fs_failure(
+            0,
+            "filesystem path must not be empty or contain NUL",
+            operation,
+            "path",
+            false,
+        )),
+        Err(_) => Err(fs_failure(
+            0,
+            "filesystem path is not a valid Spectra string",
+            operation,
+            "path",
+            false,
+        )),
+    }
+}
+
 extern "C" fn std_fs_read(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let path = match required_fs_path(args[0], "fs_read") {
+            Ok(path) => path,
+            Err(failure) => return write_fs_result(ctx_ref, Err(failure)),
+        };
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(error) => return write_fs_result(ctx_ref, Err(fs_io_failure("fs_read", &path, error))),
+        };
+        let value = alloc_spectra_string(&content);
+        if value == 0 {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+        write_fs_result(ctx_ref, Ok(value))
+    }
+}
+
+extern "C" fn std_fs_write(ctx: *mut SpectraHostCallContext) -> i32 {
+    std_fs_write_common(ctx, false)
+}
+
+extern "C" fn std_fs_append(ctx: *mut SpectraHostCallContext) -> i32 {
+    std_fs_write_common(ctx, true)
+}
+
+fn std_fs_write_common(ctx: *mut SpectraHostCallContext, append: bool) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let operation = if append { "fs_append" } else { "fs_write" };
+        let path = match required_fs_path(args[0], operation) {
+            Ok(path) => path,
+            Err(failure) => return write_fs_result(ctx_ref, Err(failure)),
+        };
+        let content = match read_spectra_string(args[1]) {
+            Some(content) => content,
+            None => {
+                return write_fs_result(
+                    ctx_ref,
+                    Err(fs_failure(
+                        0,
+                        "filesystem content is not a valid Spectra string",
+                        operation,
+                        "content",
+                        false,
+                    )),
+                )
+            }
+        };
+        let result = fs_write_text_result(&path, &content, append)
+            .map(|_| 1)
+            .map_err(|error| fs_io_failure(operation, &path, error));
+        write_fs_result(ctx_ref, result)
+    }
+}
+
+extern "C" fn std_fs_exists(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let path = match required_fs_path(args[0], "fs_exists") {
+            Ok(path) => path,
+            Err(failure) => return write_fs_result(ctx_ref, Err(failure)),
+        };
+        let result = match std::fs::metadata(&path) {
+            Ok(_) => Ok(1),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+            Err(error) => Err(fs_io_failure("fs_exists", &path, error)),
+        };
+        write_fs_result(ctx_ref, result)
+    }
+}
+
+extern "C" fn std_fs_remove(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let path = match required_fs_path(args[0], "fs_remove") {
+            Ok(path) => path,
+            Err(failure) => return write_fs_result(ctx_ref, Err(failure)),
+        };
+        let result = std::fs::remove_file(&path)
+            .map(|_| 1)
+            .map_err(|error| fs_io_failure("fs_remove", &path, error));
+        write_fs_result(ctx_ref, result)
+    }
+}
+
+// ── std.compat.fs host functions ────────────────────────────────────────────
+
+extern "C" fn std_fs_compat_read(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
@@ -15149,7 +15527,7 @@ extern "C" fn std_fs_read(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
-extern "C" fn std_fs_write(ctx: *mut SpectraHostCallContext) -> i32 {
+extern "C" fn std_fs_compat_write(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
@@ -15195,7 +15573,7 @@ extern "C" fn std_fs_write(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
-extern "C" fn std_fs_append(ctx: *mut SpectraHostCallContext) -> i32 {
+extern "C" fn std_fs_compat_append(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
@@ -15241,7 +15619,7 @@ extern "C" fn std_fs_append(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
-extern "C" fn std_fs_exists(ctx: *mut SpectraHostCallContext) -> i32 {
+extern "C" fn std_fs_compat_exists(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
@@ -15279,7 +15657,7 @@ extern "C" fn std_fs_exists(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
-extern "C" fn std_fs_remove(ctx: *mut SpectraHostCallContext) -> i32 {
+extern "C" fn std_fs_compat_remove(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
@@ -15348,6 +15726,30 @@ extern "C" fn std_env_get(ctx: *mut SpectraHostCallContext) -> i32 {
         results[0] = alloc_spectra_string(&value);
     }
     HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_env_get_option(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let key = match read_spectra_string(args[0]) {
+            Some(key) => key,
+            None => return HOST_STATUS_INVALID_ARGUMENT,
+        };
+        let value = std::env::var(&key)
+            .ok()
+            .map(|value| alloc_spectra_string(&value));
+        if value == Some(0) {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+        write_option_result(ctx_ref, value)
+    }
 }
 
 extern "C" fn std_env_set(ctx: *mut SpectraHostCallContext) -> i32 {
@@ -15425,10 +15827,7 @@ extern "C" fn std_env_arg(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
-// ── std.option host functions ────────────────────────────────────────────────
-// Option layout in heap: ptr[0] = tag (0=Some, 1=None), ptr[1] = payload
-
-extern "C" fn std_option_is_some(ctx: *mut SpectraHostCallContext) -> i32 {
+extern "C" fn std_env_arg_option(ctx: *mut SpectraHostCallContext) -> i32 {
     if ctx.is_null() {
         return HOST_STATUS_INVALID_ARGUMENT;
     }
@@ -15437,195 +15836,22 @@ extern "C" fn std_option_is_some(ctx: *mut SpectraHostCallContext) -> i32 {
         if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
             return HOST_STATUS_INVALID_ARGUMENT;
         }
-        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let ptr = args[0] as *const i64;
-        let tag = if ptr.is_null() { 1i64 } else { *ptr };
-        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        results[0] = (tag == 0) as SpectraHostValue;
+        let index = args[0] as usize;
+        let value = if let Some(program_args) = crate::ffi::get_program_args() {
+            program_args
+                .get(index)
+                .map(|value| alloc_spectra_string(value))
+        } else {
+            std::env::args()
+                .nth(index)
+                .map(|value| alloc_spectra_string(&value))
+        };
+        if value == Some(0) {
+            return HOST_STATUS_INTERNAL_ERROR;
+        }
+        write_option_result(ctx_ref, value)
     }
-    HOST_STATUS_SUCCESS
-}
-
-extern "C" fn std_option_is_none(ctx: *mut SpectraHostCallContext) -> i32 {
-    if ctx.is_null() {
-        return HOST_STATUS_INVALID_ARGUMENT;
-    }
-    unsafe {
-        let ctx_ref = &mut *ctx;
-        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let ptr = args[0] as *const i64;
-        let tag = if ptr.is_null() { 1i64 } else { *ptr };
-        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        results[0] = (tag != 0) as SpectraHostValue;
-    }
-    HOST_STATUS_SUCCESS
-}
-
-extern "C" fn std_option_unwrap(ctx: *mut SpectraHostCallContext) -> i32 {
-    if ctx.is_null() {
-        return HOST_STATUS_INVALID_ARGUMENT;
-    }
-    unsafe {
-        let ctx_ref = &mut *ctx;
-        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let ptr = args[0] as *const i64;
-        if ptr.is_null() || *ptr != 0 {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        results[0] = *ptr.add(1);
-    }
-    HOST_STATUS_SUCCESS
-}
-
-extern "C" fn std_option_unwrap_or(ctx: *mut SpectraHostCallContext) -> i32 {
-    if ctx.is_null() {
-        return HOST_STATUS_INVALID_ARGUMENT;
-    }
-    unsafe {
-        let ctx_ref = &mut *ctx;
-        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let ptr = args[0] as *const i64;
-        let default_val = args[1];
-        let tag = if ptr.is_null() { 1i64 } else { *ptr };
-        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        results[0] = if tag == 0 { *ptr.add(1) } else { default_val };
-    }
-    HOST_STATUS_SUCCESS
-}
-
-// ── std.result host functions ────────────────────────────────────────────────
-// Result layout in heap: ptr[0] = tag (0=Ok, 1=Err), ptr[1] = payload
-
-extern "C" fn std_result_is_ok(ctx: *mut SpectraHostCallContext) -> i32 {
-    if ctx.is_null() {
-        return HOST_STATUS_INVALID_ARGUMENT;
-    }
-    unsafe {
-        let ctx_ref = &mut *ctx;
-        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let ptr = args[0] as *const i64;
-        let tag = if ptr.is_null() { 1i64 } else { *ptr };
-        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        results[0] = (tag == 0) as SpectraHostValue;
-    }
-    HOST_STATUS_SUCCESS
-}
-
-extern "C" fn std_result_is_err(ctx: *mut SpectraHostCallContext) -> i32 {
-    if ctx.is_null() {
-        return HOST_STATUS_INVALID_ARGUMENT;
-    }
-    unsafe {
-        let ctx_ref = &mut *ctx;
-        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let ptr = args[0] as *const i64;
-        let tag = if ptr.is_null() { 1i64 } else { *ptr };
-        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        results[0] = (tag != 0) as SpectraHostValue;
-    }
-    HOST_STATUS_SUCCESS
-}
-
-extern "C" fn std_result_unwrap(ctx: *mut SpectraHostCallContext) -> i32 {
-    if ctx.is_null() {
-        return HOST_STATUS_INVALID_ARGUMENT;
-    }
-    unsafe {
-        let ctx_ref = &mut *ctx;
-        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let ptr = args[0] as *const i64;
-        if ptr.is_null() || *ptr != 0 {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        results[0] = *ptr.add(1);
-    }
-    HOST_STATUS_SUCCESS
-}
-
-extern "C" fn std_result_unwrap_or(ctx: *mut SpectraHostCallContext) -> i32 {
-    if ctx.is_null() {
-        return HOST_STATUS_INVALID_ARGUMENT;
-    }
-    unsafe {
-        let ctx_ref = &mut *ctx;
-        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let ptr = args[0] as *const i64;
-        let default_val = args[1];
-        let tag = if ptr.is_null() { 1i64 } else { *ptr };
-        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        results[0] = if tag == 0 { *ptr.add(1) } else { default_val };
-    }
-    HOST_STATUS_SUCCESS
-}
-
-extern "C" fn std_result_unwrap_err(ctx: *mut SpectraHostCallContext) -> i32 {
-    if ctx.is_null() {
-        return HOST_STATUS_INVALID_ARGUMENT;
-    }
-    unsafe {
-        let ctx_ref = &mut *ctx;
-        if ctx_ref.arg_len != 1 || ctx_ref.args.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
-        let ptr = args[0] as *const i64;
-        if ptr.is_null() || *ptr == 0 {
-            return HOST_STATUS_INVALID_ARGUMENT;
-        }
-        let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
-        results[0] = *ptr.add(1);
-    }
-    HOST_STATUS_SUCCESS
 }
 
 // ── std.char register & host functions ──────────────────────────────────────
@@ -15860,27 +16086,23 @@ struct UtcDateTime {
 }
 
 struct TimeHandles<T> {
-    next: SpectraHostValue,
-    values: HashMap<SpectraHostValue, T>,
+    values: HandleTable<T>,
 }
 
 impl<T> TimeHandles<T> {
-    fn new() -> Self {
+    fn new(kind: HandleKind) -> Self {
         Self {
-            next: 1,
-            values: HashMap::new(),
+            values: HandleTable::new(kind),
         }
     }
 
     fn insert(&mut self, value: T) -> SpectraHostValue {
-        let handle = self.next;
-        self.next = self.next.saturating_add(1).max(1);
-        self.values.insert(handle, value);
-        handle
+        self.values.insert(value).raw() as SpectraHostValue
     }
 
     fn get(&self, handle: SpectraHostValue) -> Option<&T> {
-        self.values.get(&handle)
+        let id = HandleId::from_raw(handle).ok()?;
+        self.values.get(id).ok()
     }
 }
 
@@ -15891,17 +16113,17 @@ fn time_start() -> StdInstant {
 
 fn duration_handles() -> &'static Mutex<TimeHandles<Duration>> {
     static HANDLES: OnceLock<Mutex<TimeHandles<Duration>>> = OnceLock::new();
-    HANDLES.get_or_init(|| Mutex::new(TimeHandles::new()))
+    HANDLES.get_or_init(|| Mutex::new(TimeHandles::new(HandleKind::Duration)))
 }
 
 fn instant_handles() -> &'static Mutex<TimeHandles<StdInstant>> {
     static HANDLES: OnceLock<Mutex<TimeHandles<StdInstant>>> = OnceLock::new();
-    HANDLES.get_or_init(|| Mutex::new(TimeHandles::new()))
+    HANDLES.get_or_init(|| Mutex::new(TimeHandles::new(HandleKind::Instant)))
 }
 
 fn utc_handles() -> &'static Mutex<TimeHandles<UtcDateTime>> {
     static HANDLES: OnceLock<Mutex<TimeHandles<UtcDateTime>>> = OnceLock::new();
-    HANDLES.get_or_init(|| Mutex::new(TimeHandles::new()))
+    HANDLES.get_or_init(|| Mutex::new(TimeHandles::new(HandleKind::UtcDateTime)))
 }
 
 fn store_duration(duration: Duration) -> SpectraHostValue {
@@ -16259,7 +16481,7 @@ struct IntRange {
 
 fn range_handles() -> &'static Mutex<TimeHandles<IntRange>> {
     static HANDLES: OnceLock<Mutex<TimeHandles<IntRange>>> = OnceLock::new();
-    HANDLES.get_or_init(|| Mutex::new(TimeHandles::new()))
+    HANDLES.get_or_init(|| Mutex::new(TimeHandles::new(HandleKind::Range)))
 }
 
 fn store_range(range: IntRange) -> SpectraHostValue {
@@ -16695,13 +16917,448 @@ extern "C" fn std_io_input(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
+// ── std.collections set/iterator ────────────────────────────────────────────
+
+const SET_NEW: &str = "spectra.std.collections.set_new";
+const SET_INSERT: &str = "spectra.std.collections.set_insert";
+const SET_CONTAINS: &str = "spectra.std.collections.set_contains";
+const SET_REMOVE: &str = "spectra.std.collections.set_remove";
+const SET_LEN: &str = "spectra.std.collections.set_len";
+const SET_GET: &str = "spectra.std.collections.set_get";
+const SET_CLEAR: &str = "spectra.std.collections.set_clear";
+const SET_FREE: &str = "spectra.std.collections.set_free";
+
+const ITER_LIST: &str = "spectra.std.collections.list_iter";
+const ITER_SET: &str = "spectra.std.collections.set_iter";
+const ITER_MAP: &str = "spectra.std.collections.map_iter";
+const ITER_NEXT: &str = "spectra.std.collections.iterator_next";
+const ITER_REMAINING: &str = "spectra.std.collections.iterator_remaining";
+const ITER_FREE: &str = "spectra.std.collections.iterator_free";
+
+fn register_set() {
+    register_host_function(SET_NEW, std_set_new);
+    register_host_function(SET_INSERT, std_set_insert);
+    register_host_function(SET_CONTAINS, std_set_contains);
+    register_host_function(SET_REMOVE, std_set_remove);
+    register_host_function(SET_LEN, std_set_len);
+    register_host_function(SET_GET, std_set_get);
+    register_host_function(SET_CLEAR, std_set_clear);
+    register_host_function(SET_FREE, std_set_free);
+}
+
+fn register_iterator() {
+    register_host_function(ITER_LIST, std_list_iter);
+    register_host_function(ITER_SET, std_set_iter);
+    register_host_function(ITER_MAP, std_map_iter);
+    register_host_function(ITER_NEXT, std_iterator_next);
+    register_host_function(ITER_REMAINING, std_iterator_remaining);
+    register_host_function(ITER_FREE, std_iterator_free);
+}
+
+#[derive(Default)]
+struct StdSet {
+    // A stable insertion-ordered representation is deliberate: it makes
+    // `set_get` and iterator snapshots deterministic without imposing a hash
+    // contract on every scalar ABI value.
+    data: Vec<SpectraHostValue>,
+}
+
+struct SetRegistry {
+    sets: HandleTable<ManualBox<StdSet>>,
+}
+
+impl SetRegistry {
+    fn new() -> Self {
+        Self {
+            sets: HandleTable::new(HandleKind::Set),
+        }
+    }
+
+    fn id(handle: usize) -> Result<HandleId, i32> {
+        HandleId::from_raw(handle as i64).map_err(|_| HOST_STATUS_NOT_FOUND)
+    }
+
+    fn insert(&mut self, set: ManualBox<StdSet>) -> usize {
+        self.sets.insert(set).raw() as usize
+    }
+
+    fn insert_value(&mut self, handle: usize, value: SpectraHostValue) -> Result<bool, i32> {
+        let id = Self::id(handle)?;
+        let set = self.sets.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if set.data.contains(&value) {
+            return Ok(false);
+        }
+        set.data.push(value);
+        Ok(true)
+    }
+
+    fn contains(&self, handle: usize, value: SpectraHostValue) -> Result<bool, i32> {
+        let id = Self::id(handle)?;
+        Ok(self
+            .sets
+            .get(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .contains(&value))
+    }
+
+    fn remove_value(&mut self, handle: usize, value: SpectraHostValue) -> Result<bool, i32> {
+        let id = Self::id(handle)?;
+        let set = self.sets.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        let Some(index) = set.data.iter().position(|candidate| *candidate == value) else {
+            return Ok(false);
+        };
+        set.data.remove(index);
+        Ok(true)
+    }
+
+    fn len(&self, handle: usize) -> Result<usize, i32> {
+        let id = Self::id(handle)?;
+        Ok(self
+            .sets
+            .get(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .len())
+    }
+
+    fn get_option(&self, handle: usize, index: i64) -> Result<Option<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        let set = self.sets.get(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        if index < 0 {
+            return Ok(None);
+        }
+        Ok(set.data.get(index as usize).copied())
+    }
+
+    fn clear(&mut self, handle: usize) -> Result<(), i32> {
+        let id = Self::id(handle)?;
+        self.sets
+            .get_mut(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .clear();
+        Ok(())
+    }
+
+    fn remove(&mut self, handle: usize) -> Result<(), i32> {
+        let id = Self::id(handle)?;
+        self.sets
+            .remove(id)
+            .map(|_| ())
+            .map_err(|_| HOST_STATUS_NOT_FOUND)
+    }
+
+    fn snapshot(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        Ok(self
+            .sets
+            .get(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?
+            .data
+            .clone())
+    }
+}
+
+fn set_registry() -> &'static Mutex<SetRegistry> {
+    static REGISTRY: OnceLock<Mutex<SetRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(SetRegistry::new()))
+}
+
+fn with_set_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut SetRegistry) -> R,
+{
+    let mut guard = lock_unpoisoned(set_registry());
+    action(&mut guard)
+}
+
+extern "C" fn std_set_new(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 0 || ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let set = match initialize().memory().allocate_manual(StdSet::default()) {
+            Ok(set) => set,
+            Err(_) => return HOST_STATUS_INTERNAL_ERROR,
+        };
+        let handle = with_set_registry(|registry| registry.insert(set));
+        slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len)[0] = handle as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_set_insert(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    match with_set_registry(|registry| registry.insert_value(args[0] as usize, args[1])) {
+        Ok(inserted) => {
+            results[0] = inserted as i64;
+            HOST_STATUS_SUCCESS
+        }
+        Err(code) => code,
+    }
+}
+
+extern "C" fn std_set_contains(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    match with_set_registry(|registry| registry.contains(args[0] as usize, args[1])) {
+        Ok(found) => {
+            results[0] = found as i64;
+            HOST_STATUS_SUCCESS
+        }
+        Err(code) => code,
+    }
+}
+
+extern "C" fn std_set_remove(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    match with_set_registry(|registry| registry.remove_value(args[0] as usize, args[1])) {
+        Ok(removed) => {
+            results[0] = removed as i64;
+            HOST_STATUS_SUCCESS
+        }
+        Err(code) => code,
+    }
+}
+
+extern "C" fn std_set_len(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    match with_set_registry(|registry| registry.len(args[0] as usize)) {
+        Ok(len) => {
+            results[0] = len as i64;
+            HOST_STATUS_SUCCESS
+        }
+        Err(code) => code,
+    }
+}
+
+extern "C" fn std_set_get(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 2) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let value = match with_set_registry(|registry| registry.get_option(args[0] as usize, args[1])) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+    let mut option_ctx = SpectraHostCallContext {
+        args: std::ptr::null(),
+        arg_len: 0,
+        results: results.as_mut_ptr(),
+        result_len: results.len(),
+        invoke_fn: None,
+    };
+    write_option_result(&mut option_ctx, value)
+}
+
+extern "C" fn std_set_clear(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = host_call_void_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    match with_set_registry(|registry| registry.clear(args[0] as usize)) {
+        Ok(()) => HOST_STATUS_SUCCESS,
+        Err(code) => code,
+    }
+}
+
+extern "C" fn std_set_free(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = host_call_void_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    match with_set_registry(|registry| registry.remove(args[0] as usize)) {
+        Ok(()) => HOST_STATUS_SUCCESS,
+        Err(code) => code,
+    }
+}
+
+#[derive(Default)]
+struct StdIterator {
+    items: Vec<SpectraHostValue>,
+    cursor: usize,
+}
+
+struct IteratorRegistry {
+    iterators: HandleTable<ManualBox<StdIterator>>,
+}
+
+impl IteratorRegistry {
+    fn new() -> Self {
+        Self {
+            iterators: HandleTable::new(HandleKind::Iterator),
+        }
+    }
+
+    fn id(handle: usize) -> Result<HandleId, i32> {
+        HandleId::from_raw(handle as i64).map_err(|_| HOST_STATUS_NOT_FOUND)
+    }
+
+    fn insert(&mut self, iterator: ManualBox<StdIterator>) -> usize {
+        self.iterators.insert(iterator).raw() as usize
+    }
+
+    fn next(&mut self, handle: usize) -> Result<Option<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        let iterator = self
+            .iterators
+            .get_mut(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        let Some(value) = iterator.items.get(iterator.cursor).copied() else {
+            return Ok(None);
+        };
+        iterator.cursor += 1;
+        Ok(Some(value))
+    }
+
+    fn remaining(&self, handle: usize) -> Result<usize, i32> {
+        let id = Self::id(handle)?;
+        let iterator = self
+            .iterators
+            .get(id)
+            .map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        Ok(iterator.items.len().saturating_sub(iterator.cursor))
+    }
+
+    fn remove(&mut self, handle: usize) -> Result<(), i32> {
+        let id = Self::id(handle)?;
+        self.iterators
+            .remove(id)
+            .map(|_| ())
+            .map_err(|_| HOST_STATUS_NOT_FOUND)
+    }
+}
+
+fn iterator_registry() -> &'static Mutex<IteratorRegistry> {
+    static REGISTRY: OnceLock<Mutex<IteratorRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(IteratorRegistry::new()))
+}
+
+fn with_iterator_registry<F, R>(action: F) -> R
+where
+    F: FnOnce(&mut IteratorRegistry) -> R,
+{
+    let mut guard = lock_unpoisoned(iterator_registry());
+    action(&mut guard)
+}
+
+fn insert_iterator(items: Vec<SpectraHostValue>) -> Result<usize, i32> {
+    let iterator = initialize()
+        .memory()
+        .allocate_manual(StdIterator { items, cursor: 0 })
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+    Ok(with_iterator_registry(|registry| registry.insert(iterator)))
+}
+
+extern "C" fn std_list_iter(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let items = match with_list_registry(|registry| registry.snapshot(args[0] as usize)) {
+        Ok(items) => items,
+        Err(code) => return code,
+    };
+    let handle = match insert_iterator(items) {
+        Ok(handle) => handle,
+        Err(code) => return code,
+    };
+    results[0] = handle as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_set_iter(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let items = match with_set_registry(|registry| registry.snapshot(args[0] as usize)) {
+        Ok(items) => items,
+        Err(code) => return code,
+    };
+    let handle = match insert_iterator(items) {
+        Ok(handle) => handle,
+        Err(code) => return code,
+    };
+    results[0] = handle as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_map_iter(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let items = match with_map_registry(|registry| registry.keys_snapshot(args[0] as usize)) {
+        Ok(items) => items,
+        Err(code) => return code,
+    };
+    let handle = match insert_iterator(items) {
+        Ok(handle) => handle,
+        Err(code) => return code,
+    };
+    results[0] = handle as i64;
+    HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_iterator_next(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let value = match with_iterator_registry(|registry| registry.next(args[0] as usize)) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+    let mut option_ctx = SpectraHostCallContext {
+        args: std::ptr::null(),
+        arg_len: 0,
+        results: results.as_mut_ptr(),
+        result_len: results.len(),
+        invoke_fn: None,
+    };
+    write_option_result(&mut option_ctx, value)
+}
+
+extern "C" fn std_iterator_remaining(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok((args, results)) = host_call_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    match with_iterator_registry(|registry| registry.remaining(args[0] as usize)) {
+        Ok(remaining) => {
+            results[0] = remaining as i64;
+            HOST_STATUS_SUCCESS
+        }
+        Err(code) => code,
+    }
+}
+
+extern "C" fn std_iterator_free(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = host_call_void_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    match with_iterator_registry(|registry| registry.remove(args[0] as usize)) {
+        Ok(()) => HOST_STATUS_SUCCESS,
+        Err(code) => code,
+    }
+}
+
 // ── std.collections map (HashMap<i64, i64>) ──────────────────────────────────
 
 const MAP_NEW: &str = "spectra.std.collections.map_new";
 const MAP_SET: &str = "spectra.std.collections.map_set";
-const MAP_GET: &str = "spectra.std.collections.map_get";
+const MAP_GET: &str = spectra_contract::STD_COLLECTIONS_MAP_GET_BINDING;
+const MAP_GET_OPTION: &str = spectra_contract::STD_COLLECTIONS_MAP_GET_OPTION_BINDING;
+const MAP_GET_COMPAT: &str = spectra_contract::STD_COMPAT_COLLECTIONS_MAP_GET_BINDING;
 const MAP_CONTAINS: &str = "spectra.std.collections.map_contains";
-const MAP_REMOVE: &str = "spectra.std.collections.map_remove";
+const MAP_REMOVE: &str = spectra_contract::STD_COLLECTIONS_MAP_REMOVE_BINDING;
+const MAP_REMOVE_OPTION: &str = spectra_contract::STD_COLLECTIONS_MAP_REMOVE_OPTION_BINDING;
+const MAP_REMOVE_COMPAT: &str = spectra_contract::STD_COMPAT_COLLECTIONS_MAP_REMOVE_BINDING;
 const MAP_LEN: &str = "spectra.std.collections.map_len";
 const MAP_CLEAR: &str = "spectra.std.collections.map_clear";
 const MAP_FREE: &str = "spectra.std.collections.map_free";
@@ -16709,17 +17366,20 @@ const MAP_FREE: &str = "spectra.std.collections.map_free";
 fn register_map() {
     register_host_function(MAP_NEW, std_map_new);
     register_host_function(MAP_SET, std_map_set);
-    register_host_function(MAP_GET, std_map_get);
+    register_host_function(MAP_GET, std_map_get_option);
+    register_host_function(MAP_GET_OPTION, std_map_get_option);
+    register_host_function(MAP_GET_COMPAT, std_map_get);
     register_host_function(MAP_CONTAINS, std_map_contains);
-    register_host_function(MAP_REMOVE, std_map_remove);
+    register_host_function(MAP_REMOVE, std_map_remove_option);
+    register_host_function(MAP_REMOVE_OPTION, std_map_remove_option);
+    register_host_function(MAP_REMOVE_COMPAT, std_map_remove);
     register_host_function(MAP_LEN, std_map_len);
     register_host_function(MAP_CLEAR, std_map_clear);
     register_host_function(MAP_FREE, std_map_free);
 }
 
 struct MapRegistry {
-    next_id: usize,
-    maps: HashMap<usize, Arc<Mutex<StdMap>>>,
+    maps: HandleTable<Arc<Mutex<StdMap>>>,
 }
 
 #[derive(Default)]
@@ -16730,22 +17390,54 @@ struct StdMap {
 impl MapRegistry {
     fn new() -> Self {
         Self {
-            next_id: 1,
-            maps: HashMap::new(),
+            maps: HandleTable::new(HandleKind::Map),
         }
     }
 
     fn insert(&mut self, map: Arc<Mutex<StdMap>>) -> usize {
-        let mut handle = self.next_id.max(1);
-        while self.maps.contains_key(&handle) {
-            handle = handle.wrapping_add(1).max(1);
-        }
-        self.next_id = handle.wrapping_add(1);
-        if self.next_id == 0 {
-            self.next_id = 1;
-        }
-        self.maps.insert(handle, map);
-        handle
+        self.maps.insert(map).raw() as usize
+    }
+
+    fn id(handle: usize) -> Result<HandleId, i32> {
+        HandleId::from_raw(handle as i64).map_err(|_| HOST_STATUS_NOT_FOUND)
+    }
+
+    fn get(&self, handle: usize) -> Option<Arc<Mutex<StdMap>>> {
+        let id = Self::id(handle).ok()?;
+        self.maps.get(id).ok().cloned()
+    }
+
+    fn lookup_value(
+        &self,
+        handle: usize,
+        key: SpectraHostValue,
+    ) -> Result<Option<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        let map = self.maps.get(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        Ok(lock_unpoisoned(map).data.get(&key).copied())
+    }
+
+    fn keys_snapshot(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        let map = self.maps.get(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        let mut keys = lock_unpoisoned(map).data.keys().copied().collect::<Vec<_>>();
+        keys.sort_unstable();
+        Ok(keys)
+    }
+
+    fn remove(&mut self, handle: usize) -> Result<Arc<Mutex<StdMap>>, i32> {
+        let id = Self::id(handle)?;
+        self.maps.remove(id).map_err(|_| HOST_STATUS_NOT_FOUND)
+    }
+
+    fn remove_value(
+        &mut self,
+        handle: usize,
+        key: SpectraHostValue,
+    ) -> Result<Option<SpectraHostValue>, i32> {
+        let id = Self::id(handle)?;
+        let map = self.maps.get(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
+        Ok(lock_unpoisoned(map).data.remove(&key))
     }
 }
 
@@ -16795,7 +17487,7 @@ extern "C" fn std_map_set(ctx: *mut SpectraHostCallContext) -> i32 {
         let handle = args[0] as usize;
         let key = args[1];
         let value = args[2];
-        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let map_arc = with_map_registry(|reg| reg.get(handle));
         let Some(map_arc) = map_arc else {
             return HOST_STATUS_NOT_FOUND;
         };
@@ -16827,7 +17519,7 @@ extern "C" fn std_map_get(ctx: *mut SpectraHostCallContext) -> i32 {
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         let handle = args[0] as usize;
         let key = args[1];
-        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let map_arc = with_map_registry(|reg| reg.get(handle));
         let value = match map_arc {
             Some(map_arc) => lock_unpoisoned(&map_arc)
                 .data
@@ -16839,6 +17531,22 @@ extern "C" fn std_map_get(ctx: *mut SpectraHostCallContext) -> i32 {
         results[0] = value;
     }
     HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_map_get_option(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let value = with_map_registry(|registry| registry.lookup_value(args[0] as usize, args[1]))
+            .unwrap_or(None);
+        write_option_result(ctx_ref, value)
+    }
 }
 
 /// Returns 1 if the map contains `key`, 0 otherwise.
@@ -16859,7 +17567,7 @@ extern "C" fn std_map_contains(ctx: *mut SpectraHostCallContext) -> i32 {
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         let handle = args[0] as usize;
         let key = args[1];
-        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let map_arc = with_map_registry(|reg| reg.get(handle));
         let found = match map_arc {
             Some(map_arc) => lock_unpoisoned(&map_arc).data.contains_key(&key),
             None => false,
@@ -16883,7 +17591,7 @@ extern "C" fn std_map_remove(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
         let key = args[1];
-        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let map_arc = with_map_registry(|reg| reg.get(handle));
         let removed = match map_arc {
             Some(map_arc) => lock_unpoisoned(&map_arc).data.remove(&key).unwrap_or(0),
             None => 0,
@@ -16894,6 +17602,24 @@ extern "C" fn std_map_remove(ctx: *mut SpectraHostCallContext) -> i32 {
         }
     }
     HOST_STATUS_SUCCESS
+}
+
+extern "C" fn std_map_remove_option(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len != 2 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let value = with_map_registry(|registry| {
+            registry.remove_value(args[0] as usize, args[1])
+        })
+        .unwrap_or(None);
+        write_option_result(ctx_ref, value)
+    }
 }
 
 /// Returns the number of entries in the map.
@@ -16913,7 +17639,7 @@ extern "C" fn std_map_len(ctx: *mut SpectraHostCallContext) -> i32 {
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
         let handle = args[0] as usize;
-        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let map_arc = with_map_registry(|reg| reg.get(handle));
         let len = match map_arc {
             Some(map_arc) => lock_unpoisoned(&map_arc).data.len(),
             None => 0,
@@ -16936,7 +17662,7 @@ extern "C" fn std_map_clear(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
-        let map_arc = with_map_registry(|reg| reg.maps.get(&handle).cloned());
+        let map_arc = with_map_registry(|reg| reg.get(handle));
         if let Some(map_arc) = map_arc {
             lock_unpoisoned(&map_arc).data.clear();
         }
@@ -16961,11 +17687,11 @@ extern "C" fn std_map_free(ctx: *mut SpectraHostCallContext) -> i32 {
         }
         let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
         let handle = args[0] as usize;
-        with_map_registry(|reg| {
-            reg.maps.remove(&handle);
-        });
+        match with_map_registry(|reg| reg.remove(handle)) {
+            Ok(_) => HOST_STATUS_SUCCESS,
+            Err(code) => code,
+        }
     }
-    HOST_STATUS_SUCCESS
 }
 
 fn host_call_args<'a>(
@@ -17121,57 +17847,118 @@ enum AsyncStreamPull {
     Cancelled,
 }
 
+trait AsyncHandleKey {
+    fn raw(self) -> SpectraHostValue;
+}
+
+impl AsyncHandleKey for SpectraHostValue {
+    fn raw(self) -> SpectraHostValue {
+        self
+    }
+}
+
+impl AsyncHandleKey for &SpectraHostValue {
+    fn raw(self) -> SpectraHostValue {
+        *self
+    }
+}
+
+struct AsyncHandleTable<T> {
+    table: HandleTable<T>,
+}
+
+impl<T> AsyncHandleTable<T> {
+    fn new(kind: HandleKind) -> Self {
+        Self {
+            table: HandleTable::new(kind),
+        }
+    }
+
+    fn insert(&mut self, value: T) -> SpectraHostValue {
+        self.table.insert(value).raw()
+    }
+
+    fn insert_fresh(&mut self, value: T) -> SpectraHostValue {
+        self.table.insert_fresh(value).raw()
+    }
+
+    fn id<R: AsyncHandleKey>(&self, raw: R) -> Option<HandleId> {
+        HandleId::from_raw(raw.raw()).ok()
+    }
+
+    fn get<R: AsyncHandleKey>(&self, raw: R) -> Option<&T> {
+        self.id(raw).and_then(|id| self.table.get(id).ok())
+    }
+
+    fn get_mut<R: AsyncHandleKey>(&mut self, raw: R) -> Option<&mut T> {
+        let id = self.id(raw)?;
+        self.table.get_mut(id).ok()
+    }
+
+    fn remove<R: AsyncHandleKey>(&mut self, raw: R) -> Option<T> {
+        let id = self.id(raw)?;
+        self.table.remove(id).ok()
+    }
+
+    fn contains_key<R: AsyncHandleKey>(&self, raw: R) -> bool {
+        self.get(raw).is_some()
+    }
+
+    fn clear(&mut self) {
+        self.table.clear();
+    }
+
+    fn keys(&self) -> impl Iterator<Item = SpectraHostValue> + '_ {
+        self.table.iter().map(|(handle, _)| handle.raw())
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (SpectraHostValue, &T)> + '_ {
+        self.table
+            .iter()
+            .map(|(handle, value)| (handle.raw(), value))
+    }
+}
+
 struct AsyncTaskRegistry {
-    next_task: SpectraHostValue,
-    next_scope: SpectraHostValue,
-    next_cancel_handle: SpectraHostValue,
-    next_stream: SpectraHostValue,
-    next_tcp_listener: SpectraHostValue,
-    next_tcp_stream: SpectraHostValue,
-    next_udp_socket: SpectraHostValue,
-    next_async_channel: SpectraHostValue,
     now_ms: SpectraHostValue,
     next_join_order: SpectraHostValue,
-    tasks: HashMap<SpectraHostValue, AsyncTask>,
-    scopes: HashMap<SpectraHostValue, AsyncScope>,
-    cancel_handles: HashMap<SpectraHostValue, SpectraHostValue>,
-    streams: HashMap<SpectraHostValue, AsyncStream>,
-    tcp_listeners: HashMap<SpectraHostValue, AsyncTcpListenerState>,
-    tcp_streams: HashMap<SpectraHostValue, AsyncTcpStreamState>,
-    udp_sockets: HashMap<SpectraHostValue, AsyncUdpSocketState>,
-    async_channels: HashMap<SpectraHostValue, AsyncChannelState>,
+    tasks: AsyncHandleTable<AsyncTask>,
+    scopes: AsyncHandleTable<AsyncScope>,
+    cancel_handles: AsyncHandleTable<SpectraHostValue>,
+    streams: AsyncHandleTable<AsyncStream>,
+    tcp_listeners: AsyncHandleTable<AsyncTcpListenerState>,
+    tcp_streams: AsyncHandleTable<AsyncTcpStreamState>,
+    udp_sockets: AsyncHandleTable<AsyncUdpSocketState>,
+    async_channels: AsyncHandleTable<AsyncChannelState>,
 }
 
 impl AsyncTaskRegistry {
     fn new() -> Self {
         Self {
-            next_task: 1,
-            next_scope: 1,
-            next_cancel_handle: 1,
-            next_stream: 1,
-            next_tcp_listener: 1,
-            next_tcp_stream: 1,
-            next_udp_socket: 1,
-            next_async_channel: 1,
             now_ms: 0,
             next_join_order: 1,
-            tasks: HashMap::new(),
-            scopes: HashMap::new(),
-            cancel_handles: HashMap::new(),
-            streams: HashMap::new(),
-            tcp_listeners: HashMap::new(),
-            tcp_streams: HashMap::new(),
-            udp_sockets: HashMap::new(),
-            async_channels: HashMap::new(),
+            tasks: AsyncHandleTable::new(HandleKind::Async),
+            scopes: AsyncHandleTable::new(HandleKind::AsyncScope),
+            cancel_handles: AsyncHandleTable::new(HandleKind::AsyncCancel),
+            streams: AsyncHandleTable::new(HandleKind::AsyncStream),
+            tcp_listeners: AsyncHandleTable::new(HandleKind::AsyncTcpListener),
+            tcp_streams: AsyncHandleTable::new(HandleKind::AsyncTcpStream),
+            udp_sockets: AsyncHandleTable::new(HandleKind::AsyncUdpSocket),
+            async_channels: AsyncHandleTable::new(HandleKind::AsyncChannel),
         }
     }
 
     fn clear(&mut self) {
-        let next_task = self.next_task;
-        let next_cancel_handle = self.next_cancel_handle;
-        *self = Self::new();
-        self.next_task = next_task;
-        self.next_cancel_handle = next_cancel_handle;
+        self.now_ms = 0;
+        self.next_join_order = 1;
+        self.tasks.clear();
+        self.scopes.clear();
+        self.cancel_handles.clear();
+        self.streams.clear();
+        self.tcp_listeners.clear();
+        self.tcp_streams.clear();
+        self.udp_sockets.clear();
+        self.async_channels.clear();
     }
 
     fn allocate_task(
@@ -17200,25 +17987,67 @@ impl AsyncTaskRegistry {
         completed: bool,
         wake: bool,
     ) -> SpectraHostValue {
-        let task_id = self.next_task;
-        self.next_task += 1;
-        let cancel_handle = self.next_cancel_handle;
-        self.next_cancel_handle += 1;
-        self.cancel_handles.insert(cancel_handle, task_id);
-        self.tasks.insert(
-            task_id,
-            AsyncTask {
-                value,
-                cancelled: false,
-                failed: false,
-                completed,
-                parent_scope,
-                cancel_handle,
-                timeout_inner,
-                deadline_ms,
-                join_order: None,
-            },
-        );
+        self.allocate_task_with_completion_impl(
+            value,
+            parent_scope,
+            timeout_inner,
+            deadline_ms,
+            completed,
+            wake,
+            false,
+        )
+    }
+
+    fn allocate_task_with_completion_fresh(
+        &mut self,
+        value: SpectraHostValue,
+        parent_scope: Option<SpectraHostValue>,
+        timeout_inner: Option<SpectraHostValue>,
+        deadline_ms: Option<SpectraHostValue>,
+        completed: bool,
+        wake: bool,
+    ) -> SpectraHostValue {
+        self.allocate_task_with_completion_impl(
+            value,
+            parent_scope,
+            timeout_inner,
+            deadline_ms,
+            completed,
+            wake,
+            true,
+        )
+    }
+
+    fn allocate_task_with_completion_impl(
+        &mut self,
+        value: SpectraHostValue,
+        parent_scope: Option<SpectraHostValue>,
+        timeout_inner: Option<SpectraHostValue>,
+        deadline_ms: Option<SpectraHostValue>,
+        completed: bool,
+        wake: bool,
+        fresh: bool,
+    ) -> SpectraHostValue {
+        let task = AsyncTask {
+            value,
+            cancelled: false,
+            failed: false,
+            completed,
+            parent_scope,
+            cancel_handle: 0,
+            timeout_inner,
+            deadline_ms,
+            join_order: None,
+        };
+        let task_id = if fresh {
+            self.tasks.insert_fresh(task)
+        } else {
+            self.tasks.insert(task)
+        };
+        let cancel_handle = self.cancel_handles.insert(task_id);
+        if let Some(task) = self.tasks.get_mut(task_id) {
+            task.cancel_handle = cancel_handle;
+        }
         if let Some(scope_id) = parent_scope {
             if let Some(scope) = self.scopes.get_mut(&scope_id) {
                 scope.children.push(task_id);
@@ -17272,19 +18101,14 @@ impl AsyncTaskRegistry {
         if let Some(parent_id) = parent {
             self.scopes.get(&parent_id)?;
         }
-        let scope_id = self.next_scope;
-        self.next_scope += 1;
-        self.scopes.insert(
-            scope_id,
-            AsyncScope {
-                _parent: parent,
-                child_scopes: Vec::new(),
-                children: Vec::new(),
-                cancelled: false,
-                joined_count: 0,
-                failures: 0,
-            },
-        );
+        let scope_id = self.scopes.insert(AsyncScope {
+            _parent: parent,
+            child_scopes: Vec::new(),
+            children: Vec::new(),
+            cancelled: false,
+            joined_count: 0,
+            failures: 0,
+        });
         if let Some(parent_id) = parent {
             if let Some(parent_scope) = self.scopes.get_mut(&parent_id) {
                 parent_scope.child_scopes.push(scope_id);
@@ -17354,7 +18178,7 @@ impl AsyncTaskRegistry {
             .iter()
             .filter_map(|(task_id, task)| {
                 let deadline = task.deadline_ms?;
-                (deadline <= self.now_ms && !task.cancelled).then_some(*task_id)
+                (deadline <= self.now_ms && !task.cancelled).then_some(task_id)
             })
             .collect();
         for task_id in due_tasks {
@@ -17423,22 +18247,17 @@ impl AsyncTaskRegistry {
     }
 
     fn create_stream(&mut self, kind: AsyncStreamKind, capacity: usize) -> SpectraHostValue {
-        let stream_id = self.next_stream;
-        self.next_stream += 1;
-        self.streams.insert(
-            stream_id,
-            AsyncStream {
-                kind,
-                buffer: VecDeque::new(),
-                capacity,
-                pending_next: VecDeque::new(),
-                done: false,
-                cancelled: false,
-                failed: false,
-                last_next_status: 0,
-                chunk_items: Vec::new(),
-            },
-        );
+        let stream_id = self.streams.insert(AsyncStream {
+            kind,
+            buffer: VecDeque::new(),
+            capacity,
+            pending_next: VecDeque::new(),
+            done: false,
+            cancelled: false,
+            failed: false,
+            last_next_status: 0,
+            chunk_items: Vec::new(),
+        });
         stream_id
     }
 
@@ -17489,7 +18308,7 @@ impl AsyncTaskRegistry {
 
     fn drive_streams(&mut self) {
         loop {
-            let stream_ids = self.streams.keys().copied().collect::<Vec<_>>();
+            let stream_ids = self.streams.keys().collect::<Vec<_>>();
             let mut progressed = false;
             for stream_id in stream_ids {
                 progressed |= self.drive_stream_pending(stream_id);
@@ -17723,21 +18542,16 @@ impl AsyncTaskRegistry {
         if stream.set_nonblocking(true).is_err() {
             return None;
         }
-        let stream_id = self.next_tcp_stream;
-        self.next_tcp_stream += 1;
-        self.tcp_streams.insert(
-            stream_id,
-            AsyncTcpStreamState {
-                stream,
-                pending_reads: VecDeque::new(),
-                closed: false,
-            },
-        );
+        let stream_id = self.tcp_streams.insert(AsyncTcpStreamState {
+            stream,
+            pending_reads: VecDeque::new(),
+            closed: false,
+        });
         Some(stream_id)
     }
 
     fn drive_tcp_accepts(&mut self) {
-        let listener_ids = self.tcp_listeners.keys().copied().collect::<Vec<_>>();
+        let listener_ids = self.tcp_listeners.keys().collect::<Vec<_>>();
         for listener_id in listener_ids {
             loop {
                 let task_id = match self
@@ -17777,7 +18591,7 @@ impl AsyncTaskRegistry {
     }
 
     fn drive_tcp_reads(&mut self) {
-        let stream_ids = self.tcp_streams.keys().copied().collect::<Vec<_>>();
+        let stream_ids = self.tcp_streams.keys().collect::<Vec<_>>();
         for stream_id in stream_ids {
             loop {
                 let task_id = match self
@@ -17818,7 +18632,7 @@ impl AsyncTaskRegistry {
     }
 
     fn drive_udp_recvs(&mut self) {
-        let socket_ids = self.udp_sockets.keys().copied().collect::<Vec<_>>();
+        let socket_ids = self.udp_sockets.keys().collect::<Vec<_>>();
         for socket_id in socket_ids {
             loop {
                 let task_id = match self
@@ -18225,7 +19039,7 @@ extern "C" fn std_async_task_ready_batch(ctx: *mut SpectraHostCallContext) -> i3
     };
     let mut first_task = 0;
     for offset in 0..count {
-        let task_id = registry.allocate_task_with_completion(
+        let task_id = registry.allocate_task_with_completion_fresh(
             args[1].saturating_add(offset),
             None,
             None,
@@ -19115,15 +19929,10 @@ extern "C" fn std_async_tcp_listen(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let listener_id = registry.next_tcp_listener;
-    registry.next_tcp_listener += 1;
-    registry.tcp_listeners.insert(
-        listener_id,
-        AsyncTcpListenerState {
-            listener,
-            pending_accepts: VecDeque::new(),
-        },
-    );
+    let listener_id = registry.tcp_listeners.insert(AsyncTcpListenerState {
+        listener,
+        pending_accepts: VecDeque::new(),
+    });
     results[0] = listener_id;
     HOST_STATUS_SUCCESS
 }
@@ -19307,16 +20116,11 @@ extern "C" fn std_async_udp_bind(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let socket_id = registry.next_udp_socket;
-    registry.next_udp_socket += 1;
-    registry.udp_sockets.insert(
-        socket_id,
-        AsyncUdpSocketState {
-            socket,
-            pending_recvs: VecDeque::new(),
-            closed: false,
-        },
-    );
+    let socket_id = registry.udp_sockets.insert(AsyncUdpSocketState {
+        socket,
+        pending_recvs: VecDeque::new(),
+        closed: false,
+    });
     results[0] = socket_id;
     HOST_STATUS_SUCCESS
 }
@@ -19434,18 +20238,13 @@ extern "C" fn std_async_channel_new(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let channel_id = registry.next_async_channel;
-    registry.next_async_channel += 1;
-    registry.async_channels.insert(
-        channel_id,
-        AsyncChannelState {
-            queue: VecDeque::new(),
-            capacity: args[0] as usize,
-            pending_sends: VecDeque::new(),
-            pending_recvs: VecDeque::new(),
-            closed: false,
-        },
-    );
+    let channel_id = registry.async_channels.insert(AsyncChannelState {
+        queue: VecDeque::new(),
+        capacity: args[0] as usize,
+        pending_sends: VecDeque::new(),
+        pending_recvs: VecDeque::new(),
+        closed: false,
+    });
     results[0] = channel_id;
     HOST_STATUS_SUCCESS
 }
@@ -19827,15 +20626,10 @@ pub fn concurrent_channel_new_fast() -> SpectraHostValue {
         Ok(r) => r,
         Err(_) => return 0,
     };
-    let id = registry.next_channel;
-    registry.next_channel += 1;
-    registry.channels.insert(
-        id,
-        Arc::new(Mutex::new(ConcurrentChannel {
-            queue: VecDeque::with_capacity(CONCURRENT_CHANNEL_INITIAL_CAPACITY),
-            closed: false,
-        })),
-    );
+    let id = registry.channels.insert(Arc::new(Mutex::new(ConcurrentChannel {
+        queue: VecDeque::with_capacity(CONCURRENT_CHANNEL_INITIAL_CAPACITY),
+        closed: false,
+    })));
     id
 }
 
@@ -19845,7 +20639,7 @@ pub fn concurrent_channel_new_fast() -> SpectraHostValue {
 /// is invalid (NOT_FOUND propagated as 0 for Fast ABI).
 pub fn concurrent_channel_send_fast(channel: SpectraHostValue, value: SpectraHostValue) -> i32 {
     let arc = match lock_concurrent_registry() {
-        Ok(r) => r.channels.get(&channel).cloned(),
+        Ok(r) => r.channels.get(channel).cloned(),
         Err(_) => return HOST_STATUS_INTERNAL_ERROR,
     };
     let Some(arc) = arc else {
@@ -19863,7 +20657,7 @@ pub fn concurrent_channel_send_fast(channel: SpectraHostValue, value: SpectraHos
 /// value in the channel, or -1 if the channel is empty / closed.
 pub fn concurrent_channel_recv_fast(channel: SpectraHostValue) -> i64 {
     let arc = match lock_concurrent_registry() {
-        Ok(r) => r.channels.get(&channel).cloned(),
+        Ok(r) => r.channels.get(channel).cloned(),
         Err(_) => return -1,
     };
     let Some(arc) = arc else {
@@ -19876,7 +20670,7 @@ pub fn concurrent_channel_recv_fast(channel: SpectraHostValue) -> i64 {
 /// Fast-path helper for `concurrent.channel_close(channel)`.
 pub fn concurrent_channel_close_fast(channel: SpectraHostValue) -> i32 {
     let arc = match lock_concurrent_registry() {
-        Ok(r) => r.channels.get(&channel).cloned(),
+        Ok(r) => r.channels.get(channel).cloned(),
         Err(_) => return HOST_STATUS_INTERNAL_ERROR,
     };
     let Some(arc) = arc else {
@@ -19889,7 +20683,7 @@ pub fn concurrent_channel_close_fast(channel: SpectraHostValue) -> i32 {
 /// Fast-path helper for `concurrent.channel_len(channel)`.
 pub fn concurrent_channel_len_fast(channel: SpectraHostValue) -> i64 {
     let arc = match lock_concurrent_registry() {
-        Ok(r) => r.channels.get(&channel).cloned(),
+        Ok(r) => r.channels.get(channel).cloned(),
         Err(_) => return 0,
     };
     let Some(arc) = arc else {
@@ -19912,7 +20706,6 @@ extern "C" fn std_async_reactor_reset(ctx: *mut SpectraHostCallContext) -> i32 {
     HOST_STATUS_SUCCESS
 }
 
-const CONCURRENT_POOL_INITIAL_CAPACITY: usize = 64;
 const CONCURRENT_CHANNEL_INITIAL_CAPACITY: usize = 8;
 
 struct ConcurrentChannel {
@@ -20215,140 +21008,142 @@ fn concurrent_executor() -> &'static ConcurrentExecutor {
     EXECUTOR.get_or_init(ConcurrentExecutor::new)
 }
 
+struct ConcurrentHandleTable<T> {
+    table: HandleTable<T>,
+}
+
+impl<T> ConcurrentHandleTable<T> {
+    fn new(kind: HandleKind) -> Self {
+        Self {
+            table: HandleTable::new(kind),
+        }
+    }
+
+    fn insert(&mut self, value: T) -> SpectraHostValue {
+        self.table.insert(value).raw()
+    }
+
+    fn get(&self, raw: SpectraHostValue) -> Option<&T> {
+        let handle = HandleId::from_raw(raw).ok()?;
+        self.table.get(handle).ok()
+    }
+
+    fn get_mut(&mut self, raw: SpectraHostValue) -> Option<&mut T> {
+        let handle = HandleId::from_raw(raw).ok()?;
+        self.table.get_mut(handle).ok()
+    }
+
+    fn remove(&mut self, raw: SpectraHostValue) -> Option<T> {
+        let handle = HandleId::from_raw(raw).ok()?;
+        self.table.remove(handle).ok()
+    }
+
+    fn clear(&mut self) {
+        self.table.clear();
+    }
+
+    fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    fn slot_count(&self) -> usize {
+        self.table.slot_count()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (SpectraHostValue, &T)> + '_ {
+        self.table
+            .iter()
+            .map(|(handle, value)| (handle.raw(), value))
+    }
+}
+
 struct ConcurrentRegistry {
     // task_spawn receives an already-evaluated Spectra value, but completion
     // is scheduled on the persistent executor. This preserves the public API
     // while making fan-out/fan-in observable without one OS thread per task.
-    slots: Vec<Arc<ConcurrentTask>>,
-    active: Vec<bool>,
-    free: Vec<usize>,
-    next_fresh: usize,
-    next_channel: SpectraHostValue,
-    next_counter: SpectraHostValue,
-    next_batch: SpectraHostValue,
+    tasks: ConcurrentHandleTable<Arc<ConcurrentTask>>,
+    batches: ConcurrentHandleTable<Arc<ConcurrentBatch>>,
+    channels: ConcurrentHandleTable<Arc<Mutex<ConcurrentChannel>>>,
+    counters: ConcurrentHandleTable<SpectraHostValue>,
     tasks_spawned: SpectraHostValue,
-    batches: HashMap<SpectraHostValue, Arc<ConcurrentBatch>>,
-    channels: HashMap<SpectraHostValue, Arc<Mutex<ConcurrentChannel>>>,
-    counters: HashMap<SpectraHostValue, SpectraHostValue>,
 }
 
 impl ConcurrentRegistry {
     fn new() -> Self {
-        let mut slots = Vec::with_capacity(CONCURRENT_POOL_INITIAL_CAPACITY);
-        slots.push(Arc::new(ConcurrentTask::pending()));
         Self {
-            slots,
-            active: vec![false],
-            free: Vec::new(),
-            next_fresh: 1,
-            next_channel: 1,
-            next_counter: 1,
-            next_batch: 1,
+            tasks: ConcurrentHandleTable::new(HandleKind::ConcurrentTask),
+            batches: ConcurrentHandleTable::new(HandleKind::ConcurrentBatch),
+            channels: ConcurrentHandleTable::new(HandleKind::ConcurrentChannel),
+            counters: ConcurrentHandleTable::new(HandleKind::ConcurrentCounter),
             tasks_spawned: 0,
-            batches: HashMap::new(),
-            channels: HashMap::new(),
-            counters: HashMap::new(),
         }
     }
 
     fn clear(&mut self) {
-        // The common reset-after-join path is allocation-free.
-        if self.channels.is_empty()
-            && self.counters.is_empty()
-            && self.batches.is_empty()
-            && self.free.len() + 1 == self.slots.len()
-        {
-            self.tasks_spawned = 0;
-            self.next_channel = 1;
-            self.next_counter = 1;
-            self.next_batch = 1;
-            return;
-        }
-        for batch in self.batches.values() {
+        for (_, batch) in self.batches.iter() {
             batch.cancelled.store(true, Ordering::Release);
         }
-        for slot_idx in 1..self.slots.len() {
-            if self.active[slot_idx] {
-                let task = &self.slots[slot_idx];
-                if task.cancel() {
-                    if let Some(data) = concurrent_diagnostics() {
-                        data.tasks_cancelled.fetch_add(1, Ordering::Relaxed);
-                        data.pending_tasks.fetch_sub(1, Ordering::Relaxed);
-                    }
+        for (_, task) in self.tasks.iter() {
+            if task.cancel() {
+                if let Some(data) = concurrent_diagnostics() {
+                    data.tasks_cancelled.fetch_add(1, Ordering::Relaxed);
+                    data.pending_tasks.fetch_sub(1, Ordering::Relaxed);
                 }
-                self.active[slot_idx] = false;
             }
         }
         notify_concurrent_completion();
-        let total = self.slots.len();
-        self.free.clear();
-        self.free.extend(1..total);
-        self.tasks_spawned = 0;
+        self.tasks.clear();
+        self.batches.clear();
         self.channels.clear();
         self.counters.clear();
-        self.batches.clear();
-        self.next_channel = 1;
-        self.next_counter = 1;
-        self.next_batch = 1;
+        self.tasks_spawned = 0;
     }
 
-    fn allocate_task(&mut self) -> (usize, Arc<ConcurrentTask>) {
+    fn allocate_task(&mut self) -> (SpectraHostValue, Arc<ConcurrentTask>) {
         self.tasks_spawned += 1;
-        let slot_idx = if let Some(idx) = self.free.pop() {
-            idx
-        } else {
-            let idx = self.next_fresh;
-            self.next_fresh += 1;
-            self.slots.push(Arc::new(ConcurrentTask::pending()));
-            self.active.push(false);
+        let slots_before = self.tasks.slot_count();
+        let task = Arc::new(ConcurrentTask::pending());
+        let task_id = self.tasks.insert(Arc::clone(&task));
+        if self.tasks.slot_count() > slots_before {
             if let Some(data) = concurrent_diagnostics() {
                 data.slots_created.fetch_add(1, Ordering::Relaxed);
             }
-            idx
-        };
-        debug_assert!(!self.active[slot_idx], "slot pool invariant violated");
-        let task = Arc::clone(&self.slots[slot_idx]);
+        }
         task.prepare();
-        self.active[slot_idx] = true;
-        (slot_idx, task)
+        (task_id, task)
     }
 
-    fn task(&self, task_id: usize) -> Result<Arc<ConcurrentTask>, i32> {
-        if !self.active.get(task_id).copied().unwrap_or(false) {
-            return Err(HOST_STATUS_NOT_FOUND);
-        }
-        self.slots
+    fn task(&self, task_id: SpectraHostValue) -> Result<Arc<ConcurrentTask>, i32> {
+        self.tasks
             .get(task_id)
             .cloned()
             .ok_or(HOST_STATUS_NOT_FOUND)
     }
 
-    fn is_done(&self, task_id: usize) -> Result<bool, i32> {
-        let Some(task) = self.slots.get(task_id) else {
-            return Err(HOST_STATUS_NOT_FOUND);
-        };
-        if !self.active.get(task_id).copied().unwrap_or(false) {
-            return Ok(false);
-        }
-        Ok(task.is_done())
+    fn is_done(&self, task_id: SpectraHostValue) -> Result<bool, i32> {
+        self.tasks
+            .get(task_id)
+            .map(|task| task.is_done())
+            .ok_or(HOST_STATUS_NOT_FOUND)
     }
 
-    fn release(&mut self, task_id: usize, task: &Arc<ConcurrentTask>) -> Result<(), i32> {
-        let current = self.slots.get(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
-        if !self.active.get(task_id).copied().unwrap_or(false) || !Arc::ptr_eq(current, task) {
+    fn release(
+        &mut self,
+        task_id: SpectraHostValue,
+        task: &Arc<ConcurrentTask>,
+    ) -> Result<(), i32> {
+        let current = self.tasks.get(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
+        if !Arc::ptr_eq(current, task) {
             return Err(HOST_STATUS_NOT_FOUND);
         }
-        self.active[task_id] = false;
-        self.free.push(task_id);
+        self.tasks.remove(task_id).ok_or(HOST_STATUS_NOT_FOUND)?;
         Ok(())
     }
 
     fn allocate_batch(&mut self, count: usize) -> (SpectraHostValue, Arc<ConcurrentBatch>) {
-        let batch_id = self.next_batch.max(1);
-        self.next_batch = batch_id.saturating_add(1).max(1);
         self.tasks_spawned = self.tasks_spawned.saturating_add(count as SpectraHostValue);
         let batch = Arc::new(ConcurrentBatch::new(count));
-        self.batches.insert(batch_id, Arc::clone(&batch));
+        let batch_id = self.batches.insert(Arc::clone(&batch));
         if let Some(data) = concurrent_diagnostics() {
             data.batches_created.fetch_add(1, Ordering::Relaxed);
         }
@@ -20357,14 +21152,14 @@ impl ConcurrentRegistry {
 
     fn batch(&self, batch_id: SpectraHostValue) -> Result<Arc<ConcurrentBatch>, i32> {
         self.batches
-            .get(&batch_id)
+            .get(batch_id)
             .cloned()
             .ok_or(HOST_STATUS_NOT_FOUND)
     }
 
     fn release_batch(&mut self, batch_id: SpectraHostValue) -> Result<(), i32> {
         self.batches
-            .remove(&batch_id)
+            .remove(batch_id)
             .map(|_| {
                 if let Some(data) = concurrent_diagnostics() {
                     data.batches_joined.fetch_add(1, Ordering::Relaxed);
@@ -20429,11 +21224,10 @@ fn spawn_concurrent_task(value: SpectraHostValue) -> Result<SpectraHostValue, i3
         }
         return Err(HOST_STATUS_INTERNAL_ERROR);
     }
-    Ok(task_id as SpectraHostValue)
+    Ok(task_id)
 }
 
 fn join_concurrent_task(task_id: SpectraHostValue) -> Result<SpectraHostValue, i32> {
-    let task_id = usize::try_from(task_id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
     let task = {
         let registry = lock_concurrent_registry()?;
         registry.task(task_id)?
@@ -20448,7 +21242,6 @@ fn join_concurrent_task(task_id: SpectraHostValue) -> Result<SpectraHostValue, i
 }
 
 fn concurrent_task_done(task_id: SpectraHostValue) -> Result<bool, i32> {
-    let task_id = usize::try_from(task_id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
     if let Some(data) = concurrent_diagnostics() {
         data.task_polls.fetch_add(1, Ordering::Relaxed);
     }
@@ -20594,13 +21387,11 @@ extern "C" fn std_concurrent_channel_new(ctx: *mut SpectraHostCallContext) -> i3
     };
     let (channel_id, channel_arc) = match lock_concurrent_registry() {
         Ok(mut registry) => {
-            let id = registry.next_channel;
-            registry.next_channel += 1;
             let arc = Arc::new(Mutex::new(ConcurrentChannel {
                 queue: VecDeque::with_capacity(CONCURRENT_CHANNEL_INITIAL_CAPACITY),
                 closed: false,
             }));
-            registry.channels.insert(id, arc.clone());
+            let id = registry.channels.insert(arc.clone());
             (id, arc)
         }
         Err(status) => return status,
@@ -20616,7 +21407,7 @@ extern "C" fn std_concurrent_channel_send(ctx: *mut SpectraHostCallContext) -> i
         Err(status) => return status,
     };
     let channel_arc = match lock_concurrent_registry() {
-        Ok(registry) => registry.channels.get(&args[0]).cloned(),
+        Ok(registry) => registry.channels.get(args[0]).cloned(),
         Err(status) => return status,
     };
     let Some(channel_arc) = channel_arc else {
@@ -20638,7 +21429,7 @@ extern "C" fn std_concurrent_channel_recv(ctx: *mut SpectraHostCallContext) -> i
         Err(status) => return status,
     };
     let channel_arc = match lock_concurrent_registry() {
-        Ok(registry) => registry.channels.get(&args[0]).cloned(),
+        Ok(registry) => registry.channels.get(args[0]).cloned(),
         Err(status) => return status,
     };
     let Some(channel_arc) = channel_arc else {
@@ -20655,7 +21446,7 @@ extern "C" fn std_concurrent_channel_len(ctx: *mut SpectraHostCallContext) -> i3
         Err(status) => return status,
     };
     let channel_arc = match lock_concurrent_registry() {
-        Ok(registry) => registry.channels.get(&args[0]).cloned(),
+        Ok(registry) => registry.channels.get(args[0]).cloned(),
         Err(status) => return status,
     };
     let Some(channel_arc) = channel_arc else {
@@ -20673,7 +21464,7 @@ extern "C" fn std_concurrent_channel_close(ctx: *mut SpectraHostCallContext) -> 
         Err(status) => return status,
     };
     let channel_arc = match lock_concurrent_registry() {
-        Ok(registry) => registry.channels.get(&args[0]).cloned(),
+        Ok(registry) => registry.channels.get(args[0]).cloned(),
         Err(status) => return status,
     };
     let Some(channel_arc) = channel_arc else {
@@ -20692,9 +21483,7 @@ extern "C" fn std_concurrent_counter_new(ctx: *mut SpectraHostCallContext) -> i3
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let counter_id = registry.next_counter;
-    registry.next_counter += 1;
-    registry.counters.insert(counter_id, args[0]);
+    let counter_id = registry.counters.insert(args[0]);
     results[0] = counter_id;
     HOST_STATUS_SUCCESS
 }
@@ -20708,7 +21497,7 @@ extern "C" fn std_concurrent_counter_add(ctx: *mut SpectraHostCallContext) -> i3
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(value) = registry.counters.get_mut(&args[0]) else {
+    let Some(value) = registry.counters.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     *value += args[1];
@@ -20725,7 +21514,7 @@ extern "C" fn std_concurrent_counter_get(ctx: *mut SpectraHostCallContext) -> i3
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(value) = registry.counters.get(&args[0]) else {
+    let Some(value) = registry.counters.get(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     results[0] = *value;
@@ -20819,13 +21608,42 @@ enum ServeRequestState {
     Cancelled,
 }
 
+struct ServeHandleTable<T> {
+    table: HandleTable<T>,
+}
+
+impl<T> ServeHandleTable<T> {
+    fn new(kind: HandleKind) -> Self {
+        Self {
+            table: HandleTable::new(kind),
+        }
+    }
+
+    fn insert(&mut self, value: T) -> SpectraHostValue {
+        self.table.insert(value).raw()
+    }
+
+    fn get(&self, raw: SpectraHostValue) -> Option<&T> {
+        let handle = HandleId::from_raw(raw).ok()?;
+        self.table.get(handle).ok()
+    }
+
+    fn get_mut(&mut self, raw: SpectraHostValue) -> Option<&mut T> {
+        let handle = HandleId::from_raw(raw).ok()?;
+        self.table.get_mut(handle).ok()
+    }
+
+    fn clear(&mut self) {
+        self.table.clear();
+    }
+}
+
 struct ServeServer {
     model: SpectraHostValue,
     model_version: String,
     warm: bool,
     timeout: SpectraHostValue,
     queue: VecDeque<SpectraHostValue>,
-    requests: HashMap<SpectraHostValue, (SpectraHostValue, ServeRequestState)>,
     input_policy: Option<(SpectraHostValue, SpectraHostValue)>,
     output_policy: Option<(SpectraHostValue, SpectraHostValue)>,
     rate_limit: Option<SpectraHostValue>,
@@ -20845,22 +21663,21 @@ struct ServeServer {
 }
 
 struct ServeRegistry {
-    next_server: SpectraHostValue,
-    next_request: SpectraHostValue,
-    servers: HashMap<SpectraHostValue, ServeServer>,
+    servers: ServeHandleTable<ServeServer>,
+    requests: ServeHandleTable<(SpectraHostValue, ServeRequestState)>,
 }
 
 impl ServeRegistry {
     fn new() -> Self {
         Self {
-            next_server: 1,
-            next_request: 1,
-            servers: HashMap::new(),
+            servers: ServeHandleTable::new(HandleKind::ServeServer),
+            requests: ServeHandleTable::new(HandleKind::ServeRequest),
         }
     }
 
     fn clear(&mut self) {
-        *self = Self::new();
+        self.servers.clear();
+        self.requests.clear();
     }
 }
 
@@ -21054,17 +21871,12 @@ extern "C" fn std_serve_server_new(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let server_id = registry.next_server;
-    registry.next_server += 1;
-    registry.servers.insert(
-        server_id,
-        ServeServer {
+    let server_id = registry.servers.insert(ServeServer {
             model: args[0],
             model_version: format!("model-{}", args[0]),
             warm: false,
             timeout: 1,
             queue: VecDeque::new(),
-            requests: HashMap::new(),
             input_policy: None,
             output_policy: None,
             rate_limit: None,
@@ -21083,8 +21895,7 @@ extern "C" fn std_serve_server_new(ctx: *mut SpectraHostCallContext) -> i32 {
             latency_samples_ms: Vec::new(),
             observed_inputs: Vec::new(),
             observed_outputs: Vec::new(),
-        },
-    );
+        });
     results[0] = server_id;
     HOST_STATUS_SUCCESS
 }
@@ -21098,7 +21909,7 @@ extern "C" fn std_serve_server_warmup(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let Some(server) = registry.servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     server.warm = true;
@@ -21115,7 +21926,7 @@ extern "C" fn std_serve_server_is_warm(ctx: *mut SpectraHostCallContext) -> i32 
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get(&args[0]) else {
+    let Some(server) = registry.servers.get(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     results[0] = i64::from(server.warm);
@@ -21131,14 +21942,14 @@ extern "C" fn std_serve_server_enqueue(ctx: *mut SpectraHostCallContext) -> i32 
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let request_id = registry.next_request;
-    registry.next_request += 1;
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let ServeRegistry { servers, requests, .. } = &mut *registry;
+    let Some(server) = servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     let input = args[1];
     server.total_requests = server.total_requests.saturating_add(1);
     server.observed_inputs.push(input);
+    let request_id = requests.insert((input, ServeRequestState::Pending));
     if let Some(limit) = server.rate_limit {
         if server.accepted_requests >= limit {
             server.last_diagnostic = serve_guardrail_diagnostic(
@@ -21158,10 +21969,9 @@ extern "C" fn std_serve_server_enqueue(ctx: *mut SpectraHostCallContext) -> i32 
                 server.fallback,
             ));
             serve_record_block(server, server.fallback);
-            server.requests.insert(
-                request_id,
-                (input, ServeRequestState::Complete(server.fallback)),
-            );
+            if let Some((_, state)) = requests.get_mut(request_id) {
+                *state = ServeRequestState::Complete(server.fallback);
+            }
             results[0] = request_id;
             return HOST_STATUS_SUCCESS;
         }
@@ -21185,18 +21995,14 @@ extern "C" fn std_serve_server_enqueue(ctx: *mut SpectraHostCallContext) -> i32 
                 server.fallback,
             ));
             serve_record_block(server, server.fallback);
-            server.requests.insert(
-                request_id,
-                (input, ServeRequestState::Complete(server.fallback)),
-            );
+            if let Some((_, state)) = requests.get_mut(request_id) {
+                *state = ServeRequestState::Complete(server.fallback);
+            }
             results[0] = request_id;
             return HOST_STATUS_SUCCESS;
         }
     }
     server.accepted_requests += 1;
-    server
-        .requests
-        .insert(request_id, (input, ServeRequestState::Pending));
     server.audit_events.push(serve_audit_event(
         request_id, "accepted", "input", input, input,
     ));
@@ -21214,10 +22020,11 @@ extern "C" fn std_serve_server_cancel(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let ServeRegistry { servers, requests, .. } = &mut *registry;
+    let Some(server) = servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
-    let Some((_, state)) = server.requests.get_mut(&args[1]) else {
+    let Some((_, state)) = requests.get_mut(args[1]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     if *state == ServeRequestState::Pending {
@@ -21245,7 +22052,8 @@ extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let ServeRegistry { servers, requests, .. } = &mut *registry;
+    let Some(server) = servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     if !server.warm || max_batch == 0 {
@@ -21259,7 +22067,7 @@ extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -
         let Some(request_id) = server.queue.pop_front() else {
             break;
         };
-        let Some((input, state)) = server.requests.get(&request_id) else {
+        let Some((input, state)) = requests.get(request_id) else {
             continue;
         };
         if *state != ServeRequestState::Pending {
@@ -21267,7 +22075,7 @@ extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -
         }
         let input_value = *input;
         if server.timeout == 0 {
-            if let Some((_, state)) = server.requests.get_mut(&request_id) {
+            if let Some((_, state)) = requests.get_mut(request_id) {
                 *state = ServeRequestState::Cancelled;
             }
             server.cancelled_requests = server.cancelled_requests.saturating_add(1);
@@ -21294,7 +22102,7 @@ extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -
                     server.fallback,
                 ));
                 serve_record_block(server, server.fallback);
-                if let Some((_, state)) = server.requests.get_mut(&request_id) {
+                if let Some((_, state)) = requests.get_mut(request_id) {
                     *state = ServeRequestState::Complete(server.fallback);
                 }
                 processed += 1;
@@ -21309,7 +22117,7 @@ extern "C" fn std_serve_server_process_batch(ctx: *mut SpectraHostCallContext) -
             output,
         ));
         serve_record_complete(server, input_value, output);
-        if let Some((_, state)) = server.requests.get_mut(&request_id) {
+        if let Some((_, state)) = requests.get_mut(request_id) {
             *state = ServeRequestState::Complete(output);
         }
         processed += 1;
@@ -21327,10 +22135,10 @@ extern "C" fn std_serve_server_result(ctx: *mut SpectraHostCallContext) -> i32 {
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get(&args[0]) else {
+    let Some(_server) = registry.servers.get(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
-    let Some((_, state)) = server.requests.get(&args[1]) else {
+    let Some((_, state)) = registry.requests.get(args[1]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     results[0] = match *state {
@@ -21349,7 +22157,7 @@ extern "C" fn std_serve_server_pending(ctx: *mut SpectraHostCallContext) -> i32 
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get(&args[0]) else {
+    let Some(server) = registry.servers.get(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     results[0] = server.queue.len() as i64;
@@ -21365,7 +22173,7 @@ extern "C" fn std_serve_server_set_timeout(ctx: *mut SpectraHostCallContext) -> 
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let Some(server) = registry.servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     server.timeout = args[1].max(0);
@@ -21382,7 +22190,7 @@ extern "C" fn std_serve_server_resident_model(ctx: *mut SpectraHostCallContext) 
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get(&args[0]) else {
+    let Some(server) = registry.servers.get(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     results[0] = server.model;
@@ -21403,7 +22211,7 @@ extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i3
             Ok(registry) => registry,
             Err(status) => return status,
         };
-        let Some(server) = registry.servers.get_mut(&server_id) else {
+        let Some(server) = registry.servers.get_mut(server_id) else {
             return HOST_STATUS_NOT_FOUND;
         };
         server.warm = true;
@@ -21414,17 +22222,17 @@ extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i3
             Ok(registry) => registry,
             Err(status) => return status,
         };
-        let request_id = registry.next_request;
-        registry.next_request += 1;
-        let Some(server) = registry.servers.get_mut(&server_id) else {
+        let ServeRegistry {
+            servers,
+            requests: requests_registry,
+        } = &mut *registry;
+        let Some(server) = servers.get_mut(server_id) else {
             return HOST_STATUS_NOT_FOUND;
         };
+        let request_id = requests_registry.insert((input, ServeRequestState::Pending));
         server.total_requests = server.total_requests.saturating_add(1);
         server.accepted_requests = server.accepted_requests.saturating_add(1);
         server.observed_inputs.push(input);
-        server
-            .requests
-            .insert(request_id, (input, ServeRequestState::Pending));
         server.queue.push_back(request_id);
     }
 
@@ -21434,7 +22242,11 @@ extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i3
             Ok(registry) => registry,
             Err(status) => return status,
         };
-        let Some(server) = registry.servers.get_mut(&server_id) else {
+        let ServeRegistry {
+            servers,
+            requests: requests_registry,
+        } = &mut *registry;
+        let Some(server) = servers.get_mut(server_id) else {
             return HOST_STATUS_NOT_FOUND;
         };
         if server.queue.is_empty() {
@@ -21446,7 +22258,7 @@ extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i3
             let Some(request_id) = server.queue.pop_front() else {
                 break;
             };
-            let Some((input, state)) = server.requests.get(&request_id) else {
+            let Some((input, state)) = requests_registry.get(request_id) else {
                 continue;
             };
             if *state != ServeRequestState::Pending {
@@ -21454,7 +22266,7 @@ extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i3
             }
             let input_value = *input;
             if server.timeout == 0 {
-                if let Some((_, state)) = server.requests.get_mut(&request_id) {
+                if let Some((_, state)) = requests_registry.get_mut(request_id) {
                     *state = ServeRequestState::Cancelled;
                 }
                 server.cancelled_requests = server.cancelled_requests.saturating_add(1);
@@ -21463,7 +22275,7 @@ extern "C" fn std_serve_server_benchmark(ctx: *mut SpectraHostCallContext) -> i3
             }
             let output = input_value * server.model;
             serve_record_complete(server, input_value, output);
-            if let Some((_, state)) = server.requests.get_mut(&request_id) {
+            if let Some((_, state)) = requests_registry.get_mut(request_id) {
                 *state = ServeRequestState::Complete(output);
             }
             processed += 1;
@@ -21486,7 +22298,7 @@ extern "C" fn std_serve_server_set_input_policy(ctx: *mut SpectraHostCallContext
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let Some(server) = registry.servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     server.input_policy = Some((args[1], args[2]));
@@ -21510,7 +22322,7 @@ extern "C" fn std_serve_server_set_output_policy(ctx: *mut SpectraHostCallContex
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let Some(server) = registry.servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     server.output_policy = Some((args[1], args[2]));
@@ -21534,7 +22346,7 @@ extern "C" fn std_serve_server_set_rate_limit(ctx: *mut SpectraHostCallContext) 
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let Some(server) = registry.servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     server.rate_limit = Some(args[1]);
@@ -21555,7 +22367,7 @@ extern "C" fn std_serve_server_set_fallback(ctx: *mut SpectraHostCallContext) ->
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let Some(server) = registry.servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     server.fallback = args[1];
@@ -21577,7 +22389,7 @@ extern "C" fn std_serve_server_last_diagnostic(ctx: *mut SpectraHostCallContext)
             Ok(registry) => registry,
             Err(status) => return status,
         };
-        let Some(server) = registry.servers.get(&args[0]) else {
+        let Some(server) = registry.servers.get(args[0]) else {
             return HOST_STATUS_NOT_FOUND;
         };
         server.last_diagnostic.clone()
@@ -21596,7 +22408,7 @@ extern "C" fn std_serve_server_audit_log(ctx: *mut SpectraHostCallContext) -> i3
             Ok(registry) => registry,
             Err(status) => return status,
         };
-        let Some(server) = registry.servers.get(&args[0]) else {
+        let Some(server) = registry.servers.get(args[0]) else {
             return HOST_STATUS_NOT_FOUND;
         };
         serve_audit_json(server)
@@ -21617,7 +22429,7 @@ extern "C" fn std_serve_server_set_model_version(ctx: *mut SpectraHostCallContex
         Ok(registry) => registry,
         Err(status) => return status,
     };
-    let Some(server) = registry.servers.get_mut(&args[0]) else {
+    let Some(server) = registry.servers.get_mut(args[0]) else {
         return HOST_STATUS_NOT_FOUND;
     };
     server.model_version = version;
@@ -21639,7 +22451,7 @@ extern "C" fn std_serve_server_monitoring_snapshot(ctx: *mut SpectraHostCallCont
             Ok(registry) => registry,
             Err(status) => return status,
         };
-        let Some(server) = registry.servers.get(&args[0]) else {
+        let Some(server) = registry.servers.get(args[0]) else {
             return HOST_STATUS_NOT_FOUND;
         };
         serve_monitoring_snapshot_json(server)
@@ -21658,7 +22470,7 @@ extern "C" fn std_serve_server_distribution_summary(ctx: *mut SpectraHostCallCon
             Ok(registry) => registry,
             Err(status) => return status,
         };
-        let Some(server) = registry.servers.get(&args[0]) else {
+        let Some(server) = registry.servers.get(args[0]) else {
             return HOST_STATUS_NOT_FOUND;
         };
         serve_distribution_summary_json(server)
@@ -21710,7 +22522,7 @@ extern "C" fn std_serve_export_monitoring(ctx: *mut SpectraHostCallContext) -> i
             Ok(registry) => registry,
             Err(status) => return status,
         };
-        let Some(server) = registry.servers.get(&args[0]) else {
+        let Some(server) = registry.servers.get(args[0]) else {
             return HOST_STATUS_NOT_FOUND;
         };
         serve_monitoring_snapshot_json(server)
@@ -22141,36 +22953,36 @@ mod tests {
         let err = [1_i64, 9_i64];
 
         assert_eq!(
-            call_host(OPTION_UNWRAP, &[none.as_ptr() as SpectraHostValue]).0,
+            call_host(option_result::OPTION_UNWRAP, &[none.as_ptr() as SpectraHostValue]).0,
             HOST_STATUS_INVALID_ARGUMENT
         );
         assert_eq!(
-            call_host(OPTION_UNWRAP, &[0]).0,
+            call_host(option_result::OPTION_UNWRAP, &[0]).0,
             HOST_STATUS_INVALID_ARGUMENT
         );
         assert_eq!(
-            call_host(RESULT_UNWRAP, &[err.as_ptr() as SpectraHostValue]).0,
+            call_host(option_result::RESULT_UNWRAP, &[err.as_ptr() as SpectraHostValue]).0,
             HOST_STATUS_INVALID_ARGUMENT
         );
         assert_eq!(
-            call_host(RESULT_UNWRAP_ERR, &[ok.as_ptr() as SpectraHostValue]).0,
+            call_host(option_result::RESULT_UNWRAP_ERR, &[ok.as_ptr() as SpectraHostValue]).0,
             HOST_STATUS_INVALID_ARGUMENT
         );
         assert_eq!(
-            call_host(RESULT_UNWRAP_ERR, &[0]).0,
+            call_host(option_result::RESULT_UNWRAP_ERR, &[0]).0,
             HOST_STATUS_INVALID_ARGUMENT
         );
 
         assert_eq!(
-            call_host(OPTION_UNWRAP, &[some.as_ptr() as SpectraHostValue]),
+            call_host(option_result::OPTION_UNWRAP, &[some.as_ptr() as SpectraHostValue]),
             (HOST_STATUS_SUCCESS, 42)
         );
         assert_eq!(
-            call_host(RESULT_UNWRAP, &[ok.as_ptr() as SpectraHostValue]),
+            call_host(option_result::RESULT_UNWRAP, &[ok.as_ptr() as SpectraHostValue]),
             (HOST_STATUS_SUCCESS, 7)
         );
         assert_eq!(
-            call_host(RESULT_UNWRAP_ERR, &[err.as_ptr() as SpectraHostValue]),
+            call_host(option_result::RESULT_UNWRAP_ERR, &[err.as_ptr() as SpectraHostValue]),
             (HOST_STATUS_SUCCESS, 9)
         );
     }
@@ -22186,13 +22998,13 @@ mod tests {
         let path_arg = test_string(path.to_string_lossy().as_ref());
 
         assert_eq!(
-            call_host(FS_WRITE, &[path_arg, test_string("first")]),
+            call_host(FS_WRITE_COMPAT, &[path_arg, test_string("first")]),
             (HOST_STATUS_SUCCESS, 1)
         );
         assert_eq!(std::fs::read_to_string(&path).expect("read first"), "first");
 
         assert_eq!(
-            call_host(FS_APPEND, &[path_arg, test_string("-second")]),
+            call_host(FS_APPEND_COMPAT, &[path_arg, test_string("-second")]),
             (HOST_STATUS_SUCCESS, 1)
         );
         assert_eq!(
@@ -22201,7 +23013,7 @@ mod tests {
         );
 
         assert_eq!(
-            call_host(FS_WRITE, &[path_arg, test_string("overwrite")]),
+            call_host(FS_WRITE_COMPAT, &[path_arg, test_string("overwrite")]),
             (HOST_STATUS_SUCCESS, 1)
         );
         assert_eq!(
@@ -22209,14 +23021,14 @@ mod tests {
             "overwrite"
         );
 
-        let (status, read_ptr) = call_host(FS_READ, &[path_arg]);
+        let (status, read_ptr) = call_host(FS_READ_COMPAT, &[path_arg]);
         assert_eq!(status, HOST_STATUS_SUCCESS);
         let read_back = unsafe { read_spectra_string(read_ptr) }.expect("fs read string");
         assert_eq!(read_back, "overwrite");
 
-        assert_eq!(call_host(FS_EXISTS, &[path_arg]), (HOST_STATUS_SUCCESS, 1));
-        assert_eq!(call_host(FS_REMOVE, &[path_arg]), (HOST_STATUS_SUCCESS, 1));
-        assert_eq!(call_host(FS_EXISTS, &[path_arg]), (HOST_STATUS_SUCCESS, 0));
+        assert_eq!(call_host(FS_EXISTS_COMPAT, &[path_arg]), (HOST_STATUS_SUCCESS, 1));
+        assert_eq!(call_host(FS_REMOVE_COMPAT, &[path_arg]), (HOST_STATUS_SUCCESS, 1));
+        assert_eq!(call_host(FS_EXISTS_COMPAT, &[path_arg]), (HOST_STATUS_SUCCESS, 0));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -22228,15 +23040,15 @@ mod tests {
 
         let empty = test_string("");
         assert_eq!(
-            call_host(FS_WRITE, &[empty, test_string("ignored")]),
+            call_host(FS_WRITE_COMPAT, &[empty, test_string("ignored")]),
             (HOST_STATUS_SUCCESS, 0)
         );
         assert_eq!(
-            call_host(FS_APPEND, &[empty, test_string("ignored")]),
+            call_host(FS_APPEND_COMPAT, &[empty, test_string("ignored")]),
             (HOST_STATUS_SUCCESS, 0)
         );
-        assert_eq!(call_host(FS_EXISTS, &[empty]), (HOST_STATUS_SUCCESS, 0));
-        assert_eq!(call_host(FS_REMOVE, &[empty]), (HOST_STATUS_SUCCESS, 0));
+        assert_eq!(call_host(FS_EXISTS_COMPAT, &[empty]), (HOST_STATUS_SUCCESS, 0));
+        assert_eq!(call_host(FS_REMOVE_COMPAT, &[empty]), (HOST_STATUS_SUCCESS, 0));
 
         let dir = temp_test_dir("fs_blocked_parent");
         std::fs::create_dir_all(&dir).expect("create temp dir");
@@ -22246,11 +23058,11 @@ mod tests {
         let child_arg = test_string(child.to_string_lossy().as_ref());
 
         assert_eq!(
-            call_host(FS_WRITE, &[child_arg, test_string("payload")]),
+            call_host(FS_WRITE_COMPAT, &[child_arg, test_string("payload")]),
             (HOST_STATUS_SUCCESS, 0)
         );
         assert_eq!(
-            call_host(FS_APPEND, &[child_arg, test_string("payload")]),
+            call_host(FS_APPEND_COMPAT, &[child_arg, test_string("payload")]),
             (HOST_STATUS_SUCCESS, 0)
         );
         assert!(!child.exists());
@@ -24969,7 +25781,7 @@ mod tests {
         );
         assert_eq!(
             call_host(CONCURRENT_TASK_IS_DONE, &[task]),
-            (HOST_STATUS_SUCCESS, 0)
+            (HOST_STATUS_NOT_FOUND, 0)
         );
         assert_eq!(
             call_host(CONCURRENT_STATS_TASKS_SPAWNED, &[]),
@@ -25032,7 +25844,7 @@ mod tests {
         let mut registry = ConcurrentRegistry::new();
 
         let (first, first_task) = registry.allocate_task();
-        assert_eq!(first, 1);
+        assert!(first > 0);
         assert!(!first_task.is_done());
         assert!(first_task.complete(41));
         assert!(first_task.is_done());
@@ -25041,7 +25853,11 @@ mod tests {
         assert_eq!(registry.task(first).err(), Some(HOST_STATUS_NOT_FOUND));
 
         let (recycled, recycled_task) = registry.allocate_task();
-        assert_eq!(recycled, first);
+        assert_ne!(recycled, first);
+        assert_eq!(
+            HandleId::from_raw(recycled).unwrap().slot(),
+            HandleId::from_raw(first).unwrap().slot()
+        );
         assert!(recycled_task.complete(99));
         assert_eq!(recycled_task.join(), Ok(99));
         assert_eq!(registry.release(recycled, &recycled_task), Ok(()));
@@ -25052,20 +25868,20 @@ mod tests {
         let mut registry = ConcurrentRegistry::new();
         let (task, pending) = registry.allocate_task();
         registry.tasks_spawned = 3;
-        registry.next_channel = 9;
-        registry.next_counter = 11;
         registry.clear();
 
         assert!(pending.is_done());
         assert_eq!(pending.join(), Err(HOST_STATUS_NOT_FOUND));
         assert_eq!(registry.task(task).err(), Some(HOST_STATUS_NOT_FOUND));
         assert_eq!(registry.tasks_spawned, 0);
-        assert_eq!(registry.next_channel, 1);
-        assert_eq!(registry.next_counter, 1);
-        assert!(registry.channels.is_empty());
-        assert!(registry.counters.is_empty());
+        assert_eq!(registry.channels.len(), 0);
+        assert_eq!(registry.counters.len(), 0);
         let (reused, reused_task) = registry.allocate_task();
-        assert_eq!(reused, task);
+        assert_ne!(reused, task);
+        assert_eq!(
+            HandleId::from_raw(reused).unwrap().slot(),
+            HandleId::from_raw(task).unwrap().slot()
+        );
         assert!(reused_task.complete(8));
         assert_eq!(reused_task.join(), Ok(8));
         assert_eq!(registry.release(reused, &reused_task), Ok(()));
@@ -25073,7 +25889,7 @@ mod tests {
         registry.clear();
         assert_eq!(registry.tasks_spawned, 0);
         let (again, again_task) = registry.allocate_task();
-        assert_eq!(again, task);
+        assert_ne!(again, reused);
         assert!(again_task.complete(9));
         assert_eq!(again_task.join(), Ok(9));
         assert_eq!(registry.release(again, &again_task), Ok(()));
@@ -25136,7 +25952,7 @@ mod tests {
             .sum::<i64>();
         assert_eq!(total, 550);
         let registry = lock_concurrent_registry().expect("registry should not be poisoned");
-        assert!(registry.batches.is_empty(), "joined batches must be released");
+        assert_eq!(registry.batches.len(), 0, "joined batches must be released");
         drop(registry);
         assert_eq!(call_host(CONCURRENT_PIPELINE_SUM, &[1, 100, 4]), (HOST_STATUS_SUCCESS, 5050));
     }
@@ -25185,8 +26001,8 @@ mod tests {
         assert_eq!(call_host(CONCURRENT_RESET, &[]).0, HOST_STATUS_SUCCESS);
         let slots_before = lock_concurrent_registry()
             .expect("registry should not be poisoned")
-            .slots
-            .len();
+            .tasks
+            .slot_count();
         assert_eq!(concurrent_spawn_join_fast(77), 77);
         assert_eq!(concurrent_spawn_join_fast(-3), -3);
         assert_eq!(
@@ -25195,7 +26011,7 @@ mod tests {
         );
         let mut registry = lock_concurrent_registry().expect("registry should not be poisoned");
         assert_eq!(
-            registry.slots.len(),
+            registry.tasks.slot_count(),
             slots_before,
             "fused path must not allocate task slots"
         );

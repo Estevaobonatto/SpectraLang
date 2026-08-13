@@ -8,6 +8,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from render_language_maturity import validate as validate_stability_contract
+
 
 REQUIRED_SECTIONS = ("Stable", "Beta", "Experimental", "Deferred")
 REQUIRED_EXPERIMENTAL: tuple[str, ...] = ()
@@ -69,6 +71,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
     parser.add_argument("--binary", default="target/debug/spectralang.exe")
+    parser.add_argument(
+        "--stability-contract",
+        default="scripts/language_stability_contract.toml",
+        help="machine-readable stable-core contract to validate",
+    )
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
@@ -90,6 +97,16 @@ def main() -> int:
 
     policy = policy_path.read_text(encoding="utf-8")
     source = main_path.read_text(encoding="utf-8")
+
+    stability_path = (root / args.stability_contract).resolve()
+    if not stability_path.is_file():
+        errors.append(f"missing stable-core contract: {stability_path}")
+    else:
+        try:
+            stability_errors, _ = validate_stability_contract(root, stability_path)
+            errors.extend(f"stable-core contract: {error}" for error in stability_errors)
+        except Exception as exc:  # noqa: BLE001 - convert contract parse failures to diagnostics
+            errors.append(f"stable-core contract could not be validated: {exc}")
 
     for section in REQUIRED_SECTIONS:
         body = extract_section(policy, section)

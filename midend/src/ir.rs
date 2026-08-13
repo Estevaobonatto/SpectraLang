@@ -29,8 +29,19 @@ pub struct LocalDebugInfo {
 pub struct Module {
     pub name: String,
     pub functions: Vec<Function>,
+    /// Function declarations supplied by another source module. These are
+    /// emitted as native linker imports by AOT code generation and are not
+    /// lowered as bodies in this module.
+    pub external_functions: Vec<ExternalFunction>,
     pub globals: Vec<Global>,
     pub source_file: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExternalFunction {
+    pub name: String,
+    pub params: Vec<Type>,
+    pub return_type: Type,
 }
 
 /// Global variable
@@ -161,6 +172,12 @@ pub enum InstructionKind {
     // Memory
     Alloca {
         result: Value,
+        ty: Type,
+    },
+    /// Address of a module-level mutable global.
+    GlobalAddr {
+        result: Value,
+        name: String,
         ty: Type,
     },
     /// Runtime manual heap allocation (tracked, frame-scoped). Used for values
@@ -360,6 +377,13 @@ pub struct Value {
 /// IR Type system
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
+    /// A type that could not be resolved by semantic analysis or lowering.
+    ///
+    /// This is deliberately not a backend representation.  It exists so the
+    /// midend can preserve the distinction between a real unit value (`Void`)
+    /// and an unresolved value.  Verification must reject modules containing
+    /// this variant before any backend is invoked.
+    Unknown,
     Void,
     Int,
     Float,
@@ -446,6 +470,7 @@ impl Module {
         Self {
             name: name.into(),
             functions: Vec::new(),
+            external_functions: Vec::new(),
             globals: Vec::new(),
             source_file: None,
         }

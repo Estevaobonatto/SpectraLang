@@ -81,7 +81,12 @@ public func main() returns int {
     if string.contains(exported, "stdlib-serve-monitoring.json") != true {
         return 18
     }
-    if fs.fs_exists(exported) != true {
+    let exported_exists = fs.fs_exists(exported)
+    if let Result::Ok(exists) = exported_exists {
+        if exists != true {
+            return 19
+        }
+    } else {
         return 19
     }
 

@@ -39,6 +39,16 @@ if (-not (Test-Path $binary)) {
     }
 }
 
+if ($Phase -contains "stability_release") {
+    Write-Host "--- SpectraLang required stability release gate ---" -ForegroundColor Yellow
+    & python scripts\validate_stability_release.py `
+        --binary $binary `
+        --required `
+        --report target\stability\release-report.json `
+        --markdown target\stability\release-report.md
+    exit $LASTEXITCODE
+}
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "   SPECTRALANG - SUITE DE TESTES" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan

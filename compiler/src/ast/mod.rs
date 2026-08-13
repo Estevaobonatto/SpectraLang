@@ -96,6 +96,13 @@ pub struct Module {
     /// can pre-register the return types and generate correct cross-module calls.
     /// e.g. ("square", Type::Int) when `import mathutils;` brings in `square`.
     pub imported_function_return_types: Vec<(String, Type)>,
+    /// Full callable signatures for user-defined functions imported from other
+    /// modules. The backend uses these declarations when emitting relocatable
+    /// AOT objects, where an imported call must be declared as an external
+    /// symbol before the native linker resolves it from another module object.
+    pub imported_function_signatures: Vec<(String, Vec<Type>, Type)>,
+    /// Imported module-level statics: `(local_name, qualified_global_key, type)`.
+    pub imported_static_globals: Vec<(String, String, Type)>,
     /// Enum AST definitions from imported user modules.
     /// Populated by the semantic analyser so the midend can register
     /// cross-module enum layouts before lowering.
@@ -124,6 +131,8 @@ impl Module {
             items: Vec::new(),
             std_import_aliases: Vec::new(),
             imported_function_return_types: Vec::new(),
+            imported_function_signatures: Vec::new(),
+            imported_static_globals: Vec::new(),
             imported_enum_defs: Vec::new(),
             imported_struct_defs: Vec::new(),
             imported_trait_impls: Vec::new(),

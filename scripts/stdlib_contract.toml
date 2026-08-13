@@ -1,9 +1,14 @@
 schema = "spectralang.r3007_stdlib_contract.v1"
 contract_version = "r3007/v1"
 binary_default = "target/debug/spectralang.exe"
+catalog = "packages/spectra-contract/catalog/stdlib.toml"
+catalog_policy = "derived-during-migration"
 docs = [
   "docs/reference/05-stdlib.md",
+  "docs/reference/06-referencia-rapida.md",
   "docs/runtime/standard-library.md",
+  "docs/AI-AGENT-REFERENCE.md",
+  "docs/language-feature-maturity.md",
   "docs/api/README.md",
   "docs/api/api-conformance-v0.md",
   "docs/api/std-api-http-types.md",
@@ -27,7 +32,7 @@ docs = [
 
 [sources]
 semantic = ["compiler/src/semantic/builtin_modules.rs"]
-runtime = ["runtime/src/stdlib/mod.rs"]
+runtime = ["runtime/src/stdlib"]
 api_runtime = ["packages/spectra-api/src"]
 lowering = ["midend/src/lowering.rs"]
 backend = ["backend/src/codegen.rs"]
@@ -43,7 +48,7 @@ documentation = "docs"
 [[probe]]
 id = "std-core"
 path = "tests/validation/185_stdlib_contract_audit.spectra"
-covers = ["std.io.*", "std.math.*", "std.string.*", "std.convert.*", "std.random.*", "std.collections.*", "std.fs.*", "std.env.*", "std.option.*", "std.result.*", "std.char.*", "std.time.*", "std.range.*"]
+covers = ["std.io.*", "std.math.*", "std.string.*", "std.convert.*", "std.random.*", "std.collections.*", "std.fs.*", "std.compat.fs.*", "std.env.*", "std.compat.env.*", "std.option.*", "std.result.*", "std.error.*", "std.char.*", "std.time.*", "std.range.*"]
 
 [[probe]]
 id = "api-trace"
@@ -270,10 +275,37 @@ classification = "production"
 roadmap = "R-1203"
 
 [[namespace]]
+prefix = "std.compat.fs"
+owner = "runtime"
+classification = "baseline"
+roadmap = "R-2003"
+reason = "Filesystem sentinel behavior is retained only as an explicit migration adapter and is not the stable authority."
+
+[[namespace]]
+prefix = "std.error"
+owner = "runtime"
+classification = "production"
+roadmap = "R-1204"
+
+[[namespace]]
+prefix = "std.compat.collections"
+owner = "runtime"
+classification = "baseline"
+roadmap = "R-2003"
+reason = "Legacy integer sentinel collection accessors remain available only for migration compatibility."
+
+[[namespace]]
 prefix = "std.env"
 owner = "runtime"
 classification = "production"
 roadmap = "R-2003"
+
+[[namespace]]
+prefix = "std.compat.env"
+owner = "runtime"
+classification = "baseline"
+roadmap = "R-2003"
+reason = "Legacy empty-string environment adapters remain available only for migration compatibility."
 
 [[namespace]]
 prefix = "std.option"

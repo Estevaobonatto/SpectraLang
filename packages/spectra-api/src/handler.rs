@@ -1,9 +1,10 @@
 use crate::http::{self, Request, Response, Status};
 use crate::{alloc_spectra_string, read_args, read_spectra_string, write_result};
+use crate::handles::ApiHandleTable;
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
 };
-use std::collections::HashMap;
+use spectra_runtime::handles::HandleKind;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Mutex, OnceLock};
@@ -133,37 +134,27 @@ struct HandlerEntry {
 }
 
 struct HandlerStore {
-    next_handler: SpectraHostValue,
-    next_error: SpectraHostValue,
-    handlers: HashMap<SpectraHostValue, HandlerEntry>,
-    errors: HashMap<SpectraHostValue, HandlerError>,
+    handlers: ApiHandleTable<HandlerEntry>,
+    errors: ApiHandleTable<HandlerError>,
     last_error: Option<HandlerError>,
 }
 
 impl HandlerStore {
     fn new() -> Self {
         Self {
-            next_handler: 1,
-            next_error: 1,
-            handlers: HashMap::new(),
-            errors: HashMap::new(),
+            handlers: ApiHandleTable::new(HandleKind::ApiHandler),
+            errors: ApiHandleTable::new(HandleKind::ApiHandlerError),
             last_error: None,
         }
     }
 
     fn handler_handle(&mut self, entry: HandlerEntry) -> SpectraHostValue {
-        let handle = self.next_handler;
-        self.next_handler = self.next_handler.saturating_add(1).max(1);
-        self.handlers.insert(handle, entry);
-        handle
+        self.handlers.insert(entry)
     }
 
     fn error_handle(&mut self, error: HandlerError) -> SpectraHostValue {
         self.last_error = Some(error.clone());
-        let handle = self.next_error;
-        self.next_error = self.next_error.saturating_add(1).max(1);
-        self.errors.insert(handle, error);
-        handle
+        self.errors.insert(error)
     }
 }
 

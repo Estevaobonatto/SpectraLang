@@ -1,10 +1,11 @@
 use crate::{alloc_spectra_string, read_args, read_spectra_string, write_result};
+use crate::handles::ApiHandleTable;
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
 };
+use spectra_runtime::handles::{HandleKind, HandleTable};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
@@ -181,41 +182,36 @@ impl Router {
 }
 
 fn next_route_id() -> SpectraHostValue {
-    static NEXT_ROUTE_ID: AtomicI64 = AtomicI64::new(1);
-    NEXT_ROUTE_ID.fetch_add(1, Ordering::SeqCst).max(1)
+    static ROUTES: OnceLock<Mutex<HandleTable<()>>> = OnceLock::new();
+    ROUTES
+        .get_or_init(|| Mutex::new(HandleTable::new(HandleKind::ApiRoute)))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(())
+        .raw()
 }
 
 struct RouterStore {
-    next_router: SpectraHostValue,
-    next_match: SpectraHostValue,
-    routers: HashMap<SpectraHostValue, Router>,
-    matches: HashMap<SpectraHostValue, RouteMatch>,
+    routers: ApiHandleTable<Router>,
+    matches: ApiHandleTable<RouteMatch>,
     last_conflict: String,
 }
 
 impl RouterStore {
     fn new() -> Self {
         Self {
-            next_router: 1,
-            next_match: 1,
-            routers: HashMap::new(),
-            matches: HashMap::new(),
+            routers: ApiHandleTable::new(HandleKind::ApiRouter),
+            matches: ApiHandleTable::new(HandleKind::ApiRouteMatch),
             last_conflict: String::new(),
         }
     }
 
     fn router_handle(&mut self) -> SpectraHostValue {
-        let handle = self.next_router;
-        self.next_router = self.next_router.saturating_add(1).max(1);
-        self.routers.insert(handle, Router::default());
-        handle
+        self.routers.insert(Router::default())
     }
 
     fn match_handle(&mut self, route_match: RouteMatch) -> SpectraHostValue {
-        let handle = self.next_match;
-        self.next_match = self.next_match.saturating_add(1).max(1);
-        self.matches.insert(handle, route_match);
-        handle
+        self.matches.insert(route_match)
     }
 }
 
@@ -780,6 +776,12 @@ mod tests {
         let order = router
             .add(RouteMethod::Get, r"/orders/{id:\d+}")
             .expect("regex");
+        assert_eq!(
+            spectra_runtime::handles::HandleId::from_raw(users)
+                .expect("route handle")
+                .kind(),
+            HandleKind::ApiRoute
+        );
 
         assert_eq!(
             router
@@ -851,6 +853,21 @@ mod tests {
             .expect("match");
         assert_eq!(matched.route_id, route);
         assert_eq!(matched.params.get("id").map(String::as_str), Some("42"));
+    }
+
+    #[test]
+    fn route_handles_are_unique_across_router_instances() {
+        let mut first = Router::default();
+        let mut second = Router::default();
+        let first_route = first.add(RouteMethod::Get, "/first").unwrap();
+        let second_route = second.add(RouteMethod::Get, "/second").unwrap();
+        assert_ne!(first_route, second_route);
+        assert_eq!(
+            spectra_runtime::handles::HandleId::from_raw(second_route)
+                .expect("route handle")
+                .kind(),
+            HandleKind::ApiRoute
+        );
     }
 
     #[test]

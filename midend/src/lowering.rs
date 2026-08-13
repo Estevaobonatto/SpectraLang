@@ -4,8 +4,9 @@
 use crate::builder::IRBuilder;
 use crate::layout;
 use crate::ir::{
-    FloatWidth as IRFloatWidth, Function as IRFunction, IntWidth as IRIntWidth,
-    LocalDebugInfo, Module as IRModule, Parameter, SourceSpan, Terminator, Type as IRType, Value,
+    Constant, ExternalFunction, FloatWidth as IRFloatWidth, Function as IRFunction, Global,
+    IntWidth as IRIntWidth, LocalDebugInfo, Module as IRModule, Parameter, SourceSpan, Terminator,
+    Type as IRType, Value,
 };
 use spectra_compiler::ast::{
     BinaryOperator, Block, Enum as ASTEnum, EnumVariant, Expression, ExpressionKind, FStringPart,
@@ -335,6 +336,8 @@ impl MonomorphizationRequest {
             IRType::Int => "int".to_string(),
             IRType::Float => "float".to_string(),
             IRType::Bool => "bool".to_string(),
+            IRType::String => "string".to_string(),
+            IRType::Char => "char".to_string(),
             IRType::Pointer(inner) => format!("ptr_{}", Self::type_to_string(inner)),
             IRType::Struct { name, .. } => name.clone(),
             _ => "unknown".to_string(), // Fallback for other types
@@ -439,6 +442,8 @@ pub struct ASTLowering {
     errors: Vec<MidendError>,
     /// Compile-time constants lowered as literals at each use site.
     const_values: HashMap<String, LoweredConstValue>,
+    /// Module-level mutable globals lowered to IR globals and addressed by name.
+    static_globals: HashMap<String, (String, IRType)>,
     /// Borrowed receiver parameters are visible in `struct_var_map` but are
     /// not owned by the current method and must not be destroyed on return.
     drop_excluded_names: HashSet<String>,
@@ -494,8 +499,10 @@ impl ASTLowering {
             trait_declarations: HashMap::new(),
             errors: Vec::new(),
             const_values: HashMap::new(),
+            static_globals: HashMap::new(),
             drop_excluded_names: HashSet::new(),
         };
+        lowering.register_builtin_error_struct();
         lowering.register_builtin_generic_enums();
         lowering.register_builtin_async_traits();
         lowering.register_builtin_api_traits();
@@ -666,6 +673,40 @@ impl ASTLowering {
             .insert(trait_decl.name.clone(), signatures);
     }
 
+    /// Register the concrete layout used by `std.error.Error` host values.
+    ///
+    /// The semantic module owns the public record contract; the midend keeps
+    /// this small intrinsic definition available even when a module imports
+    /// `std.fs` without importing `std.error` solely to inspect an error.
+    fn register_builtin_error_struct(&mut self) {
+        self.struct_definitions.insert(
+            "Error".to_string(),
+            vec![
+                ("code".to_string(), IRType::Int),
+                ("message".to_string(), IRType::String),
+                ("operation".to_string(), IRType::String),
+                ("context".to_string(), IRType::String),
+                ("origin".to_string(), IRType::String),
+                ("retryable".to_string(), IRType::Bool),
+            ],
+        );
+        self.enum_definitions.insert(
+            "ErrorCode".to_string(),
+            [
+                "InvalidArgument",
+                "NotFound",
+                "PermissionDenied",
+                "Io",
+                "Internal",
+                "Unsupported",
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(tag, name)| (name.to_string(), tag, None))
+            .collect(),
+        );
+    }
+
     /// Pre-register `Option<T>` and `Result<T, E>` as built-in generic enums so
     /// that user code doesn't need to declare them.
     fn register_builtin_generic_enums(&mut self) {
@@ -741,6 +782,21 @@ impl ASTLowering {
 
     fn error(&mut self, message: impl Into<String>) {
         self.errors.push(MidendError::new(message));
+    }
+
+    /// Report an impossible lowering state and return a non-emittable poison
+    /// value. `lower_module` rejects the module whenever `errors` is non-empty,
+    /// so this sentinel can never reach verification or backend codegen.
+    fn invalid_value(&mut self, message: impl Into<String>) -> Value {
+        self.error(message);
+        Value { id: usize::MAX }
+    }
+
+    fn require_value(&mut self, value: Option<Value>, message: impl Into<String>) -> Value {
+        match value {
+            Some(value) => value,
+            None => self.invalid_value(message),
+        }
     }
 
     fn eval_const_expression(&self, expr: &Expression) -> Option<LoweredConstValue> {
@@ -956,9 +1012,41 @@ impl ASTLowering {
         }
     }
 
+    fn lowered_const_to_ir_constant(value: &LoweredConstValue) -> Constant {
+        match value {
+            LoweredConstValue::Int(v) => Constant::Int(*v),
+            LoweredConstValue::Float(v) => Constant::Float(*v),
+            LoweredConstValue::Bool(v) => Constant::Bool(*v),
+            LoweredConstValue::String(v) => Constant::String(v.clone()),
+            LoweredConstValue::Char(v) => Constant::Char(*v),
+        }
+    }
+
     pub fn lower_module(&mut self, ast_module: &ASTModule) -> Result<IRModule, Vec<MidendError>> {
         let mut ir_module = IRModule::new(&ast_module.name);
         ir_module.source_file = Some(self.source_file.clone());
+
+        // Preserve imported user-function signatures in the IR so AOT object
+        // emission can declare the corresponding native linker imports. JIT
+        // compilation can resolve these through its persistent function map,
+        // while each AOT object is intentionally generated in isolation.
+        for (name, params, return_type) in &ast_module.imported_function_signatures {
+            let external = ExternalFunction {
+                name: name.clone(),
+                params: params
+                    .iter()
+                    .map(|param| self.lower_type(param))
+                    .collect(),
+                return_type: self.lower_type(return_type),
+            };
+            if !ir_module
+                .external_functions
+                .iter()
+                .any(|existing| existing.name == external.name)
+            {
+                ir_module.external_functions.push(external);
+            }
+        }
 
         // Populate stdlib alias map for unqualified call resolution.
         self.std_import_aliases = ast_module.std_import_aliases.iter().cloned().collect();
@@ -970,12 +1058,61 @@ impl ASTLowering {
             }
         }
         self.const_values.clear();
+        self.static_globals.clear();
         for item in &ast_module.items {
             if let Item::Const(decl) = item {
                 if let Some(value) = self.eval_const_expression(&decl.value) {
                     self.const_values.insert(decl.name.clone(), value);
                 }
             }
+        }
+
+        // Materialize statics as real module globals before lowering any
+        // function body. Semantic analysis has already enforced that their
+        // initializer is compile-time evaluable, so a missing value here is a
+        // lowering error rather than a synthetic zero initializer.
+        for item in &ast_module.items {
+            if let Item::Static(decl) = item {
+                let Some(value) = self.eval_const_expression(&decl.value) else {
+                    self.error(format!(
+                        "static '{}' has no valid compile-time initializer",
+                        decl.name
+                    ));
+                    continue;
+                };
+                let ty = decl
+                    .ty
+                    .as_ref()
+                    .map(|annotation| self.lower_type_annotation(annotation))
+                    .unwrap_or_else(|| self.infer_expr_ir_type(&decl.value));
+                let global_key = format!("{}::{}", ast_module.name, decl.name);
+                let id = ir_module.globals.len();
+                ir_module.globals.push(Global {
+                    id,
+                    name: global_key.clone(),
+                    ty: ty.clone(),
+                    is_mutable: true,
+                    initializer: Some(Self::lowered_const_to_ir_constant(&value)),
+                });
+                self.static_globals
+                    .insert(decl.name.clone(), (global_key, ty));
+            }
+        }
+
+        for (local_name, global_key, ty) in &ast_module.imported_static_globals {
+            let ir_ty = self.lower_type(ty);
+            if !ir_module.globals.iter().any(|global| global.name == *global_key) {
+                let id = ir_module.globals.len();
+                ir_module.globals.push(Global {
+                    id,
+                    name: global_key.clone(),
+                    ty: ir_ty.clone(),
+                    is_mutable: true,
+                    initializer: None,
+                });
+            }
+            self.static_globals
+                .insert(local_name.clone(), (global_key.clone(), ir_ty));
         }
 
         // Pre-register enum/struct definitions from imported user modules so
@@ -1710,6 +1847,43 @@ impl ASTLowering {
         }
     }
 
+    fn ir_type_contains_unknown(ty: &IRType) -> bool {
+        match ty {
+            IRType::Unknown => true,
+            IRType::Pointer(inner) | IRType::Task { output: inner } => {
+                Self::ir_type_contains_unknown(inner)
+            }
+            IRType::Array { element_type, .. } => Self::ir_type_contains_unknown(element_type),
+            IRType::Tuple { elements } => elements.iter().any(Self::ir_type_contains_unknown),
+            IRType::Struct { fields, .. } => fields
+                .iter()
+                .any(|(_, field)| Self::ir_type_contains_unknown(field)),
+            IRType::Enum { variants, .. } => variants.iter().any(|(_, payload)| {
+                payload.as_ref().is_some_and(|types| {
+                    types.iter().any(Self::ir_type_contains_unknown)
+                })
+            }),
+            IRType::Function {
+                params,
+                return_type,
+            } => {
+                params.iter().any(Self::ir_type_contains_unknown)
+                    || Self::ir_type_contains_unknown(return_type)
+            }
+            IRType::Tensor { dtype, .. } => Self::ir_type_contains_unknown(dtype),
+            IRType::Void
+            | IRType::Int
+            | IRType::Float
+            | IRType::ExactInt { .. }
+            | IRType::ExactFloat { .. }
+            | IRType::Bool
+            | IRType::String
+            | IRType::Char
+            | IRType::Range
+            | IRType::DynTrait { .. } => false,
+        }
+    }
+
     /// Check if a concrete type satisfies a trait bound
     fn type_satisfies_trait(&self, concrete_type: &IRType, trait_name: &str) -> bool {
         if trait_name == "Send" || trait_name == "Sync" {
@@ -1727,6 +1901,7 @@ impl ASTLowering {
 
     fn ir_type_satisfies_auto_trait(&self, concrete_type: &IRType, trait_name: &str) -> bool {
         match concrete_type {
+            IRType::Unknown => false,
             IRType::Void
             | IRType::Int
             | IRType::Float
@@ -1876,9 +2051,16 @@ impl ASTLowering {
         }
     }
 
-    fn infer_array_element_type(&self, elements: &[Expression]) -> IRType {
+    fn infer_array_element_type(&mut self, elements: &[Expression]) -> IRType {
         if elements.is_empty() {
-            return IRType::Int;
+            if let Some(annotation) = self.current_expected_annotation.as_ref() {
+                if let IRType::Array { element_type, .. } = self.lower_type_annotation(annotation) {
+                    if !Self::ir_type_contains_unknown(&element_type) {
+                        return *element_type;
+                    }
+                }
+            }
+            return IRType::Unknown;
         }
 
         let mut element_type = self.infer_expr_ir_type(&elements[0]);
@@ -1890,8 +2072,8 @@ impl ASTLowering {
                     element_type = merged;
                 }
                 None => {
-                    element_type = IRType::Int;
-                    break;
+                    self.error("array literal elements have incompatible types");
+                    return IRType::Unknown;
                 }
             }
         }
@@ -1910,12 +2092,17 @@ impl ASTLowering {
             }
 
             if let Some(generic_struct) = self.generic_structs.get(base_name).cloned() {
-                let fallback_args: Vec<TypeAnnotation> = generic_struct
-                    .type_params
-                    .iter()
-                    .map(|_| Self::unknown_type_annotation())
-                    .collect();
-                return self.ensure_struct_definition(base_name, &fallback_args);
+                self.error(format!(
+                    "generic struct '{}' requires explicit type arguments ({})",
+                    base_name,
+                    generic_struct
+                        .type_params
+                        .iter()
+                        .map(|param| param.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                return (base_name.to_string(), Vec::new());
             }
 
             self.error(format!(
@@ -2008,7 +2195,14 @@ impl ASTLowering {
                 .build_const_int_typed(ir_func, 0, IRType::Char),
             IRType::String => self.lower_string_literal("", ir_func),
             IRType::Struct { name, .. } => self.lower_default_struct_value(name, &[], ir_func),
-            _ => self.builder.build_const_int(ir_func, 0),
+            IRType::Unknown => self.invalid_value(
+                "cannot synthesize a default value for an unresolved IR type",
+            ),
+            IRType::Int => self.builder.build_const_int(ir_func, 0),
+            unsupported => self.invalid_value(format!(
+                "cannot synthesize a default value for IR type {:?}",
+                unsupported
+            )),
         }
     }
 
@@ -2023,12 +2217,17 @@ impl ASTLowering {
             }
 
             if let Some(generic_enum) = self.generic_enums.get(base_name).cloned() {
-                let fallback_args: Vec<TypeAnnotation> = generic_enum
-                    .type_params
-                    .iter()
-                    .map(|_| Self::unknown_type_annotation())
-                    .collect();
-                return self.ensure_enum_definition(base_name, &fallback_args);
+                self.error(format!(
+                    "generic enum '{}' requires explicit type arguments ({})",
+                    base_name,
+                    generic_enum
+                        .type_params
+                        .iter()
+                        .map(|param| param.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                return (base_name.to_string(), Vec::new());
             }
 
             self.error(format!(
@@ -2200,18 +2399,43 @@ impl ASTLowering {
         })
     }
 
-    fn infer_block_result_type(&self, block: &Block) -> Option<IRType> {
+    fn infer_block_result_type(&mut self, block: &Block) -> Option<IRType> {
+        // Block-local bindings participate in inference just like they do in
+        // lowering. In particular, a closure body may declare another closure
+        // and call it in the final expression; skipping `let` statements here
+        // turns that valid result into `unknown` and rejects the outer closure.
+        self.variable_types.push_scope();
         let mut result: Option<IRType> = None;
 
         for statement in &block.statements {
             match &statement.kind {
+                StatementKind::Let(let_stmt) => {
+                    let name = match &let_stmt.pattern {
+                        spectra_compiler::ast::Pattern::Identifier(name) => Some(name.clone()),
+                        _ => None,
+                    };
+                    let declared = let_stmt
+                        .ty
+                        .as_ref()
+                        .map(|annotation| self.lower_type_annotation(annotation));
+                    let inferred = let_stmt
+                        .value
+                        .as_ref()
+                        .map(|expr| self.infer_expr_ir_type(expr));
+                    if let (Some(name), Some(ty)) =
+                        (name, declared.or_else(|| inferred.clone()))
+                    {
+                        self.variable_types.insert(name, ty);
+                    }
+                }
                 StatementKind::Return(ret) => {
                     let ty = ret
                         .value
                         .as_ref()
                         .map(|expr| self.infer_expr_ir_type(expr))
                         .unwrap_or(IRType::Void);
-                    return Some(ty);
+                    result = Some(ty);
+                    break;
                 }
                 StatementKind::Expression(expr) => {
                     result = Some(self.infer_expr_ir_type(expr));
@@ -2220,7 +2444,16 @@ impl ASTLowering {
             }
         }
 
+        self.variable_types.pop_scope();
         result
+    }
+
+    fn expected_async_output_type(&self) -> Option<IRType> {
+        let annotation = self.current_expected_annotation.as_ref()?;
+        match self.lower_type_annotation(annotation) {
+            IRType::Task { output } if !Self::ir_type_contains_unknown(&output) => Some(*output),
+            _ => None,
+        }
     }
 
     fn unknown_type_annotation() -> TypeAnnotation {
@@ -2247,6 +2480,23 @@ impl ASTLowering {
             TypeAnnotationKind::Simple { segments }
                 if segments.len() == 1 && segments[0] == "unknown"
         )
+    }
+
+    /// Built-in `Option`/`Result` constructors may leave a type parameter
+    /// unobserved (`Option::None`, `Result::Ok(value)`, or `Result::Err(err)`).
+    /// Preserve the historical deterministic `int` default for that narrow
+    /// compatibility case; every other unresolved generic remains poison and
+    /// is rejected before backend code generation.
+    fn fill_builtin_enum_defaults(enum_name: &str, args: &mut [TypeAnnotation]) {
+        if !matches!(enum_name, "Option" | "Result") {
+            return;
+        }
+
+        for arg in args {
+            if Self::is_unknown_annotation(arg) {
+                *arg = Self::simple_type_annotation("int");
+            }
+        }
     }
 
     fn ir_type_to_annotation(&self, ir_type: &IRType) -> TypeAnnotation {
@@ -2476,7 +2726,7 @@ impl ASTLowering {
     }
 
     fn infer_enum_type_args_from_data(
-        &self,
+        &mut self,
         enum_name: &str,
         variant_name: &str,
         data_exprs: &[Expression],
@@ -2533,7 +2783,7 @@ impl ASTLowering {
         Some(inferred)
     }
 
-    fn infer_expr_type_annotation(&self, expr: &Expression) -> Option<TypeAnnotation> {
+    fn infer_expr_type_annotation(&mut self, expr: &Expression) -> Option<TypeAnnotation> {
         match &expr.kind {
             ExpressionKind::NumberLiteral(num) => {
                 Some(Self::simple_type_annotation(if num.contains('.') {
@@ -2572,7 +2822,7 @@ impl ASTLowering {
                         .iter()
                         .any(|ann| self.type_annotation_needs_refinement(ann));
 
-                let final_args = if needs_refinement {
+                let mut final_args = if needs_refinement {
                     if let Some(data_exprs) = data {
                         self.infer_enum_type_args_from_data(enum_name, variant_name, data_exprs)
                             .or_else(|| self.default_type_args_for_enum(enum_name))
@@ -2593,6 +2843,8 @@ impl ASTLowering {
                     type_args.clone()
                 };
 
+                Self::fill_builtin_enum_defaults(enum_name, &mut final_args);
+
                 if final_args.is_empty() {
                     Some(Self::simple_type_annotation(enum_name))
                 } else {
@@ -2610,7 +2862,7 @@ impl ASTLowering {
     }
 
     fn infer_enum_type_args_from_named_fields(
-        &self,
+        &mut self,
         enum_name: &str,
         variant_name: &str,
         fields: &[(String, Expression)],
@@ -2620,7 +2872,7 @@ impl ASTLowering {
             .variants
             .iter()
             .find(|v| v.name == variant_name)?;
-        let field_templates = variant.struct_data.as_ref()?;
+        let field_templates = variant.struct_data.as_ref()?.clone();
 
         let ordered_exprs: Vec<&Expression> = field_templates
             .iter()
@@ -2747,7 +2999,7 @@ impl ASTLowering {
     }
 
     /// Infere o tipo IR de uma expressão AST (análise simplificada)
-    fn infer_expr_ir_type(&self, expr: &Expression) -> IRType {
+    fn infer_expr_ir_type(&mut self, expr: &Expression) -> IRType {
         match &expr.kind {
             ExpressionKind::NumberLiteral(s) => {
                 // Se tem ponto, é float, senão int
@@ -2760,7 +3012,9 @@ impl ASTLowering {
             ExpressionKind::StringLiteral(_) => IRType::String,
             ExpressionKind::BoolLiteral(_) => IRType::Bool,
             ExpressionKind::Identifier(name) => {
-                if let Some((_, struct_name)) = self.struct_var_map.get(name) {
+                if let Some((_, ty)) = self.static_globals.get(name) {
+                    ty.clone()
+                } else if let Some((_, struct_name)) = self.struct_var_map.get(name) {
                     let fields = self
                         .struct_definitions
                         .get(&struct_name)
@@ -2787,7 +3041,7 @@ impl ASTLowering {
                 } else if let Some(ty) = self.variable_types.get(name) {
                     ty
                 } else {
-                    IRType::Int
+                    IRType::Unknown
                 }
             }
             ExpressionKind::ArrayLiteral { elements } => {
@@ -2810,18 +3064,15 @@ impl ASTLowering {
                 name, type_args, ..
             } => self
                 .resolve_struct_type(name, type_args)
-                .unwrap_or_else(|| IRType::Struct {
-                    name: name.clone(),
-                    fields: Vec::new(),
-                }),
+                .unwrap_or(IRType::Unknown),
             ExpressionKind::FieldAccess { object, field } => {
                 match self.infer_expr_ir_type(object) {
                     IRType::Struct { fields, .. } => fields
                         .into_iter()
                         .find(|(fname, _)| fname == field)
                         .map(|(_, ty)| ty)
-                        .unwrap_or(IRType::Int),
-                    _ => IRType::Int,
+                        .unwrap_or(IRType::Unknown),
+                    _ => IRType::Unknown,
                 }
             }
             ExpressionKind::EnumVariant {
@@ -2944,15 +3195,17 @@ impl ASTLowering {
                     None
                 };
 
-                let final_args: Vec<TypeAnnotation> = if let Some(args) = inferred_args {
+                let mut final_args: Vec<TypeAnnotation> = if let Some(args) = inferred_args {
                     args
                 } else {
                     type_args.clone()
                 };
 
+                Self::fill_builtin_enum_defaults(enum_name, &mut final_args);
+
                 let resolved = self
                     .resolve_enum_type(enum_name, final_args.as_slice())
-                    .unwrap_or(IRType::Int);
+                    .unwrap_or(IRType::Unknown);
 
                 match (resolved, data.as_ref()) {
                     (IRType::Enum { name, variants }, Some(data_exprs)) => {
@@ -2969,7 +3222,7 @@ impl ASTLowering {
                                                     data_exprs
                                                         .get(idx)
                                                         .map(|expr| self.infer_expr_ir_type(expr))
-                                                        .unwrap_or(IRType::Void)
+                                                        .unwrap_or(IRType::Unknown)
                                                 } else {
                                                     ty
                                                 }
@@ -2992,11 +3245,11 @@ impl ASTLowering {
             ExpressionKind::IndexAccess { array, .. } => match self.infer_expr_ir_type(array) {
                 IRType::Array { element_type, .. } => *element_type,
                 IRType::String => IRType::Char,
-                _ => IRType::Int,
+                _ => IRType::Unknown,
             },
             ExpressionKind::TupleAccess { tuple, index } => match self.infer_expr_ir_type(tuple) {
                 IRType::Tuple { elements } if *index < elements.len() => elements[*index].clone(),
-                _ => IRType::Int,
+                _ => IRType::Unknown,
             },
             ExpressionKind::Call { callee, arguments } => {
                 if let ExpressionKind::Identifier(name) = &callee.kind {
@@ -3005,9 +3258,9 @@ impl ASTLowering {
                             .first()
                             .map(|arg| match self.infer_expr_ir_type(arg) {
                                 IRType::Task { output } => *output,
-                                _ => IRType::Void,
+                                _ => IRType::Unknown,
                             })
-                            .unwrap_or(IRType::Void);
+                            .unwrap_or(IRType::Unknown);
                     }
                 }
 
@@ -3018,6 +3271,11 @@ impl ASTLowering {
                 if let ExpressionKind::Identifier(name) = &callee.kind {
                     if let Some(ret) = self.function_return_types.get(name) {
                         return ret.clone();
+                    }
+                    if let Some(IRType::Function { return_type, .. }) =
+                        self.variable_types.get(name)
+                    {
+                        return (*return_type).clone();
                     }
 
                     if self.generic_functions.contains_key(name) {
@@ -3051,7 +3309,7 @@ impl ASTLowering {
                     }
                 }
 
-                IRType::Int
+                IRType::Unknown
             }
             ExpressionKind::MethodCall {
                 object,
@@ -3085,7 +3343,7 @@ impl ASTLowering {
                     match self.infer_expr_ir_type(object) {
                         IRType::Struct { name, .. } => name,
                         IRType::Enum { name, .. } => name,
-                        _ => return IRType::Int,
+                        _ => return IRType::Unknown,
                     }
                 };
 
@@ -3114,12 +3372,12 @@ impl ASTLowering {
                                 self.substitute_type_in_annotation(&mut ann, &type_map);
                                 self.lower_type_annotation(&ann)
                             })
-                            .unwrap_or(IRType::Void)
+                            .unwrap_or(IRType::Unknown)
                     } else {
-                        IRType::Int
+                        IRType::Unknown
                     }
                 } else {
-                    IRType::Int
+                    IRType::Unknown
                 }
             }
             ExpressionKind::If {
@@ -3191,6 +3449,10 @@ impl ASTLowering {
                 let left_type = self.infer_expr_ir_type(left);
                 let right_type = self.infer_expr_ir_type(right);
 
+                if matches!(left_type, IRType::Unknown) || matches!(right_type, IRType::Unknown) {
+                    return IRType::Unknown;
+                }
+
                 match operator {
                     BinaryOperator::Add
                     | BinaryOperator::Subtract
@@ -3239,10 +3501,16 @@ impl ASTLowering {
                     .map(|p| {
                         p.ty.as_ref()
                             .map(|t| self.lower_type_annotation(t))
-                            .unwrap_or(IRType::Int)
+                            .unwrap_or(IRType::Unknown)
                     })
                     .collect();
+                self.variable_types.push_scope();
+                for (param, param_type) in params.iter().zip(param_types.iter()) {
+                    self.variable_types
+                        .insert(param.name.clone(), param_type.clone());
+                }
                 let ret = self.infer_expr_ir_type(body);
+                self.variable_types.pop_scope();
                 IRType::Function {
                     params: param_types,
                     return_type: Box::new(ret),
@@ -3250,7 +3518,6 @@ impl ASTLowering {
             }
             ExpressionKind::Try(inner) => {
                 // `?` unwraps the Ok payload; infer from the inner type's first data field.
-                // Until Result<T,E> is a first-class stdlib type, fall back to Int.
                 let inner_type = self.infer_expr_ir_type(inner);
                 match inner_type {
                     IRType::Enum {
@@ -3265,44 +3532,28 @@ impl ASTLowering {
                                 }
                             }
                         }
-                        IRType::Int
+                        IRType::Unknown
                     }
-                    _ => IRType::Int,
+                    _ => IRType::Unknown,
                 }
             }
             ExpressionKind::Range { .. } => IRType::Range,
-            ExpressionKind::Block(block) => block
-                .statements
-                .last()
-                .and_then(|stmt| match &stmt.kind {
-                    spectra_compiler::ast::StatementKind::Expression(expr) => {
-                        Some(self.infer_expr_ir_type(expr))
-                    }
-                    spectra_compiler::ast::StatementKind::Return(ret) => {
-                        ret.value.as_ref().map(|v| self.infer_expr_ir_type(v))
-                    }
-                    _ => None,
-                })
+            ExpressionKind::Block(block) => self
+                .infer_block_result_type(block)
                 .unwrap_or(IRType::Void),
-            ExpressionKind::DifferentiableBlock(block) => block
-                .statements
-                .last()
-                .and_then(|stmt| match &stmt.kind {
-                    spectra_compiler::ast::StatementKind::Expression(expr) => {
-                        Some(self.infer_expr_ir_type(expr))
-                    }
-                    spectra_compiler::ast::StatementKind::Return(ret) => {
-                        ret.value.as_ref().map(|v| self.infer_expr_ir_type(v))
-                    }
-                    _ => None,
-                })
+            ExpressionKind::DifferentiableBlock(block) => self
+                .infer_block_result_type(block)
                 .unwrap_or(IRType::Void),
             ExpressionKind::Await(inner) => match self.infer_expr_ir_type(inner) {
                 IRType::Task { output } => *output,
-                _ => IRType::Void,
+                _ => IRType::Unknown,
             },
             ExpressionKind::AsyncBlock(block) => IRType::Task {
-                output: Box::new(self.infer_block_result_type(block).unwrap_or(IRType::Void)),
+                output: Box::new(
+                    self.expected_async_output_type()
+                        .or_else(|| self.infer_block_result_type(block))
+                        .unwrap_or(IRType::Void),
+                ),
             },
             ExpressionKind::Cast { target_type, .. } => self.lower_type_annotation(target_type),
         }
@@ -3658,11 +3909,11 @@ impl ASTLowering {
                             variants: simplified,
                         }
                     } else {
-                        // Type not yet registered — use a named struct as placeholder.
-                        IRType::Struct {
-                            name: type_name.to_string(),
-                            fields: vec![],
-                        }
+                        self.error(format!(
+                            "type '{}' was not registered before lowering method self",
+                            type_name
+                        ));
+                        IRType::Unknown
                     }
                 } else {
                     param
@@ -3870,16 +4121,9 @@ impl ASTLowering {
                     .ty
                     .as_ref()
                     .map(|t| self.lower_type_annotation(t))
-                    .unwrap_or(IRType::Int),
+                    .unwrap_or(IRType::Unknown),
             }
         }));
-
-        // Infer the return type from the body expression
-        let return_type = self.infer_expr_ir_type(body);
-
-        // Register the function so recursive/forward references resolve correctly
-        self.function_return_types
-            .insert(name.clone(), return_type.clone());
 
         // --- Save outer function state ---
         let saved_value_map = self.value_map.clone();
@@ -3898,6 +4142,29 @@ impl ASTLowering {
         self.range_map.clear();
         self.struct_var_map.clear();
         self.drop_excluded_names.clear();
+
+        // Seed the type environment before inferring the body.  Lambda
+        // parameters and captures are not part of the enclosing function's
+        // maps; inferring first therefore turned ordinary expressions such as
+        // `value * 2` into `Unknown` and poisoned the generated lambda.
+        for capture in captures {
+            self.variable_types
+                .insert(capture.name.clone(), capture.ty.clone());
+        }
+        for param in ir_params.iter().skip(1) {
+            if param.ty != IRType::Void {
+                self.variable_types
+                    .insert(param.name.clone(), param.ty.clone());
+            }
+        }
+
+        // Infer the return type from the body expression after the local
+        // lambda environment has been installed.
+        let return_type = self.infer_expr_ir_type(body);
+
+        // Register the function so recursive/forward references resolve correctly
+        self.function_return_types
+            .insert(name.clone(), return_type.clone());
 
         let mut lambda_func = IRFunction::new(&name, ir_params.clone(), return_type.clone());
         let entry_block = lambda_func.add_block("entry");
@@ -4031,26 +4298,25 @@ impl ASTLowering {
         signature_params.push(IRType::Int);
         signature_params.extend(public_params);
 
-        self.builder
-            .build_call_indirect(
-                ir_func,
-                code_ptr,
-                call_args,
-                signature_params,
-                public_return.clone(),
-            )
-            .unwrap_or_else(|| {
-                if public_return == IRType::Void {
-                    self.builder.build_const_int(ir_func, 0)
-                } else {
-                    ir_func.next_value()
-                }
-            })
+        let result = self.builder.build_call_indirect(
+            ir_func,
+            code_ptr,
+            call_args,
+            signature_params,
+            public_return.clone(),
+        );
+        if public_return == IRType::Void {
+            result.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+        } else {
+            self.require_value(result, "closure call did not produce its declared return value")
+        }
     }
 
     fn lower_identifier_value(&mut self, name: &str, ir_func: &mut IRFunction) -> Value {
         if let Some(value) = self.const_values.get(name).cloned() {
             self.emit_const_value(&value, ir_func)
+        } else if let Some(value) = self.lower_global_value(name, ir_func) {
+            value
         } else if let Some(info) = self.array_map.get(name) {
             info.ptr
         } else if let Some((struct_ptr, _)) = self.struct_var_map.get(name) {
@@ -4060,8 +4326,16 @@ impl ASTLowering {
         } else if let Some(value) = self.value_map.get(name) {
             value
         } else {
-            ir_func.next_value()
+            self.invalid_value(format!("unresolved identifier '{}' during lowering", name))
         }
+    }
+
+    fn lower_global_value(&mut self, name: &str, ir_func: &mut IRFunction) -> Option<Value> {
+        let (global_key, ty) = self.static_globals.get(name)?.clone();
+        let ptr = self
+            .builder
+            .build_global_addr(ir_func, global_key, ty.clone());
+        Some(self.builder.build_load_typed(ir_func, ptr, ty))
     }
 
     fn collect_lambda_captures(
@@ -5287,16 +5561,16 @@ impl ASTLowering {
         range_value: Value,
         ir_func: &mut IRFunction,
     ) {
-        let range_len = self
-            .builder
-            .build_typed_host_call(
+        let range_len = self.require_value(
+            self.builder.build_typed_host_call(
                 ir_func,
                 "spectra.std.range.len".to_string(),
                 vec![range_value],
                 IRType::Int,
                 true,
-            )
-            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+            ),
+            "range.len host call did not produce its declared result",
+        );
 
         let header_block = ir_func.add_block("range.header");
         let body_block = ir_func.add_block("range.body");
@@ -5327,16 +5601,16 @@ impl ASTLowering {
         self.struct_var_map.push_scope();
 
         let body_index = self.builder.build_load(ir_func, index_alloca);
-        let item = self
-            .builder
-            .build_typed_host_call(
+        let item = self.require_value(
+            self.builder.build_typed_host_call(
                 ir_func,
                 "spectra.std.range.at".to_string(),
                 vec![range_value, body_index],
                 IRType::Int,
                 true,
-            )
-            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+            ),
+            "range.at host call did not produce its declared result",
+        );
         self.value_map.insert(for_stmt.iterator.clone(), item);
         self.variable_types
             .insert(for_stmt.iterator.clone(), IRType::Int);
@@ -5378,16 +5652,16 @@ impl ASTLowering {
         let start_val = self.lower_expression(start, ir_func);
         let end_val = self.lower_expression(end, ir_func);
         let inclusive_val = self.builder.build_const_int(ir_func, inclusive as i64);
-        let handle = self
-            .builder
-            .build_typed_host_call(
+        let handle = self.require_value(
+            self.builder.build_typed_host_call(
                 ir_func,
                 "spectra.std.range.create".to_string(),
                 vec![start_val, end_val, inclusive_val],
                 IRType::Range,
                 true,
-            )
-            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+            ),
+            "range.create host call did not produce its declared result",
+        );
         (
             handle,
             RangeInfo {
@@ -5406,18 +5680,86 @@ impl ASTLowering {
         let iterable_value = self.lower_expression(&for_stmt.iterable, ir_func);
         let iterable_type = self.infer_expr_ir_type(&for_stmt.iterable);
 
-        let (element_type, length) = match iterable_type {
-            IRType::Array { element_type, size } => (*element_type, size),
+        let list_element_type = |name: &str| -> Option<IRType> {
+            let suffix = name.strip_prefix("List_")?;
+            Some(match suffix {
+                "int" => IRType::Int,
+                "float" => IRType::Float,
+                "bool" => IRType::Bool,
+                "string" => IRType::String,
+                "char" => IRType::Char,
+                "i8" => IRType::ExactInt {
+                    signed: true,
+                    width: IRIntWidth::I8,
+                },
+                "i16" => IRType::ExactInt {
+                    signed: true,
+                    width: IRIntWidth::I16,
+                },
+                "i32" => IRType::ExactInt {
+                    signed: true,
+                    width: IRIntWidth::I32,
+                },
+                "i64" => IRType::ExactInt {
+                    signed: true,
+                    width: IRIntWidth::I64,
+                },
+                "u8" => IRType::ExactInt {
+                    signed: false,
+                    width: IRIntWidth::I8,
+                },
+                "u16" => IRType::ExactInt {
+                    signed: false,
+                    width: IRIntWidth::I16,
+                },
+                "u32" => IRType::ExactInt {
+                    signed: false,
+                    width: IRIntWidth::I32,
+                },
+                "u64" => IRType::ExactInt {
+                    signed: false,
+                    width: IRIntWidth::I64,
+                },
+                other => IRType::Struct {
+                    name: other.to_string(),
+                    fields: Vec::new(),
+                },
+            })
+        };
+
+        let (element_type, length_value, is_list) = match iterable_type {
+            IRType::Array { element_type, size } => (
+                *element_type,
+                self.builder.build_const_int(ir_func, size as i64),
+                false,
+            ),
             IRType::Range => {
                 self.lower_range_for_loop(for_stmt, iterable_value, ir_func);
                 return;
             }
+            IRType::Struct { name, .. } if name.starts_with("List_") => {
+                let Some(element_type) = list_element_type(&name) else {
+                    self.error(format!("cannot resolve element type for {}", name));
+                    return;
+                };
+                let length = self.require_value(
+                    self.builder.build_typed_host_call(
+                        ir_func,
+                        "spectra.std.collections.list_len".to_string(),
+                        vec![iterable_value],
+                        IRType::Int,
+                        true,
+                    ),
+                    "list iterator did not produce its length",
+                );
+                (element_type, length, true)
+            }
             other => {
                 self.error(format!(
-                    "for-loop lowering currently supports arrays and ranges only, found {:?}",
+                    "for-loop lowering supports arrays, ranges, and List<T>, found {:?}",
                     other
                 ));
-                (IRType::Int, 0)
+                return;
             }
         };
 
@@ -5433,8 +5775,9 @@ impl ASTLowering {
 
         self.builder.set_current_block(header_block);
         let current_index = self.builder.build_load(ir_func, index_alloca);
-        let length_const = self.builder.build_const_int(ir_func, length as i64);
-        let condition = self.builder.build_lt(ir_func, current_index, length_const);
+        let condition = self
+            .builder
+            .build_lt(ir_func, current_index, length_value);
         self.builder
             .build_cond_branch(ir_func, condition, body_block, exit_block);
 
@@ -5451,15 +5794,44 @@ impl ASTLowering {
         self.struct_var_map.push_scope();
 
         let body_index = self.builder.build_load(ir_func, index_alloca);
-        let element_ptr = self.builder.build_getelementptr(
-            ir_func,
-            iterable_value,
-            body_index,
-            element_type.clone(),
-        );
-        let element_value =
+        let element_value = if is_list {
+            let option_type = IRType::Enum {
+                name: format!("Option_{}", self.ir_type_to_ast_name(&element_type)),
+                variants: vec![
+                    ("Some".to_string(), Some(vec![element_type.clone()])),
+                    ("None".to_string(), None),
+                ],
+            };
+            let option_value = self.require_value(
+                self.builder.build_typed_host_call(
+                    ir_func,
+                    spectra_contract::STD_COLLECTIONS_LIST_GET_OPTION_BINDING.to_string(),
+                    vec![iterable_value, body_index],
+                    option_type,
+                    true,
+                ),
+                "list iterator option host call did not produce its result",
+            );
+            self.require_value(
+                self.builder.build_typed_host_call(
+                    ir_func,
+                    "spectra.std.option.option_unwrap".to_string(),
+                    vec![option_value],
+                    element_type.clone(),
+                    true,
+                ),
+                "list iterator option unwrap did not produce its element",
+            )
+        } else {
+            let element_ptr = self.builder.build_getelementptr(
+                ir_func,
+                iterable_value,
+                body_index,
+                element_type.clone(),
+            );
             self.builder
-                .build_load_typed(ir_func, element_ptr, element_type.clone());
+                .build_load_typed(ir_func, element_ptr, element_type.clone())
+        };
 
         self.value_map
             .insert(for_stmt.iterator.clone(), element_value);
@@ -5616,16 +5988,27 @@ impl ASTLowering {
                     }
 
                     match &value_expr.kind {
-                        ExpressionKind::ArrayLiteral { .. } => {
+                        ExpressionKind::ArrayLiteral { elements } => {
                             if let Some(IRType::Array { element_type, size }) =
                                 binding_type.clone().or_else(|| inferred_type.clone())
                             {
+                                // `array<T>` is an unsized source annotation.  The
+                                // lowered value is nevertheless a fixed-size stack
+                                // array, so retain the concrete literal length in the
+                                // sidecar used by identifier inference and iteration.
+                                // Keeping the annotation's placeholder size (0) here
+                                // makes a valid `for` loop silently skip its body.
+                                let concrete_size = if size == 0 {
+                                    elements.len()
+                                } else {
+                                    size
+                                };
                                 self.array_map.insert(
                                     name.clone(),
                                     ArrayInfo {
                                         ptr: value,
                                         element_type: *element_type,
-                                        size,
+                                        size: concrete_size,
                                     },
                                 );
                             }
@@ -5696,6 +6079,22 @@ impl ASTLowering {
 
                 match &assign.target {
                     spectra_compiler::ast::LValue::Identifier(name) => {
+                        if let Some((global_key, static_type)) = self.static_globals.get(name).cloned() {
+                            let ptr = self.builder.build_global_addr(
+                                ir_func,
+                                global_key,
+                                static_type.clone(),
+                            );
+                            let value = self.coerce_value_to_type(
+                                value,
+                                &value_type,
+                                &static_type,
+                                ir_func,
+                            );
+                            self.builder.build_store(ir_func, ptr, value);
+                            return;
+                        }
+
                         // Assignment to simple variable (uses memory)
                         if let Some(&alloca_ptr) = self.alloca_map.get(name) {
                             let value = self
@@ -5764,8 +6163,14 @@ impl ASTLowering {
                         // Calcular endereço do elemento
                         let elem_type = match self.infer_expr_ir_type(array) {
                             IRType::Array { element_type, .. } => *element_type,
-                            IRType::String => IRType::Int,
-                            _ => IRType::Int,
+                            IRType::String => IRType::Char,
+                            other => {
+                                self.error(format!(
+                                    "index assignment expected array or string, found {:?}",
+                                    other
+                                ));
+                                return;
+                            }
                         };
                         let elem_ptr = self.builder.build_getelementptr(
                             ir_func,
@@ -6285,7 +6690,7 @@ impl ASTLowering {
 
     /// Infer concrete types from argument expressions
     /// This is a simplified type inference for monomorphization
-    fn infer_argument_types(&self, arguments: &[Expression]) -> Vec<IRType> {
+    fn infer_argument_types(&mut self, arguments: &[Expression]) -> Vec<IRType> {
         arguments
             .iter()
             .map(|arg| {
@@ -6300,7 +6705,7 @@ impl ASTLowering {
                         }
                     }
                     ExpressionKind::BoolLiteral(_) => IRType::Bool,
-                    ExpressionKind::StringLiteral(_) => IRType::Pointer(Box::new(IRType::Int)), // String is pointer
+                    ExpressionKind::StringLiteral(_) => IRType::String,
                     ExpressionKind::Identifier(name) => {
                         // Try to find in struct_var_map
                         if let Some((_, struct_name)) = self.struct_var_map.get(name) {
@@ -6322,19 +6727,18 @@ impl ASTLowering {
                         } else if let Some(ty) = self.variable_types.get(name) {
                             ty
                         } else {
-                            // Default to Int if we can't determine
-                            IRType::Int
+                            // An unresolved argument must remain poison.  Defaulting
+                            // it to `int` changes generic monomorphization and can
+                            // make an invalid call look well-typed to the backend.
+                            IRType::Unknown
                         }
                     }
                     ExpressionKind::StructLiteral {
                         name, type_args, ..
                     } => self
                         .resolve_struct_type(name, type_args)
-                        .unwrap_or(IRType::Struct {
-                            name: name.clone(),
-                            fields: Vec::new(),
-                        }),
-                    _ => IRType::Int, // Default fallback
+                        .unwrap_or(IRType::Unknown),
+                    _ => IRType::Unknown,
                 }
             })
             .collect()
@@ -6362,7 +6766,7 @@ impl ASTLowering {
     /// canonical i64 word, but the IR type still matters for string equality,
     /// float bitcasts, and bool narrowing after `Option`/`Result` unwrapping.
     fn host_function_descriptor_for_call(
-        &self,
+        &mut self,
         callee: &Expression,
         arguments: &[Expression],
     ) -> Option<HostFunctionDescriptor> {
@@ -6371,7 +6775,7 @@ impl ASTLowering {
     }
 
     fn refine_host_function_descriptor(
-        &self,
+        &mut self,
         mut descriptor: HostFunctionDescriptor,
         arguments: &[Expression],
     ) -> HostFunctionDescriptor {
@@ -6387,12 +6791,13 @@ impl ASTLowering {
                 (name == variant)
                     .then(|| payload.and_then(|types| types.into_iter().next()))
                     .flatten()
+                    .filter(|ty| !Self::ir_type_contains_unknown(ty))
             })
         };
 
         let refined_type = match descriptor.runtime_name {
             "spectra.std.option.option_unwrap" | "spectra.std.option.option_unwrap_or" => {
-                payload_type(first_type, "Some").or_else(|| {
+                payload_type(first_type.clone(), "Some").or_else(|| {
                     (descriptor.runtime_name.ends_with("unwrap_or"))
                         .then(|| arguments.get(1).map(|argument| self.infer_expr_ir_type(argument)))
                         .flatten()
@@ -6400,18 +6805,269 @@ impl ASTLowering {
             }
             "spectra.std.result.result_unwrap"
             | "spectra.std.result.result_unwrap_or" => {
-                payload_type(first_type, "Ok").or_else(|| {
+                payload_type(first_type.clone(), "Ok").or_else(|| {
                     (descriptor.runtime_name.ends_with("unwrap_or"))
                         .then(|| arguments.get(1).map(|argument| self.infer_expr_ir_type(argument)))
                         .flatten()
                 })
             }
-            "spectra.std.result.result_unwrap_err" => payload_type(first_type, "Err"),
+            "spectra.std.result.result_unwrap_err" => {
+                payload_type(first_type.clone(), "Err")
+            }
             _ => None,
         };
 
         if let Some(refined_type) = refined_type {
             descriptor.return_type = refined_type;
+        }
+
+        // Higher-order Option/Result transforms preserve the tagged aggregate
+        // representation while changing the mapped payload type.  Derive the
+        // concrete IR enum from the callback return and the untouched payload
+        // on the other variant; otherwise the host result is lowered as an
+        // integer and immediately loses its type information.
+        let callback_return = arguments.get(1).and_then(|argument| {
+            if let IRType::Function { return_type, .. } = self.infer_expr_ir_type(argument) {
+                Some(*return_type)
+            } else {
+                None
+            }
+        });
+        let mapped_enum = match descriptor.runtime_name {
+            "spectra.std.option.option_map" => callback_return.map(|payload| IRType::Enum {
+                name: format!("Option_{}", self.ir_type_to_ast_name(&payload)),
+                variants: vec![
+                    ("Some".to_string(), Some(vec![payload])),
+                    ("None".to_string(), None),
+                ],
+            }),
+            "spectra.std.result.result_map" => {
+                callback_return.and_then(|payload| {
+                    let error = payload_type(first_type.clone(), "Err")?;
+                    Some(IRType::Enum {
+                        name: format!(
+                            "Result_{}_{}",
+                            self.ir_type_to_ast_name(&payload),
+                            self.ir_type_to_ast_name(&error)
+                        ),
+                        variants: vec![
+                            ("Ok".to_string(), Some(vec![payload])),
+                            ("Err".to_string(), Some(vec![error])),
+                        ],
+                    })
+                })
+            }
+            "spectra.std.result.result_map_err" => {
+                callback_return.and_then(|error| {
+                    let ok = payload_type(first_type.clone(), "Ok")?;
+                    Some(IRType::Enum {
+                        name: format!(
+                            "Result_{}_{}",
+                            self.ir_type_to_ast_name(&ok),
+                            self.ir_type_to_ast_name(&error)
+                        ),
+                        variants: vec![
+                            ("Ok".to_string(), Some(vec![ok])),
+                            ("Err".to_string(), Some(vec![error])),
+                        ],
+                    })
+                })
+            }
+            _ => None,
+        };
+        if let Some(mapped_enum) = mapped_enum {
+            descriptor.return_type = mapped_enum;
+        }
+
+        let collection_element_type = |name: &str| -> Option<IRType> {
+            let part = |value: &str| -> IRType {
+                match value {
+                    "int" => IRType::Int,
+                    "float" => IRType::Float,
+                    "bool" => IRType::Bool,
+                    "string" => IRType::String,
+                    "char" => IRType::Char,
+                    "i8" => IRType::ExactInt {
+                        signed: true,
+                        width: IRIntWidth::I8,
+                    },
+                    "i16" => IRType::ExactInt {
+                        signed: true,
+                        width: IRIntWidth::I16,
+                    },
+                    "i32" => IRType::ExactInt {
+                        signed: true,
+                        width: IRIntWidth::I32,
+                    },
+                    "i64" => IRType::ExactInt {
+                        signed: true,
+                        width: IRIntWidth::I64,
+                    },
+                    "u8" => IRType::ExactInt {
+                        signed: false,
+                        width: IRIntWidth::I8,
+                    },
+                    "u16" => IRType::ExactInt {
+                        signed: false,
+                        width: IRIntWidth::I16,
+                    },
+                    "u32" => IRType::ExactInt {
+                        signed: false,
+                        width: IRIntWidth::I32,
+                    },
+                    "u64" => IRType::ExactInt {
+                        signed: false,
+                        width: IRIntWidth::I64,
+                    },
+                    other => IRType::Struct {
+                        name: other.to_string(),
+                        fields: Vec::new(),
+                    },
+                }
+            };
+            ["List_", "Set_", "Iterator_"]
+                .iter()
+                .find_map(|prefix| name.strip_prefix(prefix).map(part))
+        };
+        let option_type = |payload: IRType| IRType::Enum {
+            name: format!("Option_{}", self.ir_type_to_ast_name(&payload)),
+            variants: vec![
+                ("Some".to_string(), Some(vec![payload])),
+                ("None".to_string(), None),
+            ],
+        };
+        let operation = descriptor
+            .runtime_name
+            .rsplit('.')
+            .next()
+            .unwrap_or_default();
+        let compatibility_collection_read = descriptor
+            .runtime_name
+            .starts_with("spectra.std.compat.collections.");
+        let compatibility_env_read = descriptor
+            .runtime_name
+            .starts_with("spectra.std.compat.env.");
+
+        if operation == "list_new" {
+            if let Some(annotation) = self.current_expected_annotation.as_ref() {
+                if let IRType::Struct { name, fields } = self.lower_type_annotation(annotation) {
+                    descriptor.return_type = IRType::Struct { name, fields };
+                }
+            }
+        } else if operation == "list_map" {
+            if let Some(IRType::Function { return_type, .. }) = arguments
+                .get(1)
+                .map(|argument| self.infer_expr_ir_type(argument))
+            {
+                if !Self::ir_type_contains_unknown(&return_type) {
+                    descriptor.return_type = IRType::Struct {
+                        name: format!("List_{}", self.ir_type_to_ast_name(&return_type)),
+                        fields: Vec::new(),
+                    };
+                }
+            }
+        } else if operation == "list_filter" {
+            if let Some(IRType::Struct { name, fields }) = first_type.as_ref() {
+                descriptor.return_type = IRType::Struct {
+                    name: name.clone(),
+                    fields: fields.clone(),
+                };
+            }
+        } else if operation == "list_reduce" {
+            if let Some(accumulator) = arguments
+                .get(1)
+                .map(|argument| self.infer_expr_ir_type(argument))
+            {
+                if !Self::ir_type_contains_unknown(&accumulator) {
+                    descriptor.return_type = accumulator;
+                }
+            }
+        } else if matches!(operation, "list_iter" | "set_iter" | "map_iter") {
+            if let Some(IRType::Struct { name, .. }) = first_type.as_ref() {
+                let payload = if operation == "map_iter" {
+                    name.strip_prefix("Map_").and_then(|suffix| {
+                        suffix
+                            .split('_')
+                            .next()
+                            .and_then(|key| collection_element_type(&format!("List_{key}")))
+                    })
+                } else {
+                    collection_element_type(name)
+                };
+                if let Some(payload) = payload {
+                    descriptor.return_type = IRType::Struct {
+                        name: format!("Iterator_{}", self.ir_type_to_ast_name(&payload)),
+                        fields: Vec::new(),
+                    };
+                }
+            }
+        } else if matches!(operation, "set_get" | "iterator_next") {
+            if let Some(IRType::Struct { name, .. }) = first_type.as_ref() {
+                if let Some(element_type) = collection_element_type(name) {
+                    descriptor.return_type = option_type(element_type);
+                }
+            }
+        } else if matches!(
+            operation,
+            "list_get" | "list_pop" | "list_pop_front" | "list_remove_at"
+        ) {
+            if let Some(IRType::Struct { name, .. }) = first_type.as_ref() {
+                if let Some(element_type) = collection_element_type(name) {
+                    descriptor.return_type = if compatibility_collection_read {
+                        element_type
+                    } else {
+                        option_type(element_type)
+                    };
+                }
+            }
+        } else if matches!(
+            operation,
+            "list_get_option"
+                | "list_pop_option"
+                | "list_pop_front_option"
+                | "list_remove_at_option"
+        ) {
+            if let Some(IRType::Struct { name, .. }) = first_type.as_ref() {
+                if let Some(element_type) = collection_element_type(name) {
+                    descriptor.return_type = option_type(element_type);
+                }
+            }
+        } else if operation == "map_new" {
+            if let Some(annotation) = self.current_expected_annotation.as_ref() {
+                if let IRType::Struct { name, fields } = self.lower_type_annotation(annotation) {
+                    descriptor.return_type = IRType::Struct { name, fields };
+                }
+            }
+        } else if matches!(operation, "map_get" | "map_remove") {
+            if let Some(IRType::Struct { name, .. }) = first_type.as_ref() {
+                if let Some(suffix) = name.strip_prefix("Map_") {
+                    if let Some(value_part) = suffix.splitn(2, '_').nth(1) {
+                        if let Some(value_type) =
+                            collection_element_type(&format!("List_{value_part}"))
+                        {
+                            descriptor.return_type = if compatibility_collection_read {
+                                value_type
+                            } else {
+                                option_type(value_type)
+                            };
+                        }
+                    }
+                }
+            }
+        } else if matches!(operation, "map_get_option" | "map_remove_option") {
+            if let Some(IRType::Struct { name, .. }) = first_type.as_ref() {
+                if let Some(suffix) = name.strip_prefix("Map_") {
+                    if let Some(value_part) = suffix.splitn(2, '_').nth(1) {
+                        if let Some(value_type) =
+                            collection_element_type(&format!("List_{value_part}"))
+                        {
+                            descriptor.return_type = option_type(value_type);
+                        }
+                    }
+                }
+            }
+        } else if matches!(operation, "env_get" | "env_arg") && !compatibility_env_read {
+            descriptor.return_type = option_type(IRType::String);
         }
         descriptor
     }
@@ -6427,7 +7083,7 @@ impl ASTLowering {
     }
 
     fn std_method_host_function_descriptor_for_call(
-        &self,
+        &mut self,
         object: &Expression,
         method_name: &str,
         arguments: &[Expression],
@@ -6512,15 +7168,16 @@ impl ASTLowering {
             _ => "spectra.std.convert.int_to_string",
         };
 
-        self.builder
-            .build_typed_host_call(
+        self.require_value(
+            self.builder.build_typed_host_call(
                 ir_func,
                 runtime_fn.to_string(),
                 vec![value],
                 IRType::String,
                 true,
-            )
-            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+            ),
+            "value-to-string host call did not produce its declared result",
+        )
     }
 
     fn lower_value_equality(
@@ -6535,16 +7192,16 @@ impl ASTLowering {
         if matches!(lhs_type, IRType::String) || matches!(rhs_type, IRType::String) {
             let lhs = self.lower_value_to_string(lhs, lhs_type.clone(), ir_func);
             let rhs = self.lower_value_to_string(rhs, rhs_type.clone(), ir_func);
-            let equal = self
-                .builder
-                .build_typed_host_call(
+            let equal = self.require_value(
+                self.builder.build_typed_host_call(
                     ir_func,
                     "spectra.std.string.eq".to_string(),
                     vec![lhs, rhs],
                     IRType::Bool,
                     true,
-                )
-                .unwrap_or_else(|| self.builder.build_const_bool(ir_func, false));
+                ),
+                "string equality host call did not produce its declared result",
+            );
             return if negate {
                 let false_value = self.builder.build_const_bool(ir_func, false);
                 self.builder.build_eq(ir_func, equal, false_value)
@@ -6554,16 +7211,16 @@ impl ASTLowering {
         }
 
         if matches!(lhs_type, IRType::Range) && matches!(rhs_type, IRType::Range) {
-            let equal = self
-                .builder
-                .build_typed_host_call(
+            let equal = self.require_value(
+                self.builder.build_typed_host_call(
                     ir_func,
                     "spectra.std.range.eq".to_string(),
                     vec![lhs, rhs],
                     IRType::Bool,
                     true,
-                )
-                .unwrap_or_else(|| self.builder.build_const_bool(ir_func, false));
+                ),
+                "range equality host call did not produce its declared result",
+            );
             return if negate {
                 let false_value = self.builder.build_const_bool(ir_func, false);
                 self.builder.build_eq(ir_func, equal, false_value)
@@ -6665,8 +7322,7 @@ impl ASTLowering {
                         self.builder.build_const_float(ir_func, float_val)
                     }
                 } else {
-                    // Fallback to 0 if parsing fails
-                    self.builder.build_const_int(ir_func, 0)
+                    self.invalid_value(format!("numeric literal '{}' could not be lowered", n))
                 }
             }
             ExpressionKind::StringLiteral(s) => self.lower_string_literal(s, ir_func),
@@ -6675,6 +7331,12 @@ impl ASTLowering {
                 // Check if this is an array - return pointer directly
                 if let Some(value) = self.const_values.get(name).cloned() {
                     self.emit_const_value(&value, ir_func)
+                }
+                // Module-level mutable statics are addressed through an IR
+                // global and loaded on every use; they are not copied into a
+                // function-local SSA map.
+                else if let Some(value) = self.lower_global_value(name, ir_func) {
+                    value
                 }
                 // Check if this is an array - return pointer directly
                 else if let Some(info) = self.array_map.get(name) {
@@ -6695,8 +7357,10 @@ impl ASTLowering {
                     // Use SSA value directly
                     value
                 } else {
-                    // Unknown variable, create placeholder
-                    ir_func.next_value()
+                    self.invalid_value(format!(
+                        "unresolved identifier '{}' during lowering",
+                        name
+                    ))
                 }
             }
             ExpressionKind::Binary {
@@ -6714,10 +7378,10 @@ impl ASTLowering {
                         let lhs = self.lower_expression(left, ir_func);
                         let rhs = self.lower_expression(right, ir_func);
                         let fn_name = format!("{}_{}", sn, method_name);
-                        return self
-                            .builder
-                            .build_call(ir_func, fn_name, vec![lhs, rhs], true)
-                            .unwrap_or_else(|| ir_func.next_value());
+                        return self.require_value(
+                            self.builder.build_call(ir_func, fn_name, vec![lhs, rhs], true),
+                            "operator overload did not produce its declared result",
+                        );
                     }
                 }
 
@@ -6729,16 +7393,16 @@ impl ASTLowering {
                     let rhs = self.lower_expression(right, ir_func);
                     let lhs = self.lower_value_to_string(lhs, left_ir_type, ir_func);
                     let rhs = self.lower_value_to_string(rhs, right_ir_type, ir_func);
-                    return self
-                        .builder
-                        .build_typed_host_call(
+                    return self.require_value(
+                        self.builder.build_typed_host_call(
                             ir_func,
                             "spectra.std.string.concat".to_string(),
                             vec![lhs, rhs],
                             IRType::String,
                             true,
-                        )
-                        .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                        ),
+                        "string concatenation host call did not produce its declared result",
+                    );
                 }
 
                 let lhs = self.lower_expression(left, ir_func);
@@ -6808,10 +7472,10 @@ impl ASTLowering {
                     if let IRType::Struct { name: ref sn, .. } = op_ir_type {
                         let val = self.lower_expression(operand, ir_func);
                         let fn_name = format!("{}_neg", sn);
-                        return self
-                            .builder
-                            .build_call(ir_func, fn_name, vec![val], true)
-                            .unwrap_or_else(|| ir_func.next_value());
+                        return self.require_value(
+                            self.builder.build_call(ir_func, fn_name, vec![val], true),
+                            "unary operator overload did not produce its declared result",
+                        );
                     }
                 }
 
@@ -6839,35 +7503,57 @@ impl ASTLowering {
                     if name == "block_on" {
                         let Some(task) = arg_values.first().copied() else {
                             self.error("block_on expects one Task<T> argument".to_string());
-                            return self.builder.build_const_int(ir_func, 0);
+                            return self.invalid_value("block_on requires one Task<T> argument");
                         };
-                        let output_type = arguments
-                            .first()
-                            .map(|arg| match self.infer_expr_ir_type(arg) {
-                                IRType::Task { output } => *output,
-                                _ => IRType::Void,
-                            })
-                            .unwrap_or(IRType::Void);
-                        let _ = self
-                            .builder
-                            .build_typed_host_call(
-                                ir_func,
-                                "spectra.async.task.block_on".to_string(),
-                                vec![task],
-                                output_type.clone(),
-                                output_type != IRType::Void,
+                        let output_type = match arguments.first() {
+                            Some(arg) => match self.infer_expr_ir_type(arg) {
+                                IRType::Task { output }
+                                    if !Self::ir_type_contains_unknown(&output) => *output,
+                                IRType::Task { .. } => {
+                                    return self.invalid_value(
+                                        "block_on cannot lower a Task with an unresolved output type",
+                                    );
+                                }
+                                other => {
+                                    return self.invalid_value(format!(
+                                        "block_on operand must lower to Task<T>, found {:?}",
+                                        other
+                                    ));
+                                }
+                            },
+                            None => {
+                                return self.invalid_value(
+                                    "block_on requires one Task<T> argument",
+                                );
+                            }
+                        };
+                        let block_on_result = self.builder.build_typed_host_call(
+                            ir_func,
+                            "spectra.async.task.block_on".to_string(),
+                            vec![task],
+                            output_type.clone(),
+                            output_type != IRType::Void,
+                        );
+                        if output_type != IRType::Void {
+                            let _ = self.require_value(
+                                block_on_result,
+                                "async block_on host call did not produce its declared result",
+                            );
+                        }
+                        return if output_type == IRType::Void {
+                            self.builder.build_const_int(ir_func, 0)
+                        } else {
+                            self.require_value(
+                                self.builder.build_typed_host_call(
+                                    ir_func,
+                                    "spectra.async.task.result".to_string(),
+                                    vec![task],
+                                    output_type.clone(),
+                                    true,
+                                ),
+                                "async task.result host call did not produce its declared result",
                             )
-                            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
-                        return self
-                            .builder
-                            .build_typed_host_call(
-                                ir_func,
-                                "spectra.async.task.result".to_string(),
-                                vec![task],
-                                output_type.clone(),
-                                output_type != IRType::Void,
-                            )
-                            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                        };
                     }
                 }
 
@@ -6899,7 +7585,14 @@ impl ASTLowering {
                             descriptor.return_type.clone(),
                             descriptor.returns_value,
                         );
-                        return result_value.unwrap_or_else(|| ir_func.next_value());
+                        return if descriptor.returns_value {
+                            self.require_value(
+                                result_value,
+                                "I/O host call did not produce its declared result",
+                            )
+                        } else {
+                            result_value.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+                        };
                     }
 
                     let result_value = self.builder.build_typed_host_call(
@@ -6909,7 +7602,14 @@ impl ASTLowering {
                         descriptor.return_type.clone(),
                         descriptor.returns_value,
                     );
-                    return result_value.unwrap_or_else(|| ir_func.next_value());
+                    return if descriptor.returns_value {
+                        self.require_value(
+                            result_value,
+                            "standard-library host call did not produce its declared result",
+                        )
+                    } else {
+                        result_value.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+                    };
                 }
 
                 // Extract function name from callee
@@ -6956,12 +7656,16 @@ impl ASTLowering {
                     }
                 }
 
-                // temporary bypass for closures
+                // Semantic analysis should have rejected this call already.
+                // Do not silently lower it to integer zero: that would make a
+                // broken program appear to compile and execute successfully.
                 if !self.function_return_types.contains_key(&function_name)
                     && !self.generic_functions.contains_key(&function_name)
-                    && function_name != "unknown"
                 {
-                    return self.builder.build_const_int(ir_func, 0);
+                    return self.invalid_value(format!(
+                        "unresolved function '{}' during lowering",
+                        function_name
+                    ));
                 }
 
                 // Check if this is a call to a generic function
@@ -6989,9 +7693,11 @@ impl ASTLowering {
                     function_name
                 };
 
-                self.builder
-                    .build_call(ir_func, final_function_name, arg_values, true)
-                    .unwrap_or_else(|| ir_func.next_value())
+                self.require_value(
+                    self.builder
+                        .build_call(ir_func, final_function_name, arg_values, true),
+                    "function call did not produce its declared result",
+                )
             }
             ExpressionKind::If {
                 condition,
@@ -7220,14 +7926,21 @@ impl ASTLowering {
             ExpressionKind::ArrayLiteral { elements } => {
                 // Alocar memória para o array
                 let size = elements.len();
-                if size == 0 {
-                    // Array vazio — emitir uma constante inteira 0 como valor
-                    // sentinel em vez de consumir um Value ID sem instrução associada.
-                    return self.builder.build_const_int(ir_func, 0);
-                }
-
                 // Inferir o tipo dos elementos
                 let elem_type = self.infer_array_element_type(elements);
+                if Self::ir_type_contains_unknown(&elem_type) {
+                    return self.invalid_value(
+                        "array literal reached lowering without a concrete element type",
+                    );
+                }
+
+                if size == 0 {
+                    let array_type = IRType::Array {
+                        element_type: Box::new(elem_type),
+                        size: 0,
+                    };
+                    return self.builder.build_alloca(ir_func, array_type);
+                }
 
                 // Alocar espaço para o array no stack (tipo Array com tamanho)
                 let array_type = IRType::Array {
@@ -7262,11 +7975,10 @@ impl ASTLowering {
                 let elem_type = match self.infer_expr_ir_type(array) {
                     IRType::Array { element_type, .. } => *element_type,
                     other => {
-                        self.error(format!(
+                        return self.invalid_value(format!(
                             "Index access expected array expression, found {:?}",
                             other
                         ));
-                        IRType::Int
                     }
                 };
                 let elem_ptr = self.builder.build_getelementptr(
@@ -7317,32 +8029,34 @@ impl ASTLowering {
                 // Avaliar a expressão da tuple
                 let tuple_ptr = self.lower_expression(tuple, ir_func);
 
-                // Inferir o tipo do elemento da tuple
-                let elem_type = if let ExpressionKind::TupleLiteral { elements } = &tuple.kind {
-                    // Se é um literal, inferir diretamente
-                    if *index < elements.len() {
-                        self.infer_expr_ir_type(&elements[*index])
-                    } else {
-                        IRType::Int
+                // Inferir o tipo e o offset somente de uma tuple concreta.  Um
+                // acesso inválido não pode virar `int` e seguir para o backend.
+                let tuple_type = self.infer_expr_ir_type(tuple);
+                let (elem_type, offset) = match tuple_type {
+                    IRType::Tuple { elements } if *index < elements.len() => {
+                        let offset = match layout::layout_of(&elements).offsets.get(*index) {
+                            Some(offset) => *offset,
+                            None => {
+                                return self.invalid_value(format!(
+                                    "tuple index {} has no computed layout offset",
+                                    index
+                                ));
+                            }
+                        };
+                        (elements[*index].clone(), offset)
                     }
-                } else {
-                    // Caso contrário, inferir o tipo da tuple inteira e extrair o elemento
-                    match self.infer_expr_ir_type(tuple) {
-                        IRType::Tuple { elements } if *index < elements.len() => {
-                            elements[*index].clone()
-                        }
-                        _ => IRType::Int, // Fallback
+                    IRType::Tuple { .. } => {
+                        return self.invalid_value(format!(
+                            "tuple index {} is out of bounds",
+                            index
+                        ));
                     }
-                };
-
-                // Offset do elemento com layout padded
-                let offset = match self.infer_expr_ir_type(tuple) {
-                    IRType::Tuple { elements } => layout::layout_of(&elements)
-                        .offsets
-                        .get(*index)
-                        .copied()
-                        .unwrap_or(*index * 8),
-                    _ => *index * 8,
+                    other => {
+                        return self.invalid_value(format!(
+                            "tuple access expected tuple expression, found {:?}",
+                            other
+                        ));
+                    }
                 };
                 let elem_ptr = self.builder.build_field_ptr(ir_func, tuple_ptr, offset as i64);
 
@@ -7371,18 +8085,17 @@ impl ASTLowering {
 
                 // Inicializar cada campo
                 for (field_name, field_expr) in fields.iter() {
-                    let (field_idx, field_type) = field_defs
+                    let Some((field_idx, field_type)) = field_defs
                         .iter()
                         .enumerate()
                         .find(|(_, (fname, _))| fname == field_name)
                         .map(|(idx, (_, ty))| (idx, ty.clone()))
-                        .unwrap_or_else(|| {
-                            self.error(format!(
-                                "Field '{}' not found in struct '{}' definition",
-                                field_name, actual_name
-                            ));
-                            (0, IRType::Int)
-                        });
+                    else {
+                        return self.invalid_value(format!(
+                            "field '{}' not found in struct '{}' definition",
+                            field_name, actual_name
+                        ));
+                    };
                     let field_value =
                         self.lower_expression_as_type(field_expr, &field_type, ir_func);
 
@@ -7462,7 +8175,10 @@ impl ASTLowering {
                     }
                 }
 
-                ir_func.next_value()
+                self.invalid_value(format!(
+                    "unresolved field '{}' during lowering",
+                    field
+                ))
             }
             ExpressionKind::EnumVariant {
                 module_path: _,
@@ -7487,7 +8203,7 @@ impl ASTLowering {
                         }
                     }
                     if call_args.is_empty() {
-                        return self.builder.build_const_int(ir_func, 0);
+                        return self.invalid_value("UFCS call requires a receiver argument");
                     }
                     let receiver = call_args.remove(0);
                     let receiver_ty = if let Some(first) = data.as_ref().and_then(|d| d.first()) {
@@ -7518,16 +8234,19 @@ impl ASTLowering {
                                 "UFCS call '{}::{}' receiver must be a concrete type or dyn",
                                 enum_name, variant_name
                             ));
-                            return self.builder.build_const_int(ir_func, 0);
+                            return self.invalid_value(format!(
+                                "UFCS call '{}::{}' receiver has no concrete type",
+                                enum_name, variant_name
+                            ));
                         }
                     };
                     let function_name = format!("{}_{}", struct_name, variant_name);
                     let mut args = vec![receiver];
                     args.extend(call_args);
-                    return self
-                        .builder
-                        .build_call(ir_func, function_name, args, true)
-                        .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                    return self.require_value(
+                        self.builder.build_call(ir_func, function_name, args, true),
+                        "UFCS call did not produce its declared result",
+                    );
                 }
 
                 // Handle `StructType::static_method(args)` — parsed as EnumVariant by the
@@ -7552,10 +8271,10 @@ impl ASTLowering {
                             call_args.push(self.lower_expression(val_expr, ir_func));
                         }
                     }
-                    return self
-                        .builder
-                        .build_call(ir_func, function_name, call_args, true)
-                        .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                    return self.require_value(
+                        self.builder.build_call(ir_func, function_name, call_args, true),
+                        "associated function call did not produce its declared result",
+                    );
                 }
 
                 // Handle qualified-path function calls: module::function(args)
@@ -7594,10 +8313,10 @@ impl ASTLowering {
                         } else {
                             callee
                         };
-                        return self
-                            .builder
-                            .build_call(ir_func, final_name, call_args, true)
-                            .unwrap_or_else(|| ir_func.next_value());
+                        return self.require_value(
+                            self.builder.build_call(ir_func, final_name, call_args, true),
+                            "qualified function call did not produce its declared result",
+                        );
                     }
                 }
 
@@ -7624,7 +8343,7 @@ impl ASTLowering {
                     None
                 };
 
-                let final_args: Vec<TypeAnnotation> = if let Some(mut args) = inferred_args {
+                let mut final_args: Vec<TypeAnnotation> = if let Some(mut args) = inferred_args {
                     // If some args are still "unknown", try to fill them from the function's
                     // declared return type annotation (e.g., fn -> Result<int, string> means
                     // both Result::Ok and Result::Err should use the same specialization).
@@ -7683,6 +8402,8 @@ impl ASTLowering {
                     contextual_args.unwrap_or_else(|| type_args.clone())
                 };
 
+                Self::fill_builtin_enum_defaults(enum_name, &mut final_args);
+
                 let (resolved_enum_name, variants) =
                     self.ensure_enum_definition(enum_name, final_args.as_slice());
 
@@ -7714,6 +8435,12 @@ impl ASTLowering {
                         // (mesma representação por ponteiro dos variants com dados)
                         if variant_data_types.is_none() {
                             let tag_val = self.builder.build_const_int(ir_func, *tag as i64);
+                            if enum_name == "ErrorCode" {
+                                // ErrorCode crosses the host ABI as a closed scalar
+                                // tag.  Do not pass a pointer to a temporary alloca
+                                // into std.error.new.
+                                return tag_val;
+                            }
                             let tag_alloc = self.builder.build_alloca(
                                 ir_func,
                                 IRType::Tuple {
@@ -7741,7 +8468,7 @@ impl ASTLowering {
                                         data.as_ref()
                                             .and_then(|exprs| exprs.get(idx))
                                             .map(|expr| self.infer_expr_ir_type(expr))
-                                            .unwrap_or(IRType::Void)
+                                            .unwrap_or(IRType::Unknown)
                                     } else {
                                         ty.clone()
                                     }
@@ -7783,12 +8510,18 @@ impl ASTLowering {
                         }
 
                         // Variant com dados mas sem argumentos fornecidos - erro
-                        return self.builder.build_const_int(ir_func, *tag as i64);
+                        return self.invalid_value(format!(
+                            "enum variant '{}' requires payload arguments",
+                            variant_name
+                        ));
                     }
                 }
 
                 // Enum ou variant não encontrado
-                ir_func.next_value()
+                self.invalid_value(format!(
+                    "unresolved enum variant '{}::{}' during lowering",
+                    enum_name, variant_name
+                ))
             }
             ExpressionKind::Match { scrutinee, arms } => {
                 // Lower do valor sendo matcheado
@@ -7961,7 +8694,14 @@ impl ASTLowering {
                         desc.return_type.clone(),
                         desc.returns_value,
                     );
-                    return result.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0));
+                    return if desc.returns_value {
+                        self.require_value(
+                            result,
+                            "qualified standard-library method did not produce its declared result",
+                        )
+                    } else {
+                        result.unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+                    };
                 }
 
                 // Lower method call to function call: obj.method(args) -> Type_method(obj, args)
@@ -7990,11 +8730,10 @@ impl ASTLowering {
                         IRType::Struct { name, .. } => name,
                         IRType::Enum { name, .. } => name,
                         other => {
-                            self.error(format!(
+                            return self.invalid_value(format!(
                                 "Could not determine object type for method call '{method_name}' (inferred type: {:?})",
                                 other
                             ));
-                            String::new()
                         }
                     }
                 };
@@ -8041,10 +8780,10 @@ impl ASTLowering {
                 }
 
                 // 5. Fazer a chamada de função
-                // Assumir que retorna algo (se for void, será ignorado depois)
-                self.builder
-                    .build_call(ir_func, function_name, call_args, true)
-                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+                self.require_value(
+                    self.builder.build_call(ir_func, function_name, call_args, true),
+                    "method call did not produce its declared result",
+                )
             }
             ExpressionKind::CharLiteral(c) => self
                 .builder
@@ -8070,15 +8809,16 @@ impl ASTLowering {
                                 _ => Some("spectra.std.convert.int_to_string"),
                             };
                             if let Some(runtime_fn) = conv {
-                                self.builder
-                                    .build_typed_host_call(
+                                self.require_value(
+                                    self.builder.build_typed_host_call(
                                         ir_func,
                                         runtime_fn.to_string(),
                                         vec![val],
                                         IRType::String,
                                         true,
-                                    )
-                                    .unwrap_or_else(|| ir_func.next_value())
+                                    ),
+                                    "f-string conversion host call did not produce its declared result",
+                                )
                             } else {
                                 val
                             }
@@ -8091,16 +8831,16 @@ impl ASTLowering {
                 }
                 let mut result = string_parts[0];
                 for part in &string_parts[1..] {
-                    result = self
-                        .builder
-                        .build_typed_host_call(
+                    result = self.require_value(
+                        self.builder.build_typed_host_call(
                             ir_func,
                             "spectra.std.string.concat".to_string(),
                             vec![result, *part],
                             IRType::String,
                             true,
-                        )
-                        .unwrap_or(result);
+                        ),
+                        "f-string concatenation host call did not produce its declared result",
+                    );
                 }
                 result
             }
@@ -8146,11 +8886,10 @@ impl ASTLowering {
                 let output_type = match self.infer_expr_ir_type(inner) {
                     IRType::Task { output } => *output,
                     other => {
-                        self.error(format!(
+                        return self.invalid_value(format!(
                             "await operand must lower to Task<T>, found {:?}",
                             other
                         ));
-                        IRType::Void
                     }
                 };
                 let state = self.next_async_state();
@@ -8170,15 +8909,20 @@ impl ASTLowering {
                     true,
                 );
                 self.builder.build_async_resume(ir_func, task, state);
-                self.builder
-                    .build_typed_host_call(
-                        ir_func,
-                        "spectra.async.task.result".to_string(),
-                        vec![task],
-                        output_type.clone(),
-                        output_type != IRType::Void,
+                if output_type == IRType::Void {
+                    self.builder.build_const_int(ir_func, 0)
+                } else {
+                    self.require_value(
+                        self.builder.build_typed_host_call(
+                            ir_func,
+                            "spectra.async.task.result".to_string(),
+                            vec![task],
+                            output_type,
+                            true,
+                        ),
+                        "async task.result host call did not produce its declared result",
                     )
-                    .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+                }
             }
             ExpressionKind::Range {
                 start,
@@ -8283,7 +9027,10 @@ impl ASTLowering {
                 loss
             }
             ExpressionKind::AsyncBlock(block) => {
-                let output_type = self.infer_block_result_type(block).unwrap_or(IRType::Void);
+                let output_type = self
+                    .expected_async_output_type()
+                    .or_else(|| self.infer_block_result_type(block))
+                    .unwrap_or(IRType::Void);
                 let saved_async_output = self.current_async_output_type.clone();
                 self.current_async_output_type = Some(output_type.clone());
 
@@ -8445,7 +9192,7 @@ impl ASTLowering {
             call_args.push(self.lower_expression(arg, ir_func));
         }
 
-        let (sig_params, sig_return) = self
+        let Some((sig_params, sig_return)) = self
             .trait_method_signatures
             .get(&trait_name)
             .and_then(|methods| methods.get(method_name))
@@ -8455,16 +9202,18 @@ impl ASTLowering {
                 signature_params.extend(params.iter().cloned());
                 (signature_params, return_type.clone())
             })
-            .unwrap_or_else(|| {
-                let signature_params: Vec<IRType> = std::iter::once(IRType::Int)
-                    .chain(call_args.iter().skip(1).map(|_| IRType::Int))
-                    .collect();
-                (signature_params, IRType::Int)
-            });
+        else {
+            return self.invalid_value(format!(
+                "unresolved trait method '{}::{}' during lowering",
+                trait_name, method_name
+            ));
+        };
 
-        self.builder
-            .build_call_indirect(ir_func, fn_ptr, call_args, sig_params, sig_return)
-            .unwrap_or_else(|| self.builder.build_const_int(ir_func, 0))
+        self.require_value(
+            self.builder
+                .build_call_indirect(ir_func, fn_ptr, call_args, sig_params, sig_return),
+            "dynamic trait method call did not produce its declared result",
+        )
     }
 
     /// Build a fat pointer (data_ptr, vtable_ptr) for coercing a concrete struct to `dyn Trait`.
@@ -8906,7 +9655,7 @@ impl ASTLowering {
         match &type_ann.kind {
             TypeAnnotationKind::Simple { segments } => {
                 if segments.is_empty() {
-                    return IRType::Void;
+                    return IRType::Unknown;
                 }
                 if is_std_api_handle_type_segments(segments) {
                     return IRType::Int;
@@ -8975,7 +9724,7 @@ impl ASTLowering {
                                 variants: simplified,
                             }
                         } else {
-                            IRType::Void
+                            IRType::Unknown
                         }
                     }
                 }
@@ -9009,10 +9758,54 @@ impl ASTLowering {
                     let element_type = type_args
                         .first()
                         .map(|ann| self.lower_type_annotation_with_map(ann, substitutions))
-                        .unwrap_or(IRType::Void);
+                        .unwrap_or(IRType::Unknown);
                     return IRType::Array {
                         element_type: Box::new(element_type),
                         size: 0,
+                    };
+                }
+
+                // `std.collections` is a compiler/runtime intrinsic rather
+                // than a user-declared generic struct.  Preserve its concrete
+                // type arguments in the IR name so host-call return refinement
+                // can recover `T`, `K`, and `V` at the call site.  Falling
+                // through to the named-type path here turns `List<string>`
+                // into `Void`, which silently degrades `list_get`/`map_get`
+                // back to the legacy integer ABI.
+                if name == "List" {
+                    let element_name = type_args
+                        .first()
+                        .map(|ann| self.type_annotation_to_string(ann))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    return IRType::Struct {
+                        name: format!("List_{element_name}"),
+                        fields: Vec::new(),
+                    };
+                }
+
+                if name == "Map" {
+                    let key_name = type_args
+                        .first()
+                        .map(|ann| self.type_annotation_to_string(ann))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let value_name = type_args
+                        .get(1)
+                        .map(|ann| self.type_annotation_to_string(ann))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    return IRType::Struct {
+                        name: format!("Map_{key_name}_{value_name}"),
+                        fields: Vec::new(),
+                    };
+                }
+
+                if matches!(name.as_str(), "Set" | "Iterator") {
+                    let element_name = type_args
+                        .first()
+                        .map(|ann| self.type_annotation_to_string(ann))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    return IRType::Struct {
+                        name: format!("{name}_{element_name}"),
+                        fields: Vec::new(),
                     };
                 }
 
@@ -9032,7 +9825,7 @@ impl ASTLowering {
                     let output = type_args
                         .first()
                         .map(|ann| self.lower_type_annotation_with_map(ann, substitutions))
-                        .unwrap_or(IRType::Void);
+                        .unwrap_or(IRType::Unknown);
                     return IRType::Task {
                         output: Box::new(output),
                     };
@@ -9122,16 +9915,10 @@ impl ASTLowering {
                         variants: simplified,
                     };
                 }
-                // Ultimate fallback: treat as simple named type
-                self.lower_type_annotation_with_map(
-                    &TypeAnnotation {
-                        kind: TypeAnnotationKind::Simple {
-                            segments: vec![name.clone()],
-                        },
-                        span: spectra_compiler::span::Span::dummy(),
-                    },
-                    substitutions,
-                )
+                // An unresolved generic application is poison.  It must not
+                // be reinterpreted as a simple named type because that hides
+                // a missing specialization until code generation.
+                IRType::Unknown
             }
             TypeAnnotationKind::DynTrait {
                 trait_name,
@@ -9173,7 +9960,7 @@ impl ASTLowering {
             ASTType::String => IRType::String,
             ASTType::Char => IRType::Char,
             ASTType::Unit => IRType::Void,
-            ASTType::Unknown => IRType::Void,
+            ASTType::Unknown => IRType::Unknown,
             ASTType::Array { element_type, .. } => IRType::Array {
                 element_type: Box::new(self.lower_type(element_type)),
                 size: 0,
@@ -9197,7 +9984,7 @@ impl ASTLowering {
                         fields: fields.clone(),
                     }
                 } else {
-                    IRType::Pointer(Box::new(IRType::Void))
+                    IRType::Unknown
                 }
             }
             ASTType::Enum { name } => {
@@ -9210,25 +9997,17 @@ impl ASTLowering {
                     if all_unit {
                         IRType::Int
                     } else {
-                        // Se algum tem dados, precisa de tupla dinâmica
-                        // Por simplificação, usar ponteiro genérico
-                        IRType::Pointer(Box::new(IRType::Void))
+                        // Enums with payloads are represented as aggregate
+                        // pointers only after their concrete layout is known.
+                        // Do not manufacture a pointer-to-void for an
+                        // unresolved aggregate.
+                        IRType::Unknown
                     }
                 } else {
-                    // Enum não encontrado, usar int como fallback
-                    IRType::Int
+                    IRType::Unknown
                 }
             }
-            ASTType::TypeParameter { name: _ } => {
-                // Type parameters são resolvidos via monomorphization
-                // Por enquanto, tratar como ponteiro genérico
-                IRType::Pointer(Box::new(IRType::Void))
-            }
-            ASTType::SelfType => {
-                // Self type é resolvido para o tipo concreto do impl block
-                // Por enquanto, tratar como ponteiro genérico (será resolvido no contexto)
-                IRType::Pointer(Box::new(IRType::Void))
-            }
+            ASTType::TypeParameter { name: _ } | ASTType::SelfType => IRType::Unknown,
             ASTType::Fn {
                 params,
                 return_type,
@@ -9484,10 +10263,92 @@ impl ASTLowering {
     }
 }
 
+fn builtin_error_ir_type() -> IRType {
+    IRType::Struct {
+        name: "Error".to_string(),
+        fields: vec![
+            ("code".to_string(), IRType::Int),
+            ("message".to_string(), IRType::String),
+            ("operation".to_string(), IRType::String),
+            ("context".to_string(), IRType::String),
+            ("origin".to_string(), IRType::String),
+            ("retryable".to_string(), IRType::Bool),
+        ],
+    }
+}
+
+fn builtin_result_ir_type(ok_type: IRType) -> IRType {
+    let ok_name = match &ok_type {
+        IRType::Int => "int",
+        IRType::Bool => "bool",
+        IRType::String => "string",
+        IRType::Float => "float",
+        IRType::Struct { name, .. } => name.as_str(),
+        IRType::Void => "unit",
+        _ => "unknown",
+    };
+    let error_type = builtin_error_ir_type();
+    IRType::Enum {
+        name: format!("Result_{ok_name}_Error"),
+        variants: vec![
+            ("Ok".to_string(), Some(vec![ok_type])),
+            ("Err".to_string(), Some(vec![error_type])),
+        ],
+    }
+}
+
 fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
     match path {
         [] => None,
-        [first, ..] if first != "std" => None,
+        [first, ..] if first != "std" && first != "spectra" => None,
+        [prefix, compat, module, function]
+            if compat == "compat"
+                && (module == "collections" || module == "env" || module == "fs") =>
+        {
+            let mut descriptor = lookup_std_host_function(&[
+                prefix.clone(),
+                module.clone(),
+                function.clone(),
+            ])?;
+            let legacy_collection = module == "collections"
+                && matches!(
+                    function.as_str(),
+                    "list_get"
+                        | "list_pop"
+                        | "list_pop_front"
+                        | "list_remove_at"
+                        | "map_get"
+                        | "map_remove"
+                );
+            let legacy_env = module == "env" && matches!(function.as_str(), "env_get" | "env_arg");
+            let legacy_fs = module == "fs"
+                && matches!(
+                    function.as_str(),
+                    "fs_read" | "fs_write" | "fs_append" | "fs_exists" | "fs_remove"
+            );
+            if legacy_collection || legacy_env || legacy_fs {
+                descriptor.runtime_name = match (module.as_str(), function.as_str()) {
+                    ("fs", "fs_read") => spectra_contract::STD_COMPAT_FS_FS_READ_BINDING,
+                    ("fs", "fs_write") => spectra_contract::STD_COMPAT_FS_FS_WRITE_BINDING,
+                    ("fs", "fs_append") => spectra_contract::STD_COMPAT_FS_FS_APPEND_BINDING,
+                    ("fs", "fs_exists") => spectra_contract::STD_COMPAT_FS_FS_EXISTS_BINDING,
+                    ("fs", "fs_remove") => spectra_contract::STD_COMPAT_FS_FS_REMOVE_BINDING,
+                    _ => Box::leak(
+                        format!("spectra.std.compat.{module}.{function}").into_boxed_str(),
+                    ),
+                };
+                descriptor.return_type = if legacy_collection {
+                    IRType::Int
+                } else if legacy_env {
+                    IRType::String
+                } else if function == "fs_read" {
+                    IRType::String
+                } else {
+                    IRType::Bool
+                };
+            }
+            Some(descriptor)
+        }
         [_, api, db, sqlite, function] if api == "api" && db == "db" && sqlite == "sqlite" => {
             lookup_std_api_host_function("db.sqlite", function)
         }
@@ -9682,9 +10543,47 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::String,
                 returns_value: true,
             }),
-            ("collections", "list_new") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.collections.list_new",
+            ("error", "new") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_ERROR_NEW_BINDING,
+                return_type: builtin_error_ir_type(),
+                returns_value: true,
+            }),
+            ("error", "code") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_ERROR_CODE_BINDING,
                 return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("error", "message") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_ERROR_MESSAGE_BINDING,
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("error", "operation") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_ERROR_OPERATION_BINDING,
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("error", "context") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_ERROR_CONTEXT_BINDING,
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("error", "origin") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_ERROR_ORIGIN_BINDING,
+                return_type: IRType::String,
+                returns_value: true,
+            }),
+            ("error", "retryable") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_ERROR_RETRYABLE_BINDING,
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("collections", "list_new") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_COLLECTIONS_LIST_NEW_BINDING,
+                return_type: IRType::Struct {
+                    name: "List_int".to_string(),
+                    fields: Vec::new(),
+                },
                 returns_value: true,
             }),
             ("collections", "list_push") => Some(HostFunctionDescriptor {
@@ -9698,8 +10597,8 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 returns_value: true,
             }),
             ("collections", "list_get") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.collections.list_get",
-                return_type: IRType::Int,
+                runtime_name: spectra_contract::STD_COLLECTIONS_LIST_GET_BINDING,
+                return_type: IRType::Unknown,
                 returns_value: true,
             }),
             ("collections", "list_set") => Some(HostFunctionDescriptor {
@@ -10193,7 +11092,10 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             // ── std.collections map ──────────────────────────────────────
             ("collections", "map_new") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.map_new",
-                return_type: IRType::Int,
+                return_type: IRType::Struct {
+                    name: "Map_int_int".to_string(),
+                    fields: Vec::new(),
+                },
                 returns_value: true,
             }),
             ("collections", "map_set") => Some(HostFunctionDescriptor {
@@ -10202,18 +11104,28 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 returns_value: false,
             }),
             ("collections", "map_get") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.collections.map_get",
-                return_type: IRType::Int,
+                runtime_name: spectra_contract::STD_COLLECTIONS_MAP_GET_BINDING,
+                return_type: IRType::Unknown,
+                returns_value: true,
+            }),
+            ("collections", "map_get_option") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_COLLECTIONS_MAP_GET_OPTION_BINDING,
+                return_type: IRType::Unknown,
                 returns_value: true,
             }),
             ("collections", "map_contains") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.map_contains",
-                return_type: IRType::Int,
+                return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("collections", "map_remove") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.collections.map_remove",
-                return_type: IRType::Int,
+                runtime_name: spectra_contract::STD_COLLECTIONS_MAP_REMOVE_BINDING,
+                return_type: IRType::Unknown,
+                returns_value: true,
+            }),
+            ("collections", "map_remove_option") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_COLLECTIONS_MAP_REMOVE_OPTION_BINDING,
+                return_type: IRType::Unknown,
                 returns_value: true,
             }),
             ("collections", "map_len") => Some(HostFunctionDescriptor {
@@ -10231,6 +11143,77 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 return_type: IRType::Void,
                 returns_value: false,
             }),
+            // ── std.collections set/iterator ──────────────────────────────
+            ("collections", "set_new") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.set_new",
+                return_type: IRType::Struct {
+                    name: "Set_int".to_string(),
+                    fields: Vec::new(),
+                },
+                returns_value: true,
+            }),
+            ("collections", "set_insert") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.set_insert",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("collections", "set_contains") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.set_contains",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("collections", "set_remove") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.set_remove",
+                return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("collections", "set_len") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.set_len",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "set_get") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.set_get",
+                return_type: IRType::Unknown,
+                returns_value: true,
+            }),
+            ("collections", "set_clear") => Some(host_void("spectra.std.collections.set_clear")),
+            ("collections", "set_free") => Some(host_void("spectra.std.collections.set_free")),
+            ("collections", "list_iter") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.list_iter",
+                return_type: IRType::Struct {
+                    name: "Iterator_int".to_string(),
+                    fields: Vec::new(),
+                },
+                returns_value: true,
+            }),
+            ("collections", "set_iter") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.set_iter",
+                return_type: IRType::Struct {
+                    name: "Iterator_int".to_string(),
+                    fields: Vec::new(),
+                },
+                returns_value: true,
+            }),
+            ("collections", "map_iter") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.map_iter",
+                return_type: IRType::Struct {
+                    name: "Iterator_int".to_string(),
+                    fields: Vec::new(),
+                },
+                returns_value: true,
+            }),
+            ("collections", "iterator_next") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.iterator_next",
+                return_type: IRType::Unknown,
+                returns_value: true,
+            }),
+            ("collections", "iterator_remaining") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.collections.iterator_remaining",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("collections", "iterator_free") => Some(host_void("spectra.std.collections.iterator_free")),
             // ── std.string ────────────────────────────────────────────────
             ("string", "len") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.len",
@@ -10365,7 +11348,10 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("string", "split_by") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.string.split_by",
-                return_type: IRType::Int,
+                return_type: IRType::Struct {
+                    name: "List_string".to_string(),
+                    fields: Vec::new(),
+                },
                 returns_value: true,
             }),
             // ── std.convert ───────────────────────────────────────────────
@@ -10624,13 +11610,28 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             // ── std.collections extras ────────────────────────────────────
             ("collections", "list_pop") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.collections.list_pop",
-                return_type: IRType::Int,
+                runtime_name: spectra_contract::STD_COLLECTIONS_LIST_POP_BINDING,
+                return_type: IRType::Unknown,
                 returns_value: true,
             }),
             ("collections", "list_pop_front") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.collections.list_pop_front",
-                return_type: IRType::Int,
+                runtime_name: spectra_contract::STD_COLLECTIONS_LIST_POP_FRONT_BINDING,
+                return_type: IRType::Unknown,
+                returns_value: true,
+            }),
+            ("collections", "list_get_option") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_COLLECTIONS_LIST_GET_OPTION_BINDING,
+                return_type: IRType::Unknown,
+                returns_value: true,
+            }),
+            ("collections", "list_pop_option") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_COLLECTIONS_LIST_POP_OPTION_BINDING,
+                return_type: IRType::Unknown,
+                returns_value: true,
+            }),
+            ("collections", "list_pop_front_option") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_COLLECTIONS_LIST_POP_FRONT_OPTION_BINDING,
+                return_type: IRType::Unknown,
                 returns_value: true,
             }),
             ("collections", "list_insert_at") => Some(HostFunctionDescriptor {
@@ -10639,8 +11640,13 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
                 returns_value: false,
             }),
             ("collections", "list_remove_at") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.collections.list_remove_at",
-                return_type: IRType::Int,
+                runtime_name: spectra_contract::STD_COLLECTIONS_LIST_REMOVE_AT_BINDING,
+                return_type: IRType::Unknown,
+                returns_value: true,
+            }),
+            ("collections", "list_remove_at_option") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_COLLECTIONS_LIST_REMOVE_AT_OPTION_BINDING,
+                return_type: IRType::Unknown,
                 returns_value: true,
             }),
             ("collections", "list_index_of") => Some(HostFunctionDescriptor {
@@ -10655,12 +11661,12 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("collections", "list_map") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.list_map",
-                return_type: IRType::Int,
+                return_type: IRType::Unknown,
                 returns_value: true,
             }),
             ("collections", "list_filter") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.collections.list_filter",
-                return_type: IRType::Int,
+                return_type: IRType::Unknown,
                 returns_value: true,
             }),
             ("collections", "list_reduce") => Some(HostFunctionDescriptor {
@@ -10675,49 +11681,83 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             // ── std.fs ────────────────────────────────────────────────────
             ("fs", "fs_read") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.fs.fs_read",
-                return_type: IRType::String,
+                runtime_name: spectra_contract::STD_FS_FS_READ_BINDING,
+                return_type: builtin_result_ir_type(IRType::String),
                 returns_value: true,
             }),
             ("fs", "fs_write") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.fs.fs_write",
-                return_type: IRType::Bool,
+                runtime_name: spectra_contract::STD_FS_FS_WRITE_BINDING,
+                return_type: builtin_result_ir_type(IRType::Bool),
                 returns_value: true,
             }),
             ("fs", "fs_append") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.fs.fs_append",
-                return_type: IRType::Bool,
+                runtime_name: spectra_contract::STD_FS_FS_APPEND_BINDING,
+                return_type: builtin_result_ir_type(IRType::Bool),
                 returns_value: true,
             }),
             ("fs", "fs_exists") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.fs.fs_exists",
-                return_type: IRType::Bool,
+                runtime_name: spectra_contract::STD_FS_FS_EXISTS_BINDING,
+                return_type: builtin_result_ir_type(IRType::Bool),
                 returns_value: true,
             }),
             ("fs", "fs_remove") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.fs.fs_remove",
-                return_type: IRType::Bool,
+                runtime_name: spectra_contract::STD_FS_FS_REMOVE_BINDING,
+                return_type: builtin_result_ir_type(IRType::Bool),
                 returns_value: true,
             }),
             // ── std.env ───────────────────────────────────────────────────
             ("env", "env_get") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.env.env_get",
-                return_type: IRType::String,
+                runtime_name: spectra_contract::STD_ENV_ENV_GET_BINDING,
+                return_type: IRType::Enum {
+                    name: "Option_string".to_string(),
+                    variants: vec![
+                        ("Some".to_string(), Some(vec![IRType::String])),
+                        ("None".to_string(), None),
+                    ],
+                },
+                returns_value: true,
+            }),
+            ("env", "env_get_option") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_ENV_ENV_GET_OPTION_BINDING,
+                return_type: IRType::Enum {
+                    name: "Option_string".to_string(),
+                    variants: vec![
+                        ("Some".to_string(), Some(vec![IRType::String])),
+                        ("None".to_string(), None),
+                    ],
+                },
                 returns_value: true,
             }),
             ("env", "env_set") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.env.env_set",
+                runtime_name: spectra_contract::STD_ENV_ENV_SET_BINDING,
                 return_type: IRType::Bool,
                 returns_value: true,
             }),
             ("env", "env_args_count") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.env.env_args_count",
+                runtime_name: spectra_contract::STD_ENV_ENV_ARGS_COUNT_BINDING,
                 return_type: IRType::Int,
                 returns_value: true,
             }),
             ("env", "env_arg") => Some(HostFunctionDescriptor {
-                runtime_name: "spectra.std.env.env_arg",
-                return_type: IRType::String,
+                runtime_name: spectra_contract::STD_ENV_ENV_ARG_BINDING,
+                return_type: IRType::Enum {
+                    name: "Option_string".to_string(),
+                    variants: vec![
+                        ("Some".to_string(), Some(vec![IRType::String])),
+                        ("None".to_string(), None),
+                    ],
+                },
+                returns_value: true,
+            }),
+            ("env", "env_arg_option") => Some(HostFunctionDescriptor {
+                runtime_name: spectra_contract::STD_ENV_ENV_ARG_OPTION_BINDING,
+                return_type: IRType::Enum {
+                    name: "Option_string".to_string(),
+                    variants: vec![
+                        ("Some".to_string(), Some(vec![IRType::String])),
+                        ("None".to_string(), None),
+                    ],
+                },
                 returns_value: true,
             }),
             // ── std.option ────────────────────────────────────────────────
@@ -10738,6 +11778,11 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("option", "option_unwrap_or") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.option.option_unwrap_or",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("option", "option_map") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.option.option_map",
                 return_type: IRType::Int,
                 returns_value: true,
             }),
@@ -10764,6 +11809,16 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             }),
             ("result", "result_unwrap_err") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.result.result_unwrap_err",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("result", "result_map") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.result.result_map",
+                return_type: IRType::Int,
+                returns_value: true,
+            }),
+            ("result", "result_map_err") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.result.result_map_err",
                 return_type: IRType::Int,
                 returns_value: true,
             }),
@@ -11100,6 +12155,14 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
         {
             name.as_str()
         }
+        [std, api, db, driver, name]
+            if std == "std"
+                && api == "api"
+                && db == "db"
+                && (driver == "sqlite" || driver == "postgres" || driver == "redis") =>
+        {
+            name.as_str()
+        }
         [spectra, std, api, module, name]
             if spectra == "spectra"
                 && std == "std"
@@ -11114,6 +12177,15 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
                     || module == "cors"
                     || module == "middleware"
                     || module == "trace") =>
+        {
+            name.as_str()
+        }
+        [spectra, std, api, db, driver, name]
+            if spectra == "spectra"
+                && std == "std"
+                && api == "api"
+                && db == "db"
+                && (driver == "sqlite" || driver == "postgres" || driver == "redis") =>
         {
             name.as_str()
         }
@@ -11151,10 +12223,13 @@ fn is_std_api_handle_type_segments(segments: &[String]) -> bool {
             | "TraceConfig"
             | "TraceSpan"
             | "CorsPolicy"
+            | "SqliteConnection"
+            | "SqliteStatement"
             | "PostgresConnection"
             | "PostgresStatement"
             | "PostgresNotificationChannel"
             | "PostgresNotification"
+            | "RedisConnection"
     )
 }
 
@@ -11190,6 +12265,13 @@ fn is_std_api_handle_type_name(name: &str) -> bool {
             | "TraceConfig"
             | "TraceSpan"
             | "CorsPolicy"
+            | "SqliteConnection"
+            | "SqliteStatement"
+            | "PostgresConnection"
+            | "PostgresStatement"
+            | "PostgresNotificationChannel"
+            | "PostgresNotification"
+            | "RedisConnection"
     )
 }
 

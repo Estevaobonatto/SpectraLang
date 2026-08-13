@@ -1,11 +1,12 @@
 use crate::handler::HandlerError;
+use crate::handles::ApiHandleTable;
 use crate::http::{self, Method, Request, Response, Status};
 use crate::middleware::{self, Middleware, MiddlewareContext, MiddlewareDecision};
 use crate::{alloc_spectra_string, read_args, read_spectra_string, write_result};
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
 };
-use std::collections::HashMap;
+use spectra_runtime::handles::HandleKind;
 use std::sync::{Mutex, OnceLock};
 
 const HEADER_ORIGIN: &str = "Origin";
@@ -317,23 +318,18 @@ impl Middleware for CorsMiddleware {
 }
 
 struct CorsStore {
-    next_policy: SpectraHostValue,
-    policies: HashMap<SpectraHostValue, CorsPolicy>,
+    policies: ApiHandleTable<CorsPolicy>,
 }
 
 impl CorsStore {
     fn new() -> Self {
         Self {
-            next_policy: 1,
-            policies: HashMap::new(),
+            policies: ApiHandleTable::new(HandleKind::ApiCorsPolicy),
         }
     }
 
     fn insert(&mut self, policy: CorsPolicy) -> SpectraHostValue {
-        let handle = self.next_policy;
-        self.next_policy = self.next_policy.saturating_add(1).max(1);
-        self.policies.insert(handle, policy);
-        handle
+        self.policies.insert(policy)
     }
 }
 

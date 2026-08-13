@@ -1,9 +1,24 @@
-# Spectra Runtime Standard Library (Alpha)
+# Spectra Runtime Standard Library
 
 The Spectra runtime ships a minimal host-driven standard library implemented as registered host
 functions. The functions are grouped by namespace and can be installed by calling
 `spectra_runtime::register_standard_library()` (or invoking `spectra_rt_std_register` once it is
 gated through the CLI).
+
+The maturity contract is split by surface: scalar core helpers are stable,
+while typed collection accessors, `Option`/`Result` transformations, and
+exact-width numeric ABI behavior remain beta until their complete cross-target
+evidence is available. The public collection names that can miss (`list_get`,
+`list_pop`, `list_pop_front`, `list_remove_at`, `map_get`, and `map_remove`)
+return tagged `Option<T>` values. Legacy sentinel-returning calls are retained
+only under the explicit `std.compat.collections` namespace.
+The public `std.env.env_get` and `std.env.env_arg` calls use the same
+absence-safe `Option<string>` contract; empty-string environment values remain
+distinguishable from missing values. Legacy empty-string behavior is retained
+only under `std.compat.env`.
+The public `std.fs` calls now return tagged `Result<T, Error>` values; the
+historical string/boolean sentinel adapter is retained only under
+`std.compat.fs`.
 
 All host calls use the shared [`SpectraHostCallContext`](host-call-conventions.md) contract and the
 status codes defined in `runtime::ffi` (`HOST_STATUS_*`). Arguments and results are encoded as
@@ -35,10 +50,13 @@ validation gates pass.
 
 ## collections namespace
 
-Spectra exposes list operations backed by runtime-managed vectors. Lists are represented by opaque
-handles (integers) that map to manual allocations tracked by the runtime. Failing to free a list will
-keep the allocation alive until `spectra.std.collections.list_free_all` is invoked or the process
-terminates.
+Spectra exposes typed `List<T>` operations at the source boundary. The runtime
+ABI currently transports each list as an opaque generational handle backed by a
+runtime-managed vector. The handle representation is an implementation/ABI
+detail; stale or invalid handles are rejected through the host status channel.
+The legacy rows below therefore describe the host ABI adapter, not the stable
+source-level collection signatures. A process-wide cleanup remains available
+for shutdown and test isolation.
 
 | Host call | Description | Arguments | Results |
 |-----------|-------------|-----------|---------|
@@ -48,6 +66,54 @@ terminates.
 | `spectra.std.collections.list_clear` | Removes all elements from the list without releasing the handle. | `handle` | `0` |
 | `spectra.std.collections.list_free` | Drops the list allocation associated with the handle. | `handle` | `0` when `results` provided |
 | `spectra.std.collections.list_free_all` | Drops every list managed by the runtime. | *(none)* | number of freed lists |
+| `spectra.std.collections.list_get` / `list_pop` / `list_pop_front` / `list_remove_at` | Absence-safe reads/removals for the public `std.collections` surface. | list handle, optional index | tagged `Option<T>` payload |
+| `spectra.std.compat.collections.list_get` / `list_pop` / `list_pop_front` / `list_remove_at` | Compatibility reads/removals with the historical `-1` sentinel. | list handle, optional index | integer payload |
+
+The explicit `_option` names remain aliases for the absence-safe operations:
+`list_get_option`, `list_pop_option`, `list_pop_front_option`,
+`list_remove_at_option`, `map_get_option`, and `map_remove_option`. They allocate
+a small tagged payload and report invalid handles through the host status
+channel. The compatibility namespace also exposes
+`spectra.std.compat.collections.map_get` and `map_remove`, whose missing-value
+sentinels are `0`.
+
+## fs namespace
+
+The source-level filesystem contract is typed even though the host ABI still
+uses 64-bit slots. `Ok` carries the operation payload and `Err` carries an
+`Error` record from `std.error`.
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.fs.fs_read` | Reads a UTF-8 file. | path | `Result<string, Error>` |
+| `spectra.std.fs.fs_write` | Replaces file contents and creates missing parents when possible. | path, content | `Result<bool, Error>` |
+| `spectra.std.fs.fs_append` | Appends file contents and creates missing parents when possible. | path, content | `Result<bool, Error>` |
+| `spectra.std.fs.fs_exists` | Checks metadata existence; a missing path is `Ok(false)`. | path | `Result<bool, Error>` |
+| `spectra.std.fs.fs_remove` | Removes a file. | path | `Result<bool, Error>` |
+| `spectra.std.compat.fs.*` | Legacy sentinel adapters. | same as above | string/bool sentinel values |
+
+Invalid paths and I/O failures are represented by `ErrorCode` values rather
+than an empty string or `false`. The runtime maps `InvalidArgument`, `NotFound`,
+`PermissionDenied`, `Io`, `Internal`, and `Unsupported` into the structured
+error record.
+
+## error namespace
+
+`std.error` owns the structured error record shared by typed standard-library
+operations. Its public accessors are `code`, `message`, `operation`, `context`,
+`origin`, and `retryable`; `new` constructs a record from the closed
+`ErrorCode` enum. Invalid host arguments still use `HOST_STATUS_INVALID_ARGUMENT`
+at the ABI boundary and are not converted into a fabricated success payload.
+
+## env namespace
+
+| Host call | Description | Arguments | Results |
+|-----------|-------------|-----------|---------|
+| `spectra.std.env.env_get` / `env_get_option` | Read an environment variable without conflating absence and an empty value. | key | tagged `Option<string>` |
+| `spectra.std.env.env_set` | Set an environment variable. | key, value | bool |
+| `spectra.std.env.env_args_count` | Count forwarded process arguments. | none | integer count |
+| `spectra.std.env.env_arg` / `env_arg_option` | Read a process argument by index. | index | tagged `Option<string>` |
+| `spectra.std.compat.env.env_get` / `env_arg` | Legacy empty-string sentinel adapters. | key or index | string (`""` when absent) |
 
 ## time namespace
 

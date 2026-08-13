@@ -1,10 +1,12 @@
 use crate::http::{Header, Http1Parser, HttpBody, ParsedResponse, ParserConfig};
+use crate::handles::ApiHandleTable;
 use crate::{read_args, write_result};
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
 };
-use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
+use spectra_runtime::handles::HandleKind;
 use std::collections::HashMap;
+use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
 use std::fmt;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -773,15 +775,13 @@ fn io_error(kind: ClientErrorKind, error: std::io::Error) -> ClientError {
 }
 
 struct ClientStore {
-    next: SpectraHostValue,
-    timeouts: HashMap<SpectraHostValue, SpectraHostValue>,
+    timeouts: ApiHandleTable<SpectraHostValue>,
 }
 
 impl ClientStore {
     fn new() -> Self {
         Self {
-            next: 1,
-            timeouts: HashMap::new(),
+            timeouts: ApiHandleTable::new(HandleKind::ApiClientTimeout),
         }
     }
 }
@@ -793,10 +793,7 @@ fn store() -> &'static Mutex<ClientStore> {
 
 pub extern "C" fn client_new(ctx: *mut SpectraHostCallContext) -> i32 {
     let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
-    let handle = store.next;
-    store.next = store.next.saturating_add(1).max(1);
-    store.timeouts.insert(handle, DEFAULT_TIMEOUT_MS);
-    write_result(ctx, handle)
+    write_result(ctx, store.timeouts.insert(DEFAULT_TIMEOUT_MS))
 }
 
 pub extern "C" fn client_timeout_ms(ctx: *mut SpectraHostCallContext) -> i32 {

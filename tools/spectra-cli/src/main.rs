@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs, process};
 
 const KNOWN_EXPERIMENTAL_FEATURES: &[&str] = &[];
@@ -1371,6 +1371,12 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
     }
 
     // AOT object emission: compile the first entry file and write the object bytes.
+    if let Some(ref exe_path) = emit_exe {
+        if entries.first().is_some_and(|entry| entry.is_dir()) {
+            return execute_project_executable(entries, options, exe_path, verbose);
+        }
+    }
+
     if let Some(ref obj_path) = emit_object {
         if entries.is_empty() {
             return Err(CliError::usage("--emit-object requires a source file."));
@@ -1423,6 +1429,14 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         })?;
         runtime_lib::validate_required_symbols(&runtime_lib)
             .map_err(CliError::compilation)?;
+        let api_lib = runtime_lib::find_api_lib().ok_or_else(|| {
+            CliError::compilation(
+                "Cannot find libspectra_api.a / spectra_api.lib required by AOT API registration.\n\
+                 Build the workspace first (`cargo build`) or set the SPECTRA_API_LIB environment variable.",
+            )
+        })?;
+        runtime_lib::validate_api_required_symbols(&api_lib)
+            .map_err(CliError::compilation)?;
 
         // Write the executable object to a temporary path next to the output.
         let obj_path = exe_path.with_extension("spectra_tmp.obj");
@@ -1446,7 +1460,13 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
             attach_native_debug(&obj_path, source_path, &debug_metadata)?;
         }
 
-        let link_result = linker::link_executable(&obj_path, &runtime_lib, exe_path, native_debug);
+        let link_result = linker::link_executable(
+            &obj_path,
+            &runtime_lib,
+            Some(&api_lib),
+            exe_path,
+            native_debug,
+        );
         let _ = fs::remove_file(&obj_path); // always clean up the temp object
         link_result.map_err(|e| CliError::compilation(e))?;
 
@@ -1548,6 +1568,159 @@ fn execute_build_command(kind: BuildCommand, invocation: CliInvocation) -> CliRe
         verbose,
         bench_json,
     )
+}
+
+/// Compile a project into one native executable by preserving one relocatable
+/// object per source module. The JIT project path already compiles modules in
+/// dependency order; this path reuses the same order and lets the native linker
+/// resolve the cross-module symbols.
+fn execute_project_executable(
+    entries: Vec<PathBuf>,
+    options: CompilationOptions,
+    exe_path: &Path,
+    _verbose: bool,
+) -> CliResult<()> {
+    let plan = ProjectPlan::build(entries).map_err(|error| CliError::io(error.to_string()))?;
+    let runtime_lib = runtime_lib::find_runtime_lib().ok_or_else(|| {
+        CliError::compilation(
+            "Cannot find libspectra_runtime.a / spectra_runtime.lib.\n\
+             Build the workspace first (`cargo build`) or set the \
+             SPECTRA_RUNTIME_LIB environment variable.",
+        )
+    })?;
+    runtime_lib::validate_required_symbols(&runtime_lib).map_err(CliError::compilation)?;
+    let api_lib = runtime_lib::find_api_lib().ok_or_else(|| {
+        CliError::compilation(
+            "Cannot find libspectra_api.a / spectra_api.lib required by AOT API registration.\n\
+             Build the workspace first (`cargo build`) or set the SPECTRA_API_LIB environment variable.",
+        )
+    })?;
+    runtime_lib::validate_api_required_symbols(&api_lib)
+        .map_err(CliError::compilation)?;
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let temp_dir = env::temp_dir().join(format!(
+        "spectralang-aot-{}-{}",
+        process::id(),
+        nonce
+    ));
+    fs::create_dir_all(&temp_dir).map_err(|error| {
+        CliError::io(format!(
+            "Cannot create temporary AOT directory '{}': {}",
+            temp_dir.display(),
+            error
+        ))
+    })?;
+
+    let result = (|| {
+        let native_debug = matches!(options.debug_info, DebugInfoMode::Native);
+        let mut compiler = SpectraCompiler::new(options);
+        compiler.set_emit_output(false);
+        let mut object_paths = Vec::with_capacity(plan.modules().len());
+        let mut main_source_path: Option<PathBuf> = None;
+        let mut main_source = String::new();
+        let mut main_count = 0usize;
+
+        for (index, module) in plan.modules().iter().enumerate() {
+            compiler.set_current_package_name(module.package_name.clone());
+            let source = fs::read_to_string(&module.path).map_err(|error| {
+                CliError::io(format!(
+                    "Cannot read '{}': {}",
+                    module.path.display(),
+                    error
+                ))
+            })?;
+            let owned_source;
+            let effective_source = if source_has_module_decl(&source) {
+                source.as_str()
+            } else {
+                owned_source = format!("module {}\n{}", module.name, source);
+                owned_source.as_str()
+            };
+            let defines_main = source_defines_main(effective_source);
+            if defines_main {
+                main_count += 1;
+                if main_count > 1 {
+                    return Err(CliError::compilation(
+                        "A project AOT build must contain exactly one `main` function.",
+                    ));
+                }
+                main_source_path = Some(module.path.clone());
+                main_source = source.clone();
+            }
+
+            let object_path = temp_dir.join(format!("module-{index:04}.obj"));
+            let (object_bytes, debug_metadata) = if defines_main {
+                compiler
+                    .compile_to_executable_object_with_debug_metadata(
+                        effective_source,
+                        &module.path.to_string_lossy(),
+                    )
+                    .map_err(CliError::compilation)?
+            } else {
+                compiler
+                    .compile_to_object_with_debug_metadata(
+                        effective_source,
+                        &module.path.to_string_lossy(),
+                    )
+                    .map_err(CliError::compilation)?
+            };
+            fs::write(&object_path, object_bytes).map_err(|error| {
+                CliError::io(format!(
+                    "Cannot write temporary object '{}': {}",
+                    object_path.display(),
+                    error
+                ))
+            })?;
+            if native_debug && !debug_metadata.functions.is_empty() {
+                attach_native_debug(&object_path, &module.path, &debug_metadata)?;
+            }
+            object_paths.push(object_path);
+        }
+
+        let main_source_path = main_source_path.ok_or_else(|| {
+            CliError::compilation(
+                "Project AOT compilation requires one function named `main`.",
+            )
+        })?;
+        linker::link_executable_many(
+            &object_paths,
+            &runtime_lib,
+            Some(&api_lib),
+            exe_path,
+            native_debug,
+        )
+            .map_err(CliError::compilation)?;
+        let debug_map_path = write_aot_debug_map(
+            &main_source_path,
+            exe_path,
+            &main_source,
+            AotArtifactKind::Executable,
+            &["gdb", "lldb", "cdb"],
+            native_debug,
+        )?;
+        println!("     Written executable {}", exe_path.display());
+        println!("     Written debug map {}", debug_map_path.display());
+        Ok(())
+    })();
+
+    let _ = fs::remove_dir_all(&temp_dir);
+    result
+}
+
+fn source_defines_main(source: &str) -> bool {
+    let Ok(tokens) = Lexer::new(source).tokenize() else {
+        return false;
+    };
+    let Ok(module) = Parser::new(tokens, HashSet::new()).parse() else {
+        return false;
+    };
+    module.items.iter().any(|item| {
+        matches!(item, Item::Function(function) if function.name == "main")
+    })
 }
 
 fn compile_plan(

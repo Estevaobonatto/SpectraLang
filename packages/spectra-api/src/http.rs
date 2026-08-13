@@ -1,8 +1,9 @@
 use crate::{alloc_spectra_string, read_args, read_spectra_string, write_result};
+use crate::handles::ApiHandleTable;
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
 };
-use std::collections::HashMap;
+use spectra_runtime::handles::HandleKind;
 use std::fmt;
 use std::sync::{Mutex, OnceLock};
 
@@ -629,56 +630,36 @@ enum BodyMeta {
 }
 
 struct HttpStore {
-    next_request: SpectraHostValue,
-    next_response: SpectraHostValue,
-    next_header: SpectraHostValue,
-    next_cookie: SpectraHostValue,
-    requests: HashMap<SpectraHostValue, Request>,
-    responses: HashMap<SpectraHostValue, Response>,
-    headers: HashMap<SpectraHostValue, Header>,
-    cookies: HashMap<SpectraHostValue, Cookie>,
+    requests: ApiHandleTable<Request>,
+    responses: ApiHandleTable<Response>,
+    headers: ApiHandleTable<Header>,
+    cookies: ApiHandleTable<Cookie>,
 }
 
 impl HttpStore {
     fn new() -> Self {
         Self {
-            next_request: 1,
-            next_response: 1,
-            next_header: 1,
-            next_cookie: 1,
-            requests: HashMap::new(),
-            responses: HashMap::new(),
-            headers: HashMap::new(),
-            cookies: HashMap::new(),
+            requests: ApiHandleTable::new(HandleKind::ApiHttpRequest),
+            responses: ApiHandleTable::new(HandleKind::ApiHttpResponse),
+            headers: ApiHandleTable::new(HandleKind::ApiHttpHeader),
+            cookies: ApiHandleTable::new(HandleKind::ApiHttpCookie),
         }
     }
 
     fn request_handle(&mut self, request: Request) -> SpectraHostValue {
-        let handle = self.next_request;
-        self.next_request = self.next_request.saturating_add(1).max(1);
-        self.requests.insert(handle, request);
-        handle
+        self.requests.insert(request)
     }
 
     fn response_handle(&mut self, response: Response) -> SpectraHostValue {
-        let handle = self.next_response;
-        self.next_response = self.next_response.saturating_add(1).max(1);
-        self.responses.insert(handle, response);
-        handle
+        self.responses.insert(response)
     }
 
     fn header_handle(&mut self, header: Header) -> SpectraHostValue {
-        let handle = self.next_header;
-        self.next_header = self.next_header.saturating_add(1).max(1);
-        self.headers.insert(handle, header);
-        handle
+        self.headers.insert(header)
     }
 
     fn cookie_handle(&mut self, cookie: Cookie) -> SpectraHostValue {
-        let handle = self.next_cookie;
-        self.next_cookie = self.next_cookie.saturating_add(1).max(1);
-        self.cookies.insert(handle, cookie);
-        handle
+        self.cookies.insert(cookie)
     }
 }
 

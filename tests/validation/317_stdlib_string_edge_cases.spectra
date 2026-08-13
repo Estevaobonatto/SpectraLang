@@ -73,22 +73,19 @@ public func main() returns int {
     if string.is_empty("") != true or string.is_empty("x") != false {
         return 21
     }
-    if string.split_by("a,b,c", ",") == 0 {
-        return 22
-    }
     let parts = string.split_by("a,b,c", ",")
     if collections.list_len(parts) != 3 {
-        return 23
+        return 22
     }
     collections.list_free(parts)
     if string.pad_left("42", 5, 48) != "00042" {
-        return 24
+        return 23
     }
     if string.pad_right("42", 5, 48) != "42000" {
-        return 25
+        return 24
     }
     if string.reverse_str("Spectra") != "artcepS" {
-        return 26
+        return 25
     }
     return 0
 }

@@ -3,10 +3,10 @@
 
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{DataId, FuncId, Linkage, Module};
+use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use spectra_midend::ir::{
-    BasicBlock as IRBasicBlock, Function as IRFunction, Instruction, InstructionKind,
-    Module as IRModule, Terminator, Type as IRType, Value as IRValue,
+    BasicBlock as IRBasicBlock, Constant, Function as IRFunction, Global, Instruction,
+    InstructionKind, Module as IRModule, Terminator, Type as IRType, Value as IRValue,
 };
 use spectra_midend::{TensorDevice, TensorGraph, TensorGraphLoweringReport};
 use std::collections::{HashMap, HashSet};
@@ -134,6 +134,8 @@ pub struct CodeGenerator {
     builder_context: FunctionBuilderContext,
     /// Mapping from IR function names to Cranelift function IDs
     function_map: HashMap<String, FuncId>,
+    /// Mapping from IR global names to writable Cranelift data objects.
+    global_data: HashMap<String, DataId>,
     /// Raw addresses for functions finalized by an earlier module.  JIT
     /// `func_addr` references are module-local during lowering; using the
     /// finalized address makes cross-module dyn-vtable entries callable.
@@ -246,6 +248,7 @@ impl CodeGenerator {
             ctx,
             builder_context: FunctionBuilderContext::new(),
             function_map: HashMap::new(),
+            global_data: HashMap::new(),
             finalized_function_ptrs: HashMap::new(),
             runtime_bindings,
             string_literal_data: HashMap::new(),
@@ -267,6 +270,7 @@ impl CodeGenerator {
         self.hostcall_batch_stats = HostCallBatchStats::default();
         let _tensor_ir = validate_tensor_ir(ir_module)?;
         self.pre_intern_host_names(ir_module);
+        self.define_globals(ir_module)?;
         let function_params: HashMap<String, Vec<IRType>> = ir_module
             .functions
             .iter()
@@ -300,6 +304,120 @@ impl CodeGenerator {
             self.finalized_function_ptrs.insert(func.name.clone(), ptr);
         }
 
+        Ok(())
+    }
+
+    pub(crate) fn global_symbol(module_name: &str, global_name: &str) -> String {
+        let sanitize = |value: &str| {
+            value
+                .chars()
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() || ch == '_' {
+                        ch
+                    } else {
+                        '_'
+                    }
+                })
+                .collect::<String>()
+        };
+        let qualified_name = if global_name.contains("::") {
+            global_name.to_string()
+        } else {
+            format!("{}::{}", module_name, global_name)
+        };
+        format!(".__spectra_global_{}", sanitize(&qualified_name))
+    }
+
+    pub(crate) fn global_initializer_bytes(global: &Global) -> BackendResult<Vec<u8>> {
+        let size = Self::type_size_bytes(&global.ty);
+        let mut bytes = vec![0u8; size];
+        let initializer = global.initializer.as_ref().ok_or_else(|| {
+            BackendCodegenError::invalid_ir(format!(
+                "global '{}' has no initializer",
+                global.name
+            ))
+        })?;
+
+        match (&global.ty, initializer) {
+            (IRType::Int, Constant::Int(value))
+            | (IRType::ExactInt { .. }, Constant::Int(value)) => {
+                let raw = value.to_le_bytes();
+                bytes.copy_from_slice(&raw[..size.min(raw.len())]);
+            }
+            (IRType::Bool, Constant::Bool(value)) => {
+                bytes[0] = u8::from(*value);
+            }
+            (IRType::Char, Constant::Char(value)) => {
+                let raw = (*value as u32).to_le_bytes();
+                bytes.copy_from_slice(&raw[..size.min(raw.len())]);
+            }
+            (IRType::Float, Constant::Float(value))
+            | (IRType::ExactFloat { .. }, Constant::Float(value)) => {
+                if matches!(global.ty, IRType::ExactFloat { width: spectra_midend::ir::FloatWidth::F32 }) {
+                    let raw = (*value as f32).to_le_bytes();
+                    bytes.copy_from_slice(&raw[..size.min(raw.len())]);
+                } else {
+                    let raw = value.to_le_bytes();
+                    bytes.copy_from_slice(&raw[..size.min(raw.len())]);
+                }
+            }
+            (_, Constant::String(_)) => {
+                return Err(BackendCodegenError::invalid_ir(format!(
+                    "global '{}' has a string initializer but string global storage is not part of the scalar static contract",
+                    global.name
+                )));
+            }
+            (ty, value) => {
+                return Err(BackendCodegenError::invalid_ir(format!(
+                    "global '{}' initializer {:?} does not match type {:?}",
+                    global.name, value, ty
+                )));
+            }
+        }
+
+        Ok(bytes)
+    }
+
+    fn define_globals(&mut self, ir_module: &IRModule) -> BackendResult<()> {
+        for global in &ir_module.globals {
+            if self.global_data.contains_key(&global.name) {
+                continue;
+            }
+            let symbol = Self::global_symbol(&ir_module.name, &global.name);
+            let Some(_initializer) = global.initializer.as_ref() else {
+                let data_id = self
+                    .module
+                    .declare_data(&symbol, Linkage::Import, true, false)
+                    .map_err(|error| {
+                        BackendCodegenError::cranelift(format!(
+                            "failed to declare imported global '{}': {}",
+                            global.name, error
+                        ))
+                    })?;
+                self.global_data.insert(global.name.clone(), data_id);
+                continue;
+            };
+            let data_id = self
+                .module
+                .declare_data(&symbol, Linkage::Local, true, false)
+                .map_err(|error| {
+                    BackendCodegenError::cranelift(format!(
+                        "failed to declare global '{}': {}",
+                        global.name, error
+                    ))
+            })?;
+            let mut data = DataDescription::new();
+            let bytes = Self::global_initializer_bytes(global)?;
+            data.set_align(Self::type_size_bytes(&global.ty).clamp(1, 8) as u64);
+            data.define(bytes.into_boxed_slice());
+            self.module.define_data(data_id, &data).map_err(|error| {
+                BackendCodegenError::cranelift(format!(
+                    "failed to define global '{}': {}",
+                    global.name, error
+                ))
+            })?;
+            self.global_data.insert(global.name.clone(), data_id);
+        }
         Ok(())
     }
 
@@ -503,6 +621,7 @@ impl CodeGenerator {
                 &mut string_literal_lengths,
                 &stack_allocas,
                 &scalar_alloca_vars,
+                &self.global_data,
                 frame_var,
                 manual_frame_active,
                 ir_block.id,
@@ -871,6 +990,7 @@ impl CodeGenerator {
                 Self::mark_scalar_alloca_value(candidate_mask, escaped, operand)
             }
             InstructionKind::Alloca { .. }
+            | InstructionKind::GlobalAddr { .. }
             | InstructionKind::ManualAlloc { .. }
             | InstructionKind::FuncAddr { .. }
             | InstructionKind::ConstInt { .. }
@@ -1524,6 +1644,7 @@ impl CodeGenerator {
         string_literal_lengths: &mut HashMap<usize, i64>,
         stack_allocas: &HashSet<usize>,
         scalar_alloca_vars: &HashMap<usize, Variable>,
+        global_data: &HashMap<String, DataId>,
         frame_var: Variable,
         manual_frame_active: bool,
         current_block_id: usize,
@@ -1585,6 +1706,7 @@ impl CodeGenerator {
                 string_literal_lengths,
                 stack_allocas,
                 scalar_alloca_vars,
+                global_data,
                 frame_var,
                 track_allocations,
                 ir_block.id,
@@ -1632,6 +1754,7 @@ impl CodeGenerator {
         string_literal_lengths: &mut HashMap<usize, i64>,
         stack_allocas: &HashSet<usize>,
         scalar_alloca_vars: &HashMap<usize, Variable>,
+        global_data: &HashMap<String, DataId>,
         frame_var: Variable,
         track_allocations: bool,
         current_block_id: usize,
@@ -1926,6 +2049,19 @@ impl CodeGenerator {
                         "runtime allocation did not return a pointer",
                     ));
                 }
+            }
+
+            InstructionKind::GlobalAddr { result, name, ty } => {
+                let data_id = global_data.get(name).ok_or_else(|| {
+                    BackendCodegenError::invalid_ir(format!(
+                        "global address references unknown global '{}'",
+                        name
+                    ))
+                })?;
+                let _ = Self::ir_type_to_cranelift(ty)?;
+                let global = module.declare_data_in_func(*data_id, builder.func);
+                let pointer = builder.ins().global_value(types::I64, global);
+                value_map.insert(result.id, pointer);
             }
 
             InstructionKind::Load { result, ptr, ty } => {
@@ -3554,6 +3690,7 @@ impl CodeGenerator {
     /// Convert IR type to Cranelift type
     pub(crate) fn ir_type_to_cranelift(ty: &IRType) -> BackendResult<types::Type> {
         match ty {
+            IRType::Unknown => Err(BackendCodegenError::unsupported_type(ty)),
             IRType::Void => Ok(types::I8),
             IRType::Bool => Ok(types::I8),
             IRType::Int => Ok(types::I64),

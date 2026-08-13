@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,10 +26,11 @@ def require(condition: bool, message: str) -> None:
         fail(message)
 
 
-def run_command(args: list[str]) -> str:
+def run_command(args: list[str], env: dict[str, str] | None = None) -> str:
     completed = subprocess.run(
         args,
         cwd=ROOT,
+        env=env,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -157,9 +159,24 @@ def validate_runner() -> None:
 
 def main() -> None:
     cargo = cargo_cmd()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--require-external", action="store_true")
+    parser.add_argument("--external-url", default=None)
+    args = parser.parse_args()
     validate_tls_surface()
     run_command([cargo, "test", "-q", "-p", "spectra-api", "tls", "--offline"])
-    if os.environ.get("SPECTRA_RUN_EXTERNAL_TLS") == "1":
+    external_url = args.external_url or os.environ.get("SPECTRA_TLS_EXTERNAL_URL")
+    if args.require_external and not external_url:
+        fail("external TLS endpoint is required; set --external-url or SPECTRA_TLS_EXTERNAL_URL")
+    if external_url:
+        parsed = urlsplit(external_url)
+        require(parsed.scheme == "https" and parsed.hostname, "external TLS endpoint must be an https URL")
+        env = os.environ.copy()
+        env["SPECTRA_TLS_EXTERNAL_HOST"] = parsed.hostname
+        env["SPECTRA_TLS_EXTERNAL_PORT"] = str(parsed.port or 443)
+        env["SPECTRA_TLS_EXTERNAL_PATH"] = parsed.path or "/"
         run_command(
             [
                 cargo,
@@ -171,7 +188,8 @@ def main() -> None:
                 "--offline",
                 "--",
                 "--ignored",
-            ]
+            ],
+            env,
         )
     validate_planning()
     validate_runner()

@@ -21,22 +21,26 @@ public func main() returns int {
     }
 
     let checkpoint = ml.distributed_checkpoint_save(session, "target/r1703-run/checkpoint.json", 1)
-    let checkpoint_text = fs.fs_read(checkpoint)
-    if str.contains(checkpoint_text, "spectra.ml.distributed_checkpoint.v1") {
-        let ok_checkpoint = 1
-        if ok_checkpoint != 1 {
+    let checkpoint_result = fs.fs_read(checkpoint)
+    if let Result::Ok(checkpoint_text) = checkpoint_result {
+        if str.contains(checkpoint_text, "spectra.ml.distributed_checkpoint.v1") {
+            let ok_checkpoint = 1
+            if ok_checkpoint != 1 {
+                return 5
+            }
+        } else {
             return 5
         }
-    } else {
-        return 5
-    }
-    if str.contains(checkpoint_text, "\"interrupted_worker\":1") {
-        let ok_interruption = 1
-        if ok_interruption != 1 {
+        if str.contains(checkpoint_text, "\"interrupted_worker\":1") {
+            let ok_interruption = 1
+            if ok_interruption != 1 {
+                return 6
+            }
+        } else {
             return 6
         }
     } else {
-        return 6
+        return 5
     }
 
     let resumed = ml.distributed_resume(checkpoint)

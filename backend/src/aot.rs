@@ -7,7 +7,7 @@ use cranelift_codegen::ir::ValueLabel;
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule, ObjectProduct};
 use spectra_midend::ir::{
-    Function as IRFunction, InstructionKind, Module as IRModule, Type as IRType,
+    ExternalFunction, Function as IRFunction, InstructionKind, Module as IRModule, Type as IRType,
 };
 use std::collections::HashMap;
 
@@ -32,6 +32,11 @@ pub struct AotOptions {
     /// When `false` (the default), `main` is exported as-is and no shim is
     /// generated. Use this when producing an object file for manual linking.
     pub emit_executable: bool,
+    /// When `true`, the executable entry point also registers the public
+    /// `spectra.api` host-call table. Object-only builds leave this disabled so
+    /// consumers that link the object manually can choose their own API
+    /// registration policy.
+    pub register_api: bool,
     /// Request native debug records in the emitted object. The backend keeps
     /// this explicit so callers cannot mistake the JSON sidecar for native
     /// debug information.
@@ -43,6 +48,8 @@ pub struct AotCodeGenerator {
     ctx: codegen::Context,
     builder_context: FunctionBuilderContext,
     function_map: HashMap<String, FuncId>,
+    /// Mapping from IR global names to writable Cranelift data objects.
+    global_data: HashMap<String, DataId>,
     runtime_bindings: RuntimeBindings,
     /// Dedup table for string literals (R-3126). Each unique
     /// `ConstString` value resolves to one entry pre-populated in
@@ -100,6 +107,7 @@ impl AotCodeGenerator {
             ctx,
             builder_context: FunctionBuilderContext::new(),
             function_map: HashMap::new(),
+            global_data: HashMap::new(),
             runtime_bindings,
             host_call_sites: HashMap::new(),
             hostcall_batch_stats: HostCallBatchStats::default(),
@@ -151,13 +159,30 @@ impl AotCodeGenerator {
         // pointing at these sections instead of going through `manual_alloc`.
         self.pre_intern_string_literals(ir_module);
 
+        self.define_globals(ir_module)?;
+
+        // AOT compiles one relocatable object per source module. Imported
+        // user functions therefore need explicit declarations in the current
+        // ObjectModule so Cranelift emits undefined relocations for the native
+        // linker instead of treating them as missing local bodies.
+        for external in &ir_module.external_functions {
+            if ir_module
+                .functions
+                .iter()
+                .any(|function| function.name == external.name)
+            {
+                continue;
+            }
+            self.declare_external_function(external)?;
+        }
+
         // First pass: declare all functions.
         for func in &ir_module.functions {
             self.declare_function(func, rename_main)?;
         }
 
         // Function parameter types for call-site argument coercion.
-        let function_params: HashMap<String, Vec<IRType>> = ir_module
+        let mut function_params: HashMap<String, Vec<IRType>> = ir_module
             .functions
             .iter()
             .map(|func| {
@@ -167,6 +192,11 @@ impl AotCodeGenerator {
                 )
             })
             .collect();
+        for external in &ir_module.external_functions {
+            function_params
+                .entry(external.name.clone())
+                .or_insert_with(|| external.params.clone());
+        }
 
         // Second pass: define all functions.
         for func in &ir_module.functions {
@@ -180,7 +210,7 @@ impl AotCodeGenerator {
             if !has_main {
                 return Err(BackendCodegenError::missing_function("main"));
             }
-            self.generate_exe_entry_point()?;
+            self.generate_exe_entry_point(opts.register_api)?;
         }
 
         // Emit the finished object.
@@ -191,6 +221,29 @@ impl AotCodeGenerator {
             .emit()
             .map_err(|e| BackendCodegenError::cranelift(format!("Object emit error: {}", e)))?;
         Ok((bytes, debug_locations, self.hostcall_batch_stats))
+    }
+
+    fn declare_external_function(&mut self, external: &ExternalFunction) -> BackendResult<FuncId> {
+        let mut sig = self.module.make_signature();
+        for param in &external.params {
+            sig.params
+                .push(AbiParam::new(CodeGenerator::ir_type_to_cranelift(param)?));
+        }
+        let return_type = CodeGenerator::ir_type_to_cranelift(&external.return_type)?;
+        if return_type != types::I8 || external.return_type != IRType::Void {
+            sig.returns.push(AbiParam::new(return_type));
+        }
+        let func_id = self
+            .module
+            .declare_function(&external.name, Linkage::Import, &sig)
+            .map_err(|error| {
+                BackendCodegenError::cranelift(format!(
+                    "Failed to declare imported function '{}': {}",
+                    external.name, error
+                ))
+            })?;
+        self.function_map.insert(external.name.clone(), func_id);
+        Ok(func_id)
     }
 
     pub fn take_debug_locations(&mut self) -> Vec<(String, usize, i64)> {
@@ -364,6 +417,7 @@ impl AotCodeGenerator {
                 &mut string_literal_lengths,
                 &stack_allocas,
                 &scalar_alloca_vars,
+                &self.global_data,
                 frame_var,
                 manual_frame_active,
                 ir_block.id,
@@ -425,6 +479,52 @@ impl AotCodeGenerator {
 
         Ok(())
     }
+
+    fn define_globals(&mut self, ir_module: &IRModule) -> BackendResult<()> {
+        for global in &ir_module.globals {
+            if self.global_data.contains_key(&global.name) {
+                continue;
+            }
+            let symbol = CodeGenerator::global_symbol(&ir_module.name, &global.name);
+            let Some(_initializer) = global.initializer.as_ref() else {
+                let data_id = self
+                    .module
+                    .declare_data(&symbol, Linkage::Import, true, false)
+                    .map_err(|error| {
+                        BackendCodegenError::cranelift(format!(
+                            "failed to declare imported global '{}': {}",
+                            global.name, error
+                        ))
+                    })?;
+                self.global_data.insert(global.name.clone(), data_id);
+                continue;
+            };
+            let data_id = self
+                .module
+                // Module-level statics are part of the cross-module object
+                // contract: downstream objects may reference their qualified
+                // symbol, so the defining object must export the data section.
+                .declare_data(&symbol, Linkage::Export, true, false)
+                .map_err(|error| {
+                    BackendCodegenError::cranelift(format!(
+                        "failed to declare global '{}': {}",
+                        global.name, error
+                    ))
+                })?;
+            let mut data = DataDescription::new();
+            let bytes = CodeGenerator::global_initializer_bytes(global)?;
+            data.set_align(CodeGenerator::type_size_bytes(&global.ty).clamp(1, 8) as u64);
+            data.define(bytes.into_boxed_slice());
+            self.module.define_data(data_id, &data).map_err(|error| {
+                BackendCodegenError::cranelift(format!(
+                    "failed to define global '{}': {}",
+                    global.name, error
+                ))
+            })?;
+            self.global_data.insert(global.name.clone(), data_id);
+        }
+        Ok(())
+    }
 }
 
 impl Default for AotCodeGenerator {
@@ -438,7 +538,7 @@ impl AotCodeGenerator {
     ///   1. calls `spectra_rt_startup_with_args(argc, argv)` to initialise the runtime;
     ///   2. calls `spectra_user_main()` (the renamed Spectra `main` function);
     ///   3. returns `0` to the OS.
-    fn generate_exe_entry_point(&mut self) -> BackendResult<()> {
+    fn generate_exe_entry_point(&mut self, register_api: bool) -> BackendResult<()> {
         // ── declare spectra_rt_startup_with_args import ──────────────────────
         let mut startup_sig = self.module.make_signature();
         startup_sig.params.push(AbiParam::new(types::I32)); // argc: i32
@@ -456,6 +556,27 @@ impl AotCodeGenerator {
                     e
                 ))
             })?;
+
+        let api_register_func_id = if register_api {
+            let mut api_sig = self.module.make_signature();
+            api_sig.returns.push(AbiParam::new(types::I64));
+            Some(
+                self.module
+                    .declare_function(
+                        "spectra_api_register_host_calls",
+                        Linkage::Import,
+                        &api_sig,
+                    )
+                    .map_err(|e| {
+                        BackendCodegenError::cranelift(format!(
+                            "Failed to declare 'spectra_api_register_host_calls': {}",
+                            e
+                        ))
+                    })?,
+            )
+        } else {
+            None
+        };
 
         // ── look up spectra_user_main (stored under IR name "main") ──────────
         let user_main_func_id = *self
@@ -499,6 +620,13 @@ impl AotCodeGenerator {
             .module
             .declare_func_in_func(startup_func_id, builder.func);
         builder.ins().call(startup_ref, &[argc, argv]);
+
+        if let Some(api_register_func_id) = api_register_func_id {
+            let api_register_ref = self
+                .module
+                .declare_func_in_func(api_register_func_id, builder.func);
+            builder.ins().call(api_register_ref, &[]);
+        }
 
         // Call spectra_user_main() — ignore any return value
         let user_main_ref = self

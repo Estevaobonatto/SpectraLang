@@ -7,7 +7,214 @@ use super::module_registry::{
     ExportVisibility, ExportedFunction, ExportedSelfParamKind, ExportedTrait, ExportedTraitMethod,
     ExportedType, ModuleExports, ModuleRegistry,
 };
-use crate::ast::{FloatWidth, IntWidth, Type};
+use crate::ast::{FloatWidth, IntWidth, Type, TypeAnnotation, TypeAnnotationKind};
+use crate::span::Span;
+use std::collections::HashMap;
+
+/// Compiler-owned snapshot of one public builtin contract symbol.
+///
+/// Tooling can serialize this plain data without depending on the runtime
+/// crate or reconstructing semantic declarations from source-text regexes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuiltinContractSymbol {
+    pub path: String,
+    pub kind: &'static str,
+    pub signature: String,
+}
+
+fn contract_type(ty: &Type) -> String {
+    match ty {
+        Type::Int => "int".to_string(),
+        Type::Float => "float".to_string(),
+        Type::ExactInt { signed, width } => {
+            let name = match width {
+                IntWidth::I8 => "8",
+                IntWidth::I16 => "16",
+                IntWidth::I32 => "32",
+                IntWidth::I64 => "64",
+                IntWidth::Isize | IntWidth::Usize => "size",
+            };
+            if *signed {
+                format!("i{name}")
+            } else {
+                format!("u{name}")
+            }
+        }
+        Type::ExactFloat { width } => match width {
+            FloatWidth::F32 => "f32".to_string(),
+            FloatWidth::F64 => "f64".to_string(),
+        },
+        Type::Bool => "bool".to_string(),
+        Type::String => "string".to_string(),
+        Type::Char => "char".to_string(),
+        Type::Unit => "unit".to_string(),
+        Type::Unknown => "unknown".to_string(),
+        Type::Array { element_type, size } => match size {
+            Some(size) => format!("Array<{}, {size}>", contract_type(element_type)),
+            None => format!("Array<{}>", contract_type(element_type)),
+        },
+        Type::Tuple { elements } => format!(
+            "({})",
+            elements.iter().map(contract_type).collect::<Vec<_>>().join(", ")
+        ),
+        Type::Struct { name } | Type::Enum { name } | Type::TypeParameter { name } => name.clone(),
+        Type::SelfType => "Self".to_string(),
+        Type::Fn { params, return_type } => format!(
+            "fn({}) -> {}",
+            params.iter().map(contract_type).collect::<Vec<_>>().join(", "),
+            contract_type(return_type)
+        ),
+        Type::Task { output } => format!("Task<{}>", contract_type(output)),
+        Type::Range => "Range".to_string(),
+        Type::Tensor {
+            dtype,
+            rank,
+            dims,
+            layout,
+            device,
+        } => {
+            let mut metadata = vec![contract_type(dtype)];
+            if let Some(rank) = rank {
+                metadata.push(format!("rank={rank}"));
+            }
+            if let Some(dims) = dims {
+                metadata.push(format!(
+                    "dims={:?}",
+                    dims.iter()
+                        .map(|dim| dim.map_or("?".to_string(), |value| value.to_string()))
+                        .collect::<Vec<_>>()
+                ));
+            }
+            if let Some(layout) = layout {
+                metadata.push(format!("layout={layout}"));
+            }
+            if let Some(device) = device {
+                metadata.push(format!("device={device}"));
+            }
+            format!("Tensor<{}>", metadata.join(", "))
+        }
+        Type::DynTrait {
+            trait_name,
+            auto_traits,
+        } => {
+            if auto_traits.is_empty() {
+                format!("dyn {trait_name}")
+            } else {
+                format!("dyn {trait_name} + {}", auto_traits.join(" + "))
+            }
+        }
+    }
+}
+
+fn contract_annotation(annotation: &TypeAnnotation) -> String {
+    match &annotation.kind {
+        TypeAnnotationKind::Simple { segments } => segments.join("::"),
+        TypeAnnotationKind::Tuple { elements } => format!(
+            "({})",
+            elements
+                .iter()
+                .map(contract_annotation)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TypeAnnotationKind::Function {
+            params,
+            return_type,
+        } => format!(
+            "fn({}) -> {}",
+            params
+                .iter()
+                .map(contract_annotation)
+                .collect::<Vec<_>>()
+                .join(", "),
+            contract_annotation(return_type)
+        ),
+        TypeAnnotationKind::Generic { name, type_args } => format!(
+            "{}<{}>",
+            name,
+            type_args
+                .iter()
+                .map(contract_annotation)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TypeAnnotationKind::DynTrait {
+            trait_name,
+            auto_traits,
+        } => {
+            if auto_traits.is_empty() {
+                format!("dyn {trait_name}")
+            } else {
+                format!("dyn {trait_name} + {}", auto_traits.join(" + "))
+            }
+        }
+    }
+}
+
+fn exported_type_signature(name: &str, exported: &ExportedType) -> String {
+    if exported.is_enum {
+        let mut variants = exported
+            .enum_variants
+            .as_ref()
+            .map(|variants| variants.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        variants.sort();
+        format!("enum {name} {{ {} }}", variants.join(" | "))
+    } else {
+        let mut fields = exported
+            .struct_fields
+            .as_ref()
+            .map(|fields| {
+                fields
+                    .iter()
+                    .map(|(field, ty)| format!("{field}: {}", contract_annotation(ty)))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        fields.sort();
+        format!("record {name} {{ {} }}", fields.join(", "))
+    }
+}
+
+/// Extract the builtin semantic surface used by contract tooling.
+pub fn builtin_contract_symbols() -> Vec<BuiltinContractSymbol> {
+    let mut registry = ModuleRegistry::new();
+    register_builtin_modules(&mut registry);
+    let mut symbols = Vec::new();
+
+    for (module_path, exports) in registry.iter_modules() {
+        symbols.push(BuiltinContractSymbol {
+            path: module_path.to_string(),
+            kind: "module",
+            signature: format!("module {module_path}"),
+        });
+        for (name, exported) in &exports.types {
+            symbols.push(BuiltinContractSymbol {
+                path: format!("{module_path}.{name}"),
+                kind: "type",
+                signature: exported_type_signature(name, exported),
+            });
+        }
+        for (name, exported) in &exports.functions {
+            symbols.push(BuiltinContractSymbol {
+                path: format!("{module_path}.{name}"),
+                kind: "function",
+                signature: format!(
+                    "fn({}) -> {}",
+                    exported
+                        .params
+                        .iter()
+                        .map(contract_type)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    contract_type(&exported.return_type)
+                ),
+            });
+        }
+    }
+    symbols.sort_by(|left, right| left.path.cmp(&right.path));
+    symbols
+}
 
 pub const STD_API_MODULE_PATHS: &[&str] = &[
     "std.api",
@@ -503,11 +710,18 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
     registry.register_module("std.math".to_string(), make_std_math());
     registry.register_module("std.numeric".to_string(), make_std_numeric());
     registry.register_module("std.collections".to_string(), make_std_collections());
+    registry.register_module(
+        "std.compat.collections".to_string(),
+        make_std_compat_collections(),
+    );
     registry.register_module("std.string".to_string(), make_std_string());
     registry.register_module("std.convert".to_string(), make_std_convert());
     registry.register_module("std.random".to_string(), make_std_random());
     registry.register_module("std.fs".to_string(), make_std_fs());
+    registry.register_module("std.compat.fs".to_string(), make_std_compat_fs());
+    registry.register_module("std.error".to_string(), make_std_error());
     registry.register_module("std.env".to_string(), make_std_env());
+    registry.register_module("std.compat.env".to_string(), make_std_compat_env());
     registry.register_module("std.option".to_string(), make_std_option());
     registry.register_module("std.result".to_string(), make_std_result());
     registry.register_module("std.char".to_string(), make_std_char());
@@ -526,11 +740,24 @@ pub fn register_builtin_modules(registry: &mut ModuleRegistry) {
         "spectra.std.collections".to_string(),
         make_std_collections(),
     );
+    registry.register_module(
+        "spectra.std.compat.collections".to_string(),
+        make_std_compat_collections(),
+    );
     registry.register_module("spectra.std.string".to_string(), make_std_string());
     registry.register_module("spectra.std.convert".to_string(), make_std_convert());
     registry.register_module("spectra.std.random".to_string(), make_std_random());
     registry.register_module("spectra.std.fs".to_string(), make_std_fs());
+    registry.register_module(
+        "spectra.std.compat.fs".to_string(),
+        make_std_compat_fs(),
+    );
+    registry.register_module("spectra.std.error".to_string(), make_std_error());
     registry.register_module("spectra.std.env".to_string(), make_std_env());
+    registry.register_module(
+        "spectra.std.compat.env".to_string(),
+        make_std_compat_env(),
+    );
     registry.register_module("spectra.std.option".to_string(), make_std_option());
     registry.register_module("spectra.std.result".to_string(), make_std_result());
     registry.register_module("spectra.std.char".to_string(), make_std_char());
@@ -575,6 +802,15 @@ fn public_type(members: &[&str]) -> ExportedType {
         struct_fields: None,
         enum_variants: None,
         enum_struct_variants: None,
+    }
+}
+
+fn builtin_type_annotation(name: &str) -> TypeAnnotation {
+    TypeAnnotation {
+        kind: TypeAnnotationKind::Simple {
+            segments: vec![name.to_string()],
+        },
+        span: Span::dummy(),
     }
 }
 
@@ -845,7 +1081,11 @@ fn make_std_api_json(prefix: &str) -> ModuleExports {
     let functions = [
         ("validate", vec![Type::String], Type::Bool),
         ("kind", vec![Type::String], Type::Int),
-        ("encode", vec![Type::Unknown], Type::String),
+        (
+            "encode",
+            vec![Type::TypeParameter { name: "T".to_string() }],
+            Type::String,
+        ),
         ("decode", vec![Type::String], api_type("JsonValue")),
     ];
     for (name, params, return_type) in functions {
@@ -1229,7 +1469,7 @@ fn make_std_api_handler(prefix: &str) -> ModuleExports {
             methods: [(
                 "into_response".to_string(),
                 exported_trait_method(
-                    vec![Type::Unknown],
+                    vec![Type::TypeParameter { name: "T".to_string() }],
                     api_type("Response"),
                     Some(ExportedSelfParamKind::Reference { mutable: false }),
                     false,
@@ -1246,7 +1486,10 @@ fn make_std_api_handler(prefix: &str) -> ModuleExports {
             methods: [(
                 "call".to_string(),
                 exported_trait_method(
-                    vec![Type::Unknown, api_type("Request")],
+                    vec![
+                        Type::TypeParameter { name: "T".to_string() },
+                        api_type("Request"),
+                    ],
                     api_type("Response"),
                     Some(ExportedSelfParamKind::Reference { mutable: false }),
                     false,
@@ -1263,7 +1506,10 @@ fn make_std_api_handler(prefix: &str) -> ModuleExports {
             methods: [(
                 "call".to_string(),
                 exported_trait_method(
-                    vec![Type::Unknown, api_type("Request")],
+                    vec![
+                        Type::TypeParameter { name: "T".to_string() },
+                        api_type("Request"),
+                    ],
                     api_task(api_type("Response")),
                     Some(ExportedSelfParamKind::Reference { mutable: false }),
                     true,
@@ -1359,7 +1605,10 @@ fn make_std_api_middleware(prefix: &str) -> ModuleExports {
                 (
                     "on_request".to_string(),
                     exported_trait_method(
-                        vec![Type::Unknown, api_type("Request")],
+                        vec![
+                            Type::TypeParameter { name: "T".to_string() },
+                            api_type("Request"),
+                        ],
                         api_type("Request"),
                         Some(ExportedSelfParamKind::Reference { mutable: false }),
                         false,
@@ -1368,7 +1617,10 @@ fn make_std_api_middleware(prefix: &str) -> ModuleExports {
                 (
                     "on_response".to_string(),
                     exported_trait_method(
-                        vec![Type::Unknown, api_type("Response")],
+                        vec![
+                            Type::TypeParameter { name: "T".to_string() },
+                            api_type("Response"),
+                        ],
                         api_type("Response"),
                         Some(ExportedSelfParamKind::Reference { mutable: false }),
                         false,
@@ -1387,7 +1639,10 @@ fn make_std_api_middleware(prefix: &str) -> ModuleExports {
                 (
                     "on_request".to_string(),
                     exported_trait_method(
-                        vec![Type::Unknown, api_type("Request")],
+                        vec![
+                            Type::TypeParameter { name: "T".to_string() },
+                            api_type("Request"),
+                        ],
                         api_task(api_type("Request")),
                         Some(ExportedSelfParamKind::Reference { mutable: false }),
                         true,
@@ -1396,7 +1651,10 @@ fn make_std_api_middleware(prefix: &str) -> ModuleExports {
                 (
                     "on_response".to_string(),
                     exported_trait_method(
-                        vec![Type::Unknown, api_type("Response")],
+                        vec![
+                            Type::TypeParameter { name: "T".to_string() },
+                            api_type("Response"),
+                        ],
                         api_task(api_type("Response")),
                         Some(ExportedSelfParamKind::Reference { mutable: false }),
                         true,
@@ -1635,21 +1893,36 @@ fn make_std_io() -> ModuleExports {
     // The runtime FFI accepts a single value and prints it.
     exports
         .functions
-        .insert("print".to_string(), pub_fn(vec![Type::Unknown], Type::Unit));
+        .insert(
+            "print".to_string(),
+            pub_fn(
+                vec![Type::TypeParameter { name: "T".to_string() }],
+                Type::Unit,
+            ),
+        );
     // println(value: any) -> unit  (print + newline)
     exports.functions.insert(
         "println".to_string(),
-        pub_fn(vec![Type::Unknown], Type::Unit),
+        pub_fn(
+            vec![Type::TypeParameter { name: "T".to_string() }],
+            Type::Unit,
+        ),
     );
     // eprint(value: any) -> unit  (stderr, no newline)
     exports.functions.insert(
         "eprint".to_string(),
-        pub_fn(vec![Type::Unknown], Type::Unit),
+        pub_fn(
+            vec![Type::TypeParameter { name: "T".to_string() }],
+            Type::Unit,
+        ),
     );
     // eprintln(value: any) -> unit
     exports.functions.insert(
         "eprintln".to_string(),
-        pub_fn(vec![Type::Unknown], Type::Unit),
+        pub_fn(
+            vec![Type::TypeParameter { name: "T".to_string() }],
+            Type::Unit,
+        ),
     );
     // flush() -> unit
     exports
@@ -1802,151 +2075,334 @@ fn make_std_numeric() -> ModuleExports {
     exports
 }
 
+/// Public collection surface.  Potentially empty reads are represented by
+/// `Option<T>`; the sentinel ABI remains available only through the explicit
+/// `std.compat.collections` namespace.
 fn make_std_collections() -> ModuleExports {
+    let mut exports = make_std_collections_legacy();
+    exports.stdlib_path = Some(vec!["std".to_string(), "collections".to_string()]);
+
+    let option = Type::Enum {
+        name: "Option".to_string(),
+    };
+    let list = Type::Struct {
+        name: "List".to_string(),
+    };
+    let map = Type::Struct {
+        name: "Map".to_string(),
+    };
+    let set = Type::Struct {
+        name: "Set".to_string(),
+    };
+    let iterator = Type::Struct {
+        name: "Iterator".to_string(),
+    };
+    for name in ["list_get", "list_pop", "list_pop_front", "list_remove_at"] {
+        let params = if name == "list_get" || name == "list_remove_at" {
+            vec![list.clone(), Type::Int]
+        } else {
+            vec![list.clone()]
+        };
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, option.clone()));
+    }
+    for name in ["map_get", "map_remove"] {
+        exports.functions.insert(
+            name.to_string(),
+            pub_fn(
+                vec![map.clone(), Type::TypeParameter { name: "K".to_string() }],
+                option.clone(),
+            ),
+        );
+    }
+    exports.functions.insert(
+        "set_get".to_string(),
+        pub_fn(vec![set, Type::Int], option),
+    );
+    exports.functions.insert(
+        "iterator_next".to_string(),
+        pub_fn(vec![iterator], Type::Enum {
+            name: "Option".to_string(),
+        }),
+    );
+
+    exports
+}
+
+/// Compatibility-only collection surface retaining the historic sentinel
+/// return values for callers that have not migrated yet.
+fn make_std_compat_collections() -> ModuleExports {
+    let mut exports = make_std_collections_legacy();
+    exports.functions.retain(|name, _| {
+        matches!(
+            name.as_str(),
+            "list_get"
+                | "list_pop"
+                | "list_pop_front"
+                | "list_remove_at"
+                | "map_get"
+                | "map_remove"
+        )
+    });
+    exports.stdlib_path = Some(vec![
+        "std".to_string(),
+        "compat".to_string(),
+        "collections".to_string(),
+    ]);
+    exports
+}
+
+fn make_std_collections_legacy() -> ModuleExports {
     let mut exports = ModuleExports {
         stdlib_path: Some(vec!["std".to_string(), "collections".to_string()]),
         package_name: Some("std".to_string()),
         ..Default::default()
     };
 
-    // list_new() -> int (handle)
+    let list = Type::Struct {
+        name: "List".to_string(),
+    };
+    let map = Type::Struct {
+        name: "Map".to_string(),
+    };
+    let option = Type::Enum {
+        name: "Option".to_string(),
+    };
+    let element = Type::TypeParameter {
+        name: "T".to_string(),
+    };
+    let key = Type::TypeParameter {
+        name: "K".to_string(),
+    };
+    let value = Type::TypeParameter {
+        name: "V".to_string(),
+    };
+    let set = Type::Struct {
+        name: "Set".to_string(),
+    };
+    let iterator = Type::Struct {
+        name: "Iterator".to_string(),
+    };
+
     exports
         .functions
-        .insert("list_new".to_string(), pub_fn(vec![], Type::Int));
-    // list_push(handle: int, value: int) -> unit
+        .insert("list_new".to_string(), pub_fn(vec![], list.clone()));
     exports.functions.insert(
         "list_push".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Unit),
+        pub_fn(vec![list.clone(), element.clone()], Type::Unit),
     );
-    // list_len(handle: int) -> int
     exports
         .functions
-        .insert("list_len".to_string(), pub_fn(vec![Type::Int], Type::Int));
-    // list_get(handle: int, index: int) -> int  (-1 if out of bounds)
+        .insert("list_len".to_string(), pub_fn(vec![list.clone()], Type::Int));
     exports.functions.insert(
         "list_get".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+        pub_fn(vec![list.clone(), Type::Int], Type::Int),
     );
-    // list_set(handle: int, index: int, value: int) -> unit
+    // Typed accessors are the non-sentinel contract. The legacy accessors
+    // above remain available only for compatibility while callers migrate.
+    exports.functions.insert(
+        "list_get_option".to_string(),
+        pub_fn(vec![list.clone(), Type::Int], option.clone()),
+    );
     exports.functions.insert(
         "list_set".to_string(),
-        pub_fn(vec![Type::Int, Type::Int, Type::Int], Type::Unit),
+        pub_fn(vec![list.clone(), Type::Int, element.clone()], Type::Unit),
     );
-    // list_contains(handle: int, value: int) -> bool
     exports.functions.insert(
         "list_contains".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Bool),
+        pub_fn(vec![list.clone(), Type::Int], Type::Bool),
     );
-    // list_clear(handle: int) -> unit
     exports.functions.insert(
         "list_clear".to_string(),
-        pub_fn(vec![Type::Int], Type::Unit),
+        pub_fn(vec![list.clone()], Type::Unit),
     );
-    // list_free(handle: int) -> unit
     exports
         .functions
-        .insert("list_free".to_string(), pub_fn(vec![Type::Int], Type::Unit));
+        .insert("list_free".to_string(), pub_fn(vec![list.clone()], Type::Unit));
     // list_free_all() -> int
     exports
         .functions
         .insert("list_free_all".to_string(), pub_fn(vec![], Type::Int));
-    // list_pop(handle: int) -> int  (returns popped value; -1 if empty)
+    // Compatibility reads keep the historical integer/sentinel contract.
     exports
         .functions
-        .insert("list_pop".to_string(), pub_fn(vec![Type::Int], Type::Int));
-    // list_pop_front(handle: int) -> int  (returns removed front value; -1 if empty)
+        .insert("list_pop".to_string(), pub_fn(vec![list.clone()], Type::Int));
     exports.functions.insert(
         "list_pop_front".to_string(),
-        pub_fn(vec![Type::Int], Type::Int),
+        pub_fn(vec![list.clone()], Type::Int),
     );
-    // list_insert_at(handle: int, index: int, value: int) -> unit
+    exports.functions.insert(
+        "list_pop_option".to_string(),
+        pub_fn(vec![list.clone()], option.clone()),
+    );
+    exports.functions.insert(
+        "list_pop_front_option".to_string(),
+        pub_fn(vec![list.clone()], option.clone()),
+    );
     exports.functions.insert(
         "list_insert_at".to_string(),
-        pub_fn(vec![Type::Int, Type::Int, Type::Int], Type::Unit),
+        pub_fn(vec![list.clone(), Type::Int, element.clone()], Type::Unit),
     );
-    // list_remove_at(handle: int, index: int) -> int  (returns removed value; -1 if out of bounds)
     exports.functions.insert(
         "list_remove_at".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+        pub_fn(vec![list.clone(), Type::Int], Type::Int),
     );
-    // list_index_of(handle: int, value: int) -> int  (-1 if not found)
+    exports.functions.insert(
+        "list_remove_at_option".to_string(),
+        pub_fn(vec![list.clone(), Type::Int], option.clone()),
+    );
     exports.functions.insert(
         "list_index_of".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+        pub_fn(vec![list.clone(), element.clone()], Type::Int),
     );
-    // list_sort(handle: int) -> unit  (sorts ascending in place)
     exports
         .functions
-        .insert("list_sort".to_string(), pub_fn(vec![Type::Int], Type::Unit));
+        .insert("list_sort".to_string(), pub_fn(vec![list.clone()], Type::Unit));
     let fn_int_to_int = Type::Fn {
         params: vec![Type::Int],
         return_type: Box::new(Type::Int),
+    };
+    let fn_int_to_bool = Type::Fn {
+        params: vec![Type::Int],
+        return_type: Box::new(Type::Bool),
     };
     let fn_int_int_to_int = Type::Fn {
         params: vec![Type::Int, Type::Int],
         return_type: Box::new(Type::Int),
     };
-    // list_map(handle: int, f: fn(int)->int) -> int  (returns new list handle)
     exports.functions.insert(
         "list_map".to_string(),
-        pub_fn(vec![Type::Int, fn_int_to_int.clone()], Type::Int),
+        pub_fn(vec![list.clone(), fn_int_to_int.clone()], list.clone()),
     );
-    // list_filter(handle: int, pred: fn(int)->int) -> int  (returns new list handle)
     exports.functions.insert(
         "list_filter".to_string(),
-        pub_fn(vec![Type::Int, fn_int_to_int], Type::Int),
+        pub_fn(vec![list.clone(), fn_int_to_bool], list.clone()),
     );
-    // list_reduce(handle: int, initial: int, f: fn(int,int)->int) -> int
     exports.functions.insert(
         "list_reduce".to_string(),
         pub_fn(
-            vec![Type::Int, Type::Int, fn_int_int_to_int.clone()],
+            vec![list.clone(), Type::Int, fn_int_int_to_int.clone()],
             Type::Int,
         ),
     );
-    // list_sort_by(handle: int, cmp: fn(int,int)->int) -> unit
     exports.functions.insert(
         "list_sort_by".to_string(),
-        pub_fn(vec![Type::Int, fn_int_int_to_int], Type::Unit),
+        pub_fn(vec![list.clone(), fn_int_int_to_int], Type::Unit),
     );
 
     // ── map API (R-3123: expose existing runtime HashMap<i64, i64>) ──────────
-    // map_new() -> int  (returns handle; 0 on internal error)
     exports
         .functions
-        .insert("map_new".to_string(), pub_fn(vec![], Type::Int));
-    // map_set(handle: int, key: int, value: int) -> unit
+        .insert("map_new".to_string(), pub_fn(vec![], map.clone()));
     exports.functions.insert(
         "map_set".to_string(),
-        pub_fn(vec![Type::Int, Type::Int, Type::Int], Type::Unit),
+        pub_fn(vec![map.clone(), key.clone(), value.clone()], Type::Unit),
     );
-    // map_get(handle: int, key: int) -> int  (0 if key absent or handle invalid)
     exports.functions.insert(
         "map_get".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+        pub_fn(vec![map.clone(), key.clone()], Type::Int),
     );
-    // map_contains(handle: int, key: int) -> int  (1 if present, 0 otherwise)
+    exports.functions.insert(
+        "map_get_option".to_string(),
+        pub_fn(vec![map.clone(), key.clone()], option.clone()),
+    );
     exports.functions.insert(
         "map_contains".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+        pub_fn(vec![map.clone(), key.clone()], Type::Bool),
     );
-    // map_remove(handle: int, key: int) -> int  (removed value, 0 if absent)
     exports.functions.insert(
         "map_remove".to_string(),
-        pub_fn(vec![Type::Int, Type::Int], Type::Int),
+        pub_fn(vec![map.clone(), key.clone()], Type::Int),
     );
-    // map_len(handle: int) -> int
+    exports.functions.insert(
+        "map_remove_option".to_string(),
+        pub_fn(vec![map.clone(), key], option),
+    );
     exports
         .functions
-        .insert("map_len".to_string(), pub_fn(vec![Type::Int], Type::Int));
-    // map_clear(handle: int) -> unit
+        .insert("map_len".to_string(), pub_fn(vec![map.clone()], Type::Int));
     exports
         .functions
-        .insert("map_clear".to_string(), pub_fn(vec![Type::Int], Type::Unit));
-    // map_free(handle: int) -> unit
+        .insert("map_clear".to_string(), pub_fn(vec![map.clone()], Type::Unit));
     exports
         .functions
-        .insert("map_free".to_string(), pub_fn(vec![Type::Int], Type::Unit));
+        .insert("map_free".to_string(), pub_fn(vec![map], Type::Unit));
+
+    // ── set API ───────────────────────────────────────────────────────────
+    exports
+        .functions
+        .insert("set_new".to_string(), pub_fn(vec![], set.clone()));
+    exports.functions.insert(
+        "set_insert".to_string(),
+        pub_fn(vec![set.clone(), element.clone()], Type::Bool),
+    );
+    exports.functions.insert(
+        "set_contains".to_string(),
+        pub_fn(vec![set.clone(), element.clone()], Type::Bool),
+    );
+    exports.functions.insert(
+        "set_remove".to_string(),
+        pub_fn(vec![set.clone(), element.clone()], Type::Bool),
+    );
+    exports
+        .functions
+        .insert("set_len".to_string(), pub_fn(vec![set.clone()], Type::Int));
+    exports.functions.insert(
+        "set_get".to_string(),
+        pub_fn(
+            vec![set.clone(), Type::Int],
+            Type::Enum {
+                name: "Option".to_string(),
+            },
+        ),
+    );
+    exports
+        .functions
+        .insert("set_clear".to_string(), pub_fn(vec![set.clone()], Type::Unit));
+    exports
+        .functions
+        .insert("set_free".to_string(), pub_fn(vec![set], Type::Unit));
+
+    // ── Iterator protocol ─────────────────────────────────────────────────
+    exports.functions.insert(
+        "list_iter".to_string(),
+        pub_fn(vec![list.clone()], iterator.clone()),
+    );
+    exports.functions.insert(
+        "set_iter".to_string(),
+        pub_fn(
+            vec![Type::Struct {
+                name: "Set".to_string(),
+            }],
+            iterator.clone(),
+        ),
+    );
+    exports.functions.insert(
+        "map_iter".to_string(),
+        pub_fn(
+            vec![Type::Struct {
+                name: "Map".to_string(),
+            }],
+            iterator.clone(),
+        ),
+    );
+    exports.functions.insert(
+        "iterator_next".to_string(),
+        pub_fn(
+            vec![iterator.clone()],
+            Type::Enum {
+                name: "Option".to_string(),
+            },
+        ),
+    );
+    exports.functions.insert(
+        "iterator_remaining".to_string(),
+        pub_fn(vec![iterator.clone()], Type::Int),
+    );
+    exports
+        .functions
+        .insert("iterator_free".to_string(), pub_fn(vec![iterator], Type::Unit));
 
     // type aliases
     exports.types.insert(
@@ -1960,6 +2416,30 @@ fn make_std_collections() -> ModuleExports {
             enum_struct_variants: None,
         },
     );
+    exports.types.insert(
+        "Map".to_string(),
+        ExportedType {
+            members: vec!["new".to_string(), "set".to_string(), "get".to_string()],
+            visibility: ExportVisibility::Public,
+            is_enum: false,
+            struct_fields: None,
+            enum_variants: None,
+            enum_struct_variants: None,
+        },
+    );
+    for name in ["Set", "Iterator"] {
+        exports.types.insert(
+            name.to_string(),
+            ExportedType {
+                members: vec!["new".to_string(), "len".to_string()],
+                visibility: ExportVisibility::Public,
+                is_enum: false,
+                struct_fields: None,
+                enum_variants: None,
+                enum_struct_variants: None,
+            },
+        );
+    }
 
     exports
 }
@@ -3002,10 +3482,15 @@ fn make_std_string() -> ModuleExports {
         "count_occurrences".to_string(),
         pub_fn(vec![Type::String, Type::String], Type::Int),
     );
-    // split_by(s: string, sep: string) -> int  (returns list handle; each element is a string pointer)
+    // split_by(s: string, sep: string) -> List<string>
     exports.functions.insert(
         "split_by".to_string(),
-        pub_fn(vec![Type::String, Type::String], Type::Int),
+        pub_fn(
+            vec![Type::String, Type::String],
+            Type::Struct {
+                name: "List_string".to_string(),
+            },
+        ),
     );
     // pad_left(s: string, width: int, pad_char: int) -> string
     exports.functions.insert(
@@ -3122,6 +3607,46 @@ fn make_std_random() -> ModuleExports {
 }
 
 fn make_std_fs() -> ModuleExports {
+    let mut exports = make_std_fs_legacy();
+    exports.stdlib_path = Some(vec!["std".to_string(), "fs".to_string()]);
+
+    let result_string_error = Type::Enum {
+        name: "Result_string_Error".to_string(),
+    };
+    let result_bool_error = Type::Enum {
+        name: "Result_bool_Error".to_string(),
+    };
+    exports
+        .functions
+        .insert("fs_read".to_string(), pub_fn(vec![Type::String], result_string_error));
+    for name in ["fs_write", "fs_append", "fs_exists", "fs_remove"] {
+        let params = if matches!(name, "fs_write" | "fs_append") {
+            vec![Type::String, Type::String]
+        } else {
+            vec![Type::String]
+        };
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(params, result_bool_error.clone()));
+    }
+
+    exports
+}
+
+/// Compatibility-only filesystem surface retaining the historic string and
+/// boolean return values.  New code must import `std.fs` and handle
+/// `Result<_, Error>` explicitly.
+fn make_std_compat_fs() -> ModuleExports {
+    let mut exports = make_std_fs_legacy();
+    exports.stdlib_path = Some(vec![
+        "std".to_string(),
+        "compat".to_string(),
+        "fs".to_string(),
+    ]);
+    exports
+}
+
+fn make_std_fs_legacy() -> ModuleExports {
     let mut exports = ModuleExports {
         stdlib_path: Some(vec!["std".to_string(), "fs".to_string()]),
         package_name: Some("std".to_string()),
@@ -3159,7 +3684,151 @@ fn make_std_fs() -> ModuleExports {
     exports
 }
 
+/// Structured runtime failure values shared by the stable I/O surface.
+///
+/// `ErrorCode` is a closed unit enum so callers cannot silently invent an
+/// incompatible numeric code.  `Error` is a concrete record because the
+/// runtime materializes it as an opaque pointer with these six word-sized
+/// fields; accessors are also exported for code that prefers not to use field
+/// syntax.
+fn make_std_error() -> ModuleExports {
+    let mut exports = ModuleExports {
+        stdlib_path: Some(vec!["std".to_string(), "error".to_string()]),
+        package_name: Some("std".to_string()),
+        ..Default::default()
+    };
+
+    let error_codes = [
+        "InvalidArgument",
+        "NotFound",
+        "PermissionDenied",
+        "Io",
+        "Internal",
+        "Unsupported",
+    ];
+    let enum_variants = error_codes
+        .iter()
+        .map(|name| ((*name).to_string(), None))
+        .collect::<HashMap<_, _>>();
+    exports.types.insert(
+        "ErrorCode".to_string(),
+        ExportedType {
+            members: error_codes.iter().map(|name| (*name).to_string()).collect(),
+            visibility: ExportVisibility::Public,
+            is_enum: true,
+            struct_fields: None,
+            enum_variants: Some(enum_variants),
+            enum_struct_variants: None,
+        },
+    );
+
+    let field_types = [
+        ("code", "int"),
+        ("message", "string"),
+        ("operation", "string"),
+        ("context", "string"),
+        ("origin", "string"),
+        ("retryable", "bool"),
+    ];
+    let struct_fields = field_types
+        .iter()
+        .map(|(name, ty)| ((*name).to_string(), builtin_type_annotation(ty)))
+        .collect::<HashMap<_, _>>();
+    exports.types.insert(
+        "Error".to_string(),
+        ExportedType {
+            members: field_types
+                .iter()
+                .map(|(name, _)| (*name).to_string())
+                .collect(),
+            visibility: ExportVisibility::Public,
+            is_enum: false,
+            struct_fields: Some(struct_fields),
+            enum_variants: None,
+            enum_struct_variants: None,
+        },
+    );
+
+    let error_code = Type::Enum {
+        name: "ErrorCode".to_string(),
+    };
+    let error = Type::Struct {
+        name: "Error".to_string(),
+    };
+    exports.functions.insert(
+        "new".to_string(),
+        pub_fn(
+            vec![
+                error_code,
+                Type::String,
+                Type::String,
+                Type::String,
+                Type::String,
+                Type::Bool,
+            ],
+            error.clone(),
+        ),
+    );
+    for (name, return_type) in [
+        ("code", Type::Int),
+        ("message", Type::String),
+        ("operation", Type::String),
+        ("context", Type::String),
+        ("origin", Type::String),
+        ("retryable", Type::Bool),
+    ] {
+        exports
+            .functions
+            .insert(name.to_string(), pub_fn(vec![error.clone()], return_type));
+    }
+
+    exports
+}
+
+/// Public environment surface. Missing variables and out-of-range arguments
+/// are represented by `Option<string>`; sentinel strings remain available only
+/// through the explicit `std.compat.env` namespace.
 fn make_std_env() -> ModuleExports {
+    let mut exports = make_std_env_legacy();
+    exports.stdlib_path = Some(vec!["std".to_string(), "env".to_string()]);
+
+    let option_string = Type::Enum {
+        name: "Option_string".to_string(),
+    };
+    exports
+        .functions
+        .insert("env_get".to_string(), pub_fn(vec![Type::String], option_string.clone()));
+    exports.functions.insert(
+        "env_get_option".to_string(),
+        pub_fn(vec![Type::String], option_string.clone()),
+    );
+    exports
+        .functions
+        .insert("env_arg".to_string(), pub_fn(vec![Type::Int], option_string.clone()));
+    exports.functions.insert(
+        "env_arg_option".to_string(),
+        pub_fn(vec![Type::Int], option_string),
+    );
+
+    exports
+}
+
+/// Compatibility-only environment surface retaining the historic empty-string
+/// sentinel behavior for callers that have not migrated yet.
+fn make_std_compat_env() -> ModuleExports {
+    let mut exports = make_std_env_legacy();
+    exports
+        .functions
+        .retain(|name, _| matches!(name.as_str(), "env_get" | "env_arg"));
+    exports.stdlib_path = Some(vec![
+        "std".to_string(),
+        "compat".to_string(),
+        "env".to_string(),
+    ]);
+    exports
+}
+
+fn make_std_env_legacy() -> ModuleExports {
     let mut exports = ModuleExports {
         stdlib_path: Some(vec!["std".to_string(), "env".to_string()]),
         package_name: Some("std".to_string()),
@@ -3170,6 +3839,15 @@ fn make_std_env() -> ModuleExports {
     exports.functions.insert(
         "env_get".to_string(),
         pub_fn(vec![Type::String], Type::String),
+    );
+    exports.functions.insert(
+        "env_get_option".to_string(),
+        pub_fn(
+            vec![Type::String],
+            Type::Enum {
+                name: "Option".to_string(),
+            },
+        ),
     );
     // env_set(key: string, value: string) -> bool
     exports.functions.insert(
@@ -3184,6 +3862,15 @@ fn make_std_env() -> ModuleExports {
     exports
         .functions
         .insert("env_arg".to_string(), pub_fn(vec![Type::Int], Type::String));
+    exports.functions.insert(
+        "env_arg_option".to_string(),
+        pub_fn(
+            vec![Type::Int],
+            Type::Enum {
+                name: "Option".to_string(),
+            },
+        ),
+    );
 
     exports
 }
@@ -3195,25 +3882,52 @@ fn make_std_option() -> ModuleExports {
         ..Default::default()
     };
 
-    // is_some(opt: unknown) -> bool
+    let option = Type::Enum {
+        name: "Option".to_string(),
+    };
+    let payload = Type::TypeParameter {
+        name: "T".to_string(),
+    };
+
+    // `Option` is represented by a specialized enum at use sites. The bare
+    // enum name here is a typed generic pattern, not an unknown wildcard.
     exports.functions.insert(
         "is_some".to_string(),
-        pub_fn(vec![Type::Unknown], Type::Bool),
+        pub_fn(vec![option.clone()], Type::Bool),
     );
-    // is_none(opt: unknown) -> bool
     exports.functions.insert(
         "is_none".to_string(),
-        pub_fn(vec![Type::Unknown], Type::Bool),
+        pub_fn(vec![option.clone()], Type::Bool),
     );
-    // option_unwrap(opt: unknown) -> unknown  (runtime error on None)
     exports.functions.insert(
         "option_unwrap".to_string(),
-        pub_fn(vec![Type::Unknown], Type::Unknown),
+        pub_fn(vec![option.clone()], payload.clone()),
     );
-    // option_unwrap_or(opt: unknown, default: unknown) -> unknown
     exports.functions.insert(
         "option_unwrap_or".to_string(),
-        pub_fn(vec![Type::Unknown, Type::Unknown], Type::Unknown),
+        pub_fn(vec![option, payload.clone()], payload),
+    );
+    let mapped = Type::TypeParameter {
+        name: "U".to_string(),
+    };
+    exports.functions.insert(
+        "option_map".to_string(),
+        pub_fn(
+            vec![
+                Type::Enum {
+                    name: "Option".to_string(),
+                },
+                Type::Fn {
+                    params: vec![Type::TypeParameter {
+                        name: "T".to_string(),
+                    }],
+                    return_type: Box::new(mapped),
+                },
+            ],
+            Type::Enum {
+                name: "Option".to_string(),
+            },
+        ),
     );
 
     exports
@@ -3226,29 +3940,75 @@ fn make_std_result() -> ModuleExports {
         ..Default::default()
     };
 
-    // is_ok(res: unknown) -> bool
+    let result = Type::Enum {
+        name: "Result".to_string(),
+    };
+    let value = Type::TypeParameter {
+        name: "T".to_string(),
+    };
+    let error = Type::TypeParameter {
+        name: "E".to_string(),
+    };
+
     exports
         .functions
-        .insert("is_ok".to_string(), pub_fn(vec![Type::Unknown], Type::Bool));
-    // is_err(res: unknown) -> bool
+        .insert("is_ok".to_string(), pub_fn(vec![result.clone()], Type::Bool));
     exports.functions.insert(
         "is_err".to_string(),
-        pub_fn(vec![Type::Unknown], Type::Bool),
+        pub_fn(vec![result.clone()], Type::Bool),
     );
-    // result_unwrap(res: unknown) -> unknown  (runtime error on Err)
     exports.functions.insert(
         "result_unwrap".to_string(),
-        pub_fn(vec![Type::Unknown], Type::Unknown),
+        pub_fn(vec![result.clone()], value.clone()),
     );
-    // result_unwrap_or(res: unknown, default: unknown) -> unknown
     exports.functions.insert(
         "result_unwrap_or".to_string(),
-        pub_fn(vec![Type::Unknown, Type::Unknown], Type::Unknown),
+        pub_fn(vec![result.clone(), value.clone()], value),
     );
-    // result_unwrap_err(res: unknown) -> unknown  (runtime error on Ok)
     exports.functions.insert(
         "result_unwrap_err".to_string(),
-        pub_fn(vec![Type::Unknown], Type::Unknown),
+        pub_fn(vec![result], error),
+    );
+    let mapped = Type::TypeParameter {
+        name: "U".to_string(),
+    };
+    exports.functions.insert(
+        "result_map".to_string(),
+        pub_fn(
+            vec![
+                Type::Enum {
+                    name: "Result".to_string(),
+                },
+                Type::Fn {
+                    params: vec![Type::TypeParameter {
+                        name: "T".to_string(),
+                    }],
+                    return_type: Box::new(mapped.clone()),
+                },
+            ],
+            Type::Enum {
+                name: "Result".to_string(),
+            },
+        ),
+    );
+    exports.functions.insert(
+        "result_map_err".to_string(),
+        pub_fn(
+            vec![
+                Type::Enum {
+                    name: "Result".to_string(),
+                },
+                Type::Fn {
+                    params: vec![Type::TypeParameter {
+                        name: "E".to_string(),
+                    }],
+                    return_type: Box::new(mapped),
+                },
+            ],
+            Type::Enum {
+                name: "Result".to_string(),
+            },
+        ),
     );
 
     exports

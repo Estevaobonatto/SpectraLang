@@ -1,10 +1,11 @@
 use crate::handler::HandlerError;
+use crate::handles::ApiHandleTable;
 use crate::http::{self, Request, Response};
 use crate::{alloc_spectra_string, read_args, read_spectra_string, write_result};
 use spectra_runtime::ffi::{
     SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
 };
-use std::collections::HashMap;
+use spectra_runtime::handles::HandleKind;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -297,46 +298,32 @@ struct StoredMiddleware {
 }
 
 struct MiddlewareStore {
-    next_chain: SpectraHostValue,
-    next_middleware: SpectraHostValue,
-    next_trace: SpectraHostValue,
-    chains: HashMap<SpectraHostValue, Vec<SpectraHostValue>>,
-    middlewares: HashMap<SpectraHostValue, StoredMiddleware>,
-    traces: HashMap<SpectraHostValue, MiddlewareTrace>,
+    chains: ApiHandleTable<Vec<SpectraHostValue>>,
+    middlewares: ApiHandleTable<StoredMiddleware>,
+    traces: ApiHandleTable<MiddlewareTrace>,
     last_trace: SpectraHostValue,
 }
 
 impl MiddlewareStore {
     fn new() -> Self {
         Self {
-            next_chain: 1,
-            next_middleware: 1,
-            next_trace: 1,
-            chains: HashMap::new(),
-            middlewares: HashMap::new(),
-            traces: HashMap::new(),
+            chains: ApiHandleTable::new(HandleKind::ApiMiddlewareChain),
+            middlewares: ApiHandleTable::new(HandleKind::ApiMiddleware),
+            traces: ApiHandleTable::new(HandleKind::ApiMiddlewareTrace),
             last_trace: 0,
         }
     }
 
     fn insert_chain(&mut self, entries: Vec<SpectraHostValue>) -> SpectraHostValue {
-        let handle = self.next_chain;
-        self.next_chain = self.next_chain.saturating_add(1).max(1);
-        self.chains.insert(handle, entries);
-        handle
+        self.chains.insert(entries)
     }
 
     fn insert_middleware(&mut self, middleware: StoredMiddleware) -> SpectraHostValue {
-        let handle = self.next_middleware;
-        self.next_middleware = self.next_middleware.saturating_add(1).max(1);
-        self.middlewares.insert(handle, middleware);
-        handle
+        self.middlewares.insert(middleware)
     }
 
     fn insert_trace(&mut self, trace: MiddlewareTrace) -> SpectraHostValue {
-        let handle = self.next_trace;
-        self.next_trace = self.next_trace.saturating_add(1).max(1);
-        self.traces.insert(handle, trace);
+        let handle = self.traces.insert(trace);
         self.last_trace = handle;
         handle
     }

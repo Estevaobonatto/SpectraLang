@@ -24,6 +24,15 @@ pub struct ExportedFunction {
     pub is_async: bool,
 }
 
+/// A module-level mutable static exported to downstream modules.
+#[derive(Debug, Clone)]
+pub struct ExportedStatic {
+    pub ty: Type,
+    pub visibility: ExportVisibility,
+    /// Fully-qualified IR global key used by JIT/AOT data symbols.
+    pub qualified_name: String,
+}
+
 /// How an exported method receives `self`, when it is an instance method.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExportedSelfParamKind {
@@ -91,6 +100,7 @@ pub struct ExportedType {
 #[derive(Debug, Clone, Default)]
 pub struct ModuleExports {
     pub functions: HashMap<String, ExportedFunction>,
+    pub statics: HashMap<String, ExportedStatic>,
     /// Public generic function templates retained for downstream
     /// monomorphization in a multi-module build.
     pub generic_functions: HashMap<String, Function>,
@@ -140,8 +150,23 @@ impl ModuleRegistry {
         self.modules.get(module_path)?.types.get(name)
     }
 
+    pub fn lookup_static(&self, module_path: &str, name: &str) -> Option<&ExportedStatic> {
+        self.modules.get(module_path)?.statics.get(name)
+    }
+
     /// Returns true if the module is already registered.
     pub fn is_registered(&self, module_path: &str) -> bool {
         self.modules.contains_key(module_path)
+    }
+
+    /// Iterate over registered modules for tooling and contract extraction.
+    ///
+    /// The compiler remains the authority for the semantic shape of builtin
+    /// exports; consumers must not reconstruct this table from source-text
+    /// regexes when producing diagnostics or contract snapshots.
+    pub fn iter_modules(&self) -> impl Iterator<Item = (&str, &ModuleExports)> {
+        self.modules
+            .iter()
+            .map(|(path, exports)| (path.as_str(), exports))
     }
 }

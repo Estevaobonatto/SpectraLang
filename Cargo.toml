@@ -4,6 +4,7 @@ members = [
     "midend",
     "backend",
     "runtime",
+    "packages/spectra-contract",
     "packages/spectra-db",
     "packages/spectra-api",
     "tools/spectra-cli",

@@ -441,6 +441,11 @@ fn remap_instruction(kind: &InstructionKind, values: &HashMap<usize, Value>) -> 
             result: map_value(*result, values),
             ty: ty.clone(),
         },
+        InstructionKind::GlobalAddr { result, name, ty } => InstructionKind::GlobalAddr {
+            result: map_value(*result, values),
+            name: name.clone(),
+            ty: ty.clone(),
+        },
         InstructionKind::Load { result, ptr, ty } => InstructionKind::Load {
             result: map_value(*result, values),
             ptr: map_value(*ptr, values),
@@ -582,6 +587,7 @@ fn instruction_result(kind: &InstructionKind) -> Option<Value> {
         | InstructionKind::Or { result, .. }
         | InstructionKind::Not { result, .. }
         | InstructionKind::Alloca { result, .. }
+        | InstructionKind::GlobalAddr { result, .. }
         | InstructionKind::ManualAlloc { result, .. }
         | InstructionKind::Load { result, .. }
         | InstructionKind::GetElementPtr { result, .. }
@@ -589,8 +595,11 @@ fn instruction_result(kind: &InstructionKind) -> Option<Value> {
         | InstructionKind::Copy { result, .. }
         | InstructionKind::Phi { result, .. }
         | InstructionKind::ConstInt { result, .. }
+        | InstructionKind::ConstIntTyped { result, .. }
         | InstructionKind::ConstFloat { result, .. }
+        | InstructionKind::ConstFloatTyped { result, .. }
         | InstructionKind::ConstBool { result, .. }
+        | InstructionKind::ConstString { result, .. }
         | InstructionKind::Cast { result, .. }
         | InstructionKind::FuncAddr { result, .. }
         | InstructionKind::MakeDynFatPtr { result, .. }

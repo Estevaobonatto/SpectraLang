@@ -3,14 +3,15 @@ use crate::http::{
     ParsedRequest, ParsedResponse, ParserConfig, Request, Response,
 };
 use crate::{handler, routing};
+use crate::handles::ApiHandleTable;
 use crate::{read_args, write_result};
 use spectra_runtime::ffi::{
     lookup_host_function, SpectraHostCallContext, SpectraHostValue, HOST_STATUS_INVALID_ARGUMENT,
     HOST_STATUS_SUCCESS,
 };
 use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
+use spectra_runtime::handles::HandleKind;
 use spectra_runtime::metrics::{self, MetricsRegistry};
-use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -791,31 +792,23 @@ struct ServerEntry {
 }
 
 struct ServerStore {
-    next: SpectraHostValue,
-    entries: HashMap<SpectraHostValue, ServerEntry>,
+    entries: ApiHandleTable<ServerEntry>,
 }
 
 impl ServerStore {
     fn new() -> Self {
         Self {
-            next: 1,
-            entries: HashMap::new(),
+            entries: ApiHandleTable::new(HandleKind::ApiServerEntry),
         }
     }
 
     fn server_handle(&mut self) -> SpectraHostValue {
-        let handle = self.next;
-        self.next = self.next.saturating_add(1).max(1);
-        self.entries.insert(
-            handle,
-            ServerEntry {
+        self.entries.insert(ServerEntry {
                 state: SERVER_STATE_CREATED,
                 config: ServerConfig::default(),
                 server: None,
                 last_stats: ServerStats::default(),
-            },
-        );
-        handle
+            })
     }
 }
 

@@ -8,35 +8,34 @@ use spectra_db::redis::{RedisConfig, RedisConnection, RedisError, RedisValue};
 use spectra_runtime::ffi::{
     HostFunction, SpectraHostCallContext, HOST_STATUS_INVALID_ARGUMENT, HOST_STATUS_SUCCESS,
 };
+use crate::handles::ApiHandleTable;
+use spectra_runtime::handles::HandleKind;
 use spectra_runtime::tracing::{self, SpanKind, SpanStatus};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 const POSTGRES_COPY_OUT_TEXT_LIMIT: usize = 16 * 1024 * 1024;
 
 struct Store {
-    next: u64,
-    connections: HashMap<u64, SqliteConnection>,
-    statements: HashMap<u64, SqliteStatement>,
-    postgres_connections: HashMap<u64, PostgresConnection>,
-    postgres_statements: HashMap<u64, Arc<Mutex<PostgresStatement>>>,
-    postgres_channels: HashMap<u64, Arc<Mutex<NotificationListener>>>,
-    postgres_notifications: HashMap<u64, Notification>,
-    redis_connections: HashMap<u64, RedisConnection>,
+    connections: ApiHandleTable<SqliteConnection>,
+    statements: ApiHandleTable<SqliteStatement>,
+    postgres_connections: ApiHandleTable<PostgresConnection>,
+    postgres_statements: ApiHandleTable<Arc<Mutex<PostgresStatement>>>,
+    postgres_channels: ApiHandleTable<Arc<Mutex<NotificationListener>>>,
+    postgres_notifications: ApiHandleTable<Notification>,
+    redis_connections: ApiHandleTable<RedisConnection>,
 }
 fn store() -> &'static Mutex<Store> {
     static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
     STORE.get_or_init(|| {
         Mutex::new(Store {
-            next: 1,
-            connections: HashMap::new(),
-            statements: HashMap::new(),
-            postgres_connections: HashMap::new(),
-            postgres_statements: HashMap::new(),
-            postgres_channels: HashMap::new(),
-            postgres_notifications: HashMap::new(),
-            redis_connections: HashMap::new(),
+            connections: ApiHandleTable::new(HandleKind::DatabaseSqliteConnection),
+            statements: ApiHandleTable::new(HandleKind::DatabaseSqliteStatement),
+            postgres_connections: ApiHandleTable::new(HandleKind::DatabasePostgresConnection),
+            postgres_statements: ApiHandleTable::new(HandleKind::DatabasePostgresStatement),
+            postgres_channels: ApiHandleTable::new(HandleKind::DatabasePostgresChannel),
+            postgres_notifications: ApiHandleTable::new(HandleKind::DatabasePostgresNotification),
+            redis_connections: ApiHandleTable::new(HandleKind::DatabaseRedisConnection),
         })
     })
 }
@@ -163,11 +162,9 @@ pub extern "C" fn sqlite_open(ctx: *mut SpectraHostCallContext) -> i32 {
         match SqliteConnection::open(path, std::time::Duration::from_secs(5)) {
             Ok(connection) => {
                 let mut state = store().lock().unwrap();
-                let id = state.next;
-                state.next += 1;
-                state.connections.insert(id, connection);
+                let id = state.connections.insert(connection);
                 finish_span(span, true);
-                value(r, id as i64)
+                value(r, id)
             }
             Err(error) => {
                 finish_span(span, false);
@@ -184,7 +181,7 @@ pub extern "C" fn sqlite_close(ctx: *mut SpectraHostCallContext) -> i32 {
         if a.len() != 1 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        let connection = store().lock().unwrap().connections.remove(&(a[0] as u64));
+        let connection = store().lock().unwrap().connections.remove(&a[0]);
         let Some(connection) = connection else {
             return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
         };
@@ -212,7 +209,7 @@ pub extern "C" fn sqlite_prepare(ctx: *mut SpectraHostCallContext) -> i32 {
             .lock()
             .unwrap()
             .connections
-            .get(&(a[0] as u64))
+            .get(&a[0])
             .cloned();
         let Some(connection) = connection else {
             return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
@@ -221,11 +218,9 @@ pub extern "C" fn sqlite_prepare(ctx: *mut SpectraHostCallContext) -> i32 {
         match SqliteStatement::prepare(connection, sql) {
             Ok(statement) => {
                 let mut state = store().lock().unwrap();
-                let id = state.next;
-                state.next += 1;
-                state.statements.insert(id, statement);
+                let id = state.statements.insert(statement);
                 finish_span(span, true);
-                value(r, id as i64)
+                value(r, id)
             }
             Err(error) => {
                 finish_span(span, false);
@@ -249,7 +244,7 @@ pub extern "C" fn sqlite_execute_async(ctx: *mut SpectraHostCallContext) -> i32 
             .lock()
             .unwrap()
             .connections
-            .get(&(a[0] as u64))
+            .get(&a[0])
             .cloned();
         let Some(connection) = connection else {
             return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
@@ -269,7 +264,7 @@ pub extern "C" fn sqlite_execute_async(ctx: *mut SpectraHostCallContext) -> i32 
     }
 }
 fn with_statement<T>(
-    id: u64,
+    id: i64,
     operation: impl FnOnce(&mut SqliteStatement) -> Result<T, spectra_db::sqlite::SqliteError>,
 ) -> Result<T, spectra_db::sqlite::SqliteError> {
     let mut state = store().lock().map_err(|_| {
@@ -283,7 +278,7 @@ fn with_statement<T>(
 }
 
 fn with_postgres_statement<T>(
-    id: u64,
+    id: i64,
     operation: impl FnOnce(&mut PostgresStatement) -> Result<T, spectra_db::postgres::PostgresError>,
 ) -> Result<T, spectra_db::postgres::PostgresError> {
     let statement = store()
@@ -306,7 +301,7 @@ pub extern "C" fn postgres_open(ctx: *mut SpectraHostCallContext) -> i32 {
         let Some(url) = string(a[0]) else { return HOST_STATUS_INVALID_ARGUMENT; };
         let config = match PostgresConfig::from_url(&url) { Ok(config) => config, Err(error) => return fail_postgres(r, error) };
         match PostgresConnection::open(config) {
-            Ok(connection) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.postgres_connections.insert(id, connection); value(r, id as i64) }
+            Ok(connection) => { let mut state = store().lock().unwrap(); let id = state.postgres_connections.insert(connection); value(r, id) }
             Err(error) => fail_postgres(r, error),
         }
     }
@@ -316,7 +311,7 @@ pub extern "C" fn postgres_close(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
         if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
-        let connection = store().lock().unwrap().postgres_connections.remove(&(a[0] as u64));
+        let connection = store().lock().unwrap().postgres_connections.remove(&a[0]);
         match connection { Some(connection) => match connection.close() { Ok(()) => bool_result(r, true), Err(error) => fail_postgres(r, error) }, None => fail_postgres(r, spectra_db::postgres::PostgresError::invalid_handle()) }
     }
 }
@@ -326,10 +321,10 @@ pub extern "C" fn postgres_prepare(ctx: *mut SpectraHostCallContext) -> i32 {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
         if a.len() != 2 { return HOST_STATUS_INVALID_ARGUMENT; }
         let Some(sql) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT; };
-        let connection = store().lock().unwrap().postgres_connections.get(&(a[0] as u64)).cloned();
+        let connection = store().lock().unwrap().postgres_connections.get(&a[0]).cloned();
         let Some(connection) = connection else { return fail_postgres(r, spectra_db::postgres::PostgresError::invalid_handle()); };
         match connection.prepare(sql) {
-            Ok(statement) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.postgres_statements.insert(id, Arc::new(Mutex::new(statement))); value(r, id as i64) }
+            Ok(statement) => { let mut state = store().lock().unwrap(); let id = state.postgres_statements.insert(Arc::new(Mutex::new(statement))); value(r, id) }
             Err(error) => fail_postgres(r, error),
         }
     }
@@ -337,41 +332,41 @@ pub extern "C" fn postgres_prepare(ctx: *mut SpectraHostCallContext) -> i32 {
 
 pub extern "C" fn postgres_bind_null(ctx: *mut SpectraHostCallContext) -> i32 { postgres_bind(ctx, PostgresValue::Null) }
 pub extern "C" fn postgres_bind_int(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } match with_postgres_statement(a[0] as u64, |s| s.bind(a[1] as usize, PostgresValue::Int64(a[2])) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
+    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } match with_postgres_statement(a[0], |s| s.bind(a[1] as usize, PostgresValue::Int64(a[2])) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
 }
 pub extern "C" fn postgres_bind_float(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } match with_postgres_statement(a[0] as u64, |s| s.bind(a[1] as usize, PostgresValue::Float64(f64::from_bits(a[2] as u64))) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
+    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } match with_postgres_statement(a[0], |s| s.bind(a[1] as usize, PostgresValue::Float64(f64::from_bits(a[2] as u64))) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
 }
 pub extern "C" fn postgres_bind_text(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } let Some(text)=string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT; }; match with_postgres_statement(a[0] as u64, |s| s.bind(a[1] as usize, PostgresValue::Text(text)) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
+    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } let Some(text)=string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT; }; match with_postgres_statement(a[0], |s| s.bind(a[1] as usize, PostgresValue::Text(text)) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
 }
 fn postgres_bind(ctx: *mut SpectraHostCallContext, bound: PostgresValue) -> i32 {
-    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=2 { return HOST_STATUS_INVALID_ARGUMENT; }; match with_postgres_statement(a[0] as u64, |s| s.bind(a[1] as usize, bound) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
+    unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=2 { return HOST_STATUS_INVALID_ARGUMENT; }; match with_postgres_statement(a[0], |s| s.bind(a[1] as usize, bound) ) { Ok(())=>bool_result(r,true), Err(e)=>fail_postgres(r,e) } }
 }
 pub extern "C" fn postgres_step(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
-        match with_postgres_statement(a[0] as u64, |s| s.step()) {
+        match with_postgres_statement(a[0], |s| s.step()) {
             Ok(state) => value(r, state as i64),
             Err(error) => fail_postgres(r, error),
         }
     }
 }
 pub extern "C" fn postgres_column_count(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| Ok(s.column_count())) {Ok(count)=>value(r,count as i64),Err(e)=>fail_postgres(r,e)} }
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0], |s| Ok(s.column_count())) {Ok(count)=>value(r,count as i64),Err(e)=>fail_postgres(r,e)} }
 }
 pub extern "C" fn postgres_column_type(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| s.column_type(a[1] as usize).map(|t| match t {PostgresType::Null=>0,PostgresType::Bool=>1,PostgresType::Int16|PostgresType::Int32|PostgresType::Int64=>2,PostgresType::Float32|PostgresType::Float64=>3,PostgresType::Text=>4,PostgresType::Bytes=>5,PostgresType::Uuid|PostgresType::Timestamp=>6})) {Ok(kind)=>value(r,kind),Err(e)=>fail_postgres(r,e)} }
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0], |s| s.column_type(a[1] as usize).map(|t| match t {PostgresType::Null=>0,PostgresType::Bool=>1,PostgresType::Int16|PostgresType::Int32|PostgresType::Int64=>2,PostgresType::Float32|PostgresType::Float64=>3,PostgresType::Text=>4,PostgresType::Bytes=>5,PostgresType::Uuid|PostgresType::Timestamp=>6})) {Ok(kind)=>value(r,kind),Err(e)=>fail_postgres(r,e)} }
 }
 pub extern "C" fn postgres_column_int(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| s.column_value(a[1] as usize).map(|v| match v {PostgresValue::Int16(x)=>x as i64,PostgresValue::Int32(x)=>x as i64,PostgresValue::Int64(x)=>x,PostgresValue::Bool(x)=>x as i64,_=>0})) {Ok(value_)=>value(r,value_),Err(e)=>fail_postgres(r,e)} }
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0], |s| s.column_value(a[1] as usize).map(|v| match v {PostgresValue::Int16(x)=>x as i64,PostgresValue::Int32(x)=>x as i64,PostgresValue::Int64(x)=>x,PostgresValue::Bool(x)=>x as i64,_=>0})) {Ok(value_)=>value(r,value_),Err(e)=>fail_postgres(r,e)} }
 }
 pub extern "C" fn postgres_column_text(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| s.column_value(a[1] as usize).map(|v| match v {PostgresValue::Text(x)=>x,PostgresValue::Uuid(x)=>x.to_string(),PostgresValue::Timestamp(x)=>x.to_rfc3339(),_=>String::new()})) {Ok(value_)=>value(r,alloc(&value_)),Err(e)=>fail_postgres(r,e)} }
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0], |s| s.column_value(a[1] as usize).map(|v| match v {PostgresValue::Text(x)=>x,PostgresValue::Uuid(x)=>x.to_string(),PostgresValue::Timestamp(x)=>x.to_rfc3339(),_=>String::new()})) {Ok(value_)=>value(r,alloc(&value_)),Err(e)=>fail_postgres(r,e)} }
 }
-pub extern "C" fn postgres_reset(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0] as u64, |s| {s.reset();Ok(())}) {Ok(())=>bool_result(r,true),Err(e)=>fail_postgres(r,e)} } }
-pub extern "C" fn postgres_finalize(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; let removed=store().lock().unwrap().postgres_statements.remove(&(a[0] as u64)); bool_result(r,removed.is_some()) } }
+pub extern "C" fn postgres_reset(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_postgres_statement(a[0], |s| {s.reset();Ok(())}) {Ok(())=>bool_result(r,true),Err(e)=>fail_postgres(r,e)} } }
+pub extern "C" fn postgres_finalize(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; let removed=store().lock().unwrap().postgres_statements.remove(&a[0]); bool_result(r,removed.is_some()) } }
 pub extern "C" fn postgres_begin(ctx: *mut SpectraHostCallContext) -> i32 { postgres_transaction(ctx, "db.postgres.transaction", |c| c.execute_batch("BEGIN")) }
 pub extern "C" fn postgres_commit(ctx: *mut SpectraHostCallContext) -> i32 { postgres_transaction(ctx, "db.postgres.commit", |c| c.execute_batch("COMMIT")) }
 pub extern "C" fn postgres_rollback(ctx: *mut SpectraHostCallContext) -> i32 { postgres_transaction(ctx, "db.postgres.rollback", |c| c.execute_batch("ROLLBACK")) }
@@ -379,7 +374,7 @@ fn postgres_transaction(ctx: *mut SpectraHostCallContext, _span_name: &str, oper
     unsafe {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
-        let c = store().lock().unwrap().postgres_connections.get(&(a[0] as u64)).cloned();
+        let c = store().lock().unwrap().postgres_connections.get(&a[0]).cloned();
         match c {
             Some(c) => match operation(&c) {
                 Ok(()) => bool_result(r, true),
@@ -390,7 +385,7 @@ fn postgres_transaction(ctx: *mut SpectraHostCallContext, _span_name: &str, oper
     }
 }
 
-fn postgres_connection(id: u64) -> Result<PostgresConnection, spectra_db::postgres::PostgresError> {
+fn postgres_connection(id: i64) -> Result<PostgresConnection, spectra_db::postgres::PostgresError> {
     store()
         .lock()
         .map_err(|_| spectra_db::postgres::PostgresError::new("DB2505_LOCK", "PostgreSQL handle store lock poisoned"))?
@@ -450,7 +445,7 @@ pub extern "C" fn postgres_execute_async(ctx: *mut SpectraHostCallContext) -> i3
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 2 { return HOST_STATUS_INVALID_ARGUMENT; }
         let Some(sql) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT };
-        let connection = match postgres_connection(a[0] as u64) {
+        let connection = match postgres_connection(a[0]) {
             Ok(connection) => connection,
             Err(error) => return fail_postgres(r, error),
         };
@@ -476,7 +471,7 @@ pub extern "C" fn postgres_step_async(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
-        let statement_id = a[0] as u64;
+        let statement_id = a[0];
         let cancellation = PostgresOperationCancellation::new();
         let operation_cancellation = cancellation.clone();
         spawn_postgres_task(
@@ -502,7 +497,7 @@ fn postgres_named_transaction(
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 2 { return HOST_STATUS_INVALID_ARGUMENT; }
         let Some(name) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT };
-        let connection = match postgres_connection(a[0] as u64) {
+        let connection = match postgres_connection(a[0]) {
             Ok(connection) => connection,
             Err(error) => return fail_postgres(r, error),
         };
@@ -529,7 +524,7 @@ pub extern "C" fn postgres_copy_in_text_async(ctx: *mut SpectraHostCallContext) 
         if a.len() != 3 { return HOST_STATUS_INVALID_ARGUMENT; }
         let Some(sql) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT };
         let Some(text) = string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT };
-        let connection = match postgres_connection(a[0] as u64) {
+        let connection = match postgres_connection(a[0]) {
             Ok(connection) => connection,
             Err(error) => return fail_postgres(r, error),
         };
@@ -553,7 +548,7 @@ pub extern "C" fn postgres_copy_out_text_async(ctx: *mut SpectraHostCallContext)
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 2 { return HOST_STATUS_INVALID_ARGUMENT; }
         let Some(sql) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT };
-        let connection = match postgres_connection(a[0] as u64) {
+        let connection = match postgres_connection(a[0]) {
             Ok(connection) => connection,
             Err(error) => return fail_postgres(r, error),
         };
@@ -586,17 +581,17 @@ pub extern "C" fn postgres_listen(ctx: *mut SpectraHostCallContext) -> i32 {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 2 { return HOST_STATUS_INVALID_ARGUMENT; }
         let Some(channel) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT };
-        let connection = match postgres_connection(a[0] as u64) {
+        let connection = match postgres_connection(a[0]) {
             Ok(connection) => connection,
             Err(error) => return fail_postgres(r, error),
         };
         match connection.listen(&channel) {
             Ok(listener) => {
                 let mut state = store().lock().unwrap();
-                let id = state.next;
-                state.next += 1;
-                state.postgres_channels.insert(id, Arc::new(Mutex::new(listener)));
-                value(r, id as i64)
+                let id = state
+                    .postgres_channels
+                    .insert(Arc::new(Mutex::new(listener)));
+                value(r, id)
             }
             Err(error) => fail_postgres(r, error),
         }
@@ -609,7 +604,7 @@ pub extern "C" fn postgres_notify_async(ctx: *mut SpectraHostCallContext) -> i32
         if a.len() != 3 { return HOST_STATUS_INVALID_ARGUMENT; }
         let Some(channel) = string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT };
         let Some(payload) = string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT };
-        let connection = match postgres_connection(a[0] as u64) {
+        let connection = match postgres_connection(a[0]) {
             Ok(connection) => connection,
             Err(error) => return fail_postgres(r, error),
         };
@@ -632,7 +627,7 @@ pub extern "C" fn postgres_notification_next_async(ctx: *mut SpectraHostCallCont
     unsafe {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 2 || a[1] < 0 { return HOST_STATUS_INVALID_ARGUMENT; }
-        let listener = match store().lock().unwrap().postgres_channels.get(&(a[0] as u64)).cloned() {
+        let listener = match store().lock().unwrap().postgres_channels.get(&a[0]).cloned() {
             Some(listener) => listener,
             None => return fail_postgres(r, spectra_db::postgres::PostgresError::invalid_handle()),
         };
@@ -650,10 +645,8 @@ pub extern "C" fn postgres_notification_next_async(ctx: *mut SpectraHostCallCont
                 let mut state = store()
                     .lock()
                     .map_err(|_| spectra_db::postgres::PostgresError::new("DB2505_LOCK", "PostgreSQL handle store lock poisoned"))?;
-                let id = state.next;
-                state.next += 1;
-                state.postgres_notifications.insert(id, notification);
-                Ok(id as i64)
+                let id = state.postgres_notifications.insert(notification);
+                Ok(id)
             },
             Some(cancellation),
             true,
@@ -662,7 +655,7 @@ pub extern "C" fn postgres_notification_next_async(ctx: *mut SpectraHostCallCont
 }
 
 fn with_notification<T>(
-    id: u64,
+    id: i64,
     operation: impl FnOnce(&Notification) -> T,
 ) -> Result<T, spectra_db::postgres::PostgresError> {
     let state = store()
@@ -676,19 +669,19 @@ fn with_notification<T>(
 }
 
 pub extern "C" fn postgres_notification_channel(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_notification(a[0] as u64, |n| n.channel.clone()) {Ok(text)=>value(r,alloc(&text)),Err(error)=>fail_postgres(r,error)} }
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_notification(a[0], |n| n.channel.clone()) {Ok(text)=>value(r,alloc(&text)),Err(error)=>fail_postgres(r,error)} }
 }
 pub extern "C" fn postgres_notification_payload(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_notification(a[0] as u64, |n| n.payload.clone()) {Ok(text)=>value(r,alloc(&text)),Err(error)=>fail_postgres(r,error)} }
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_notification(a[0], |n| n.payload.clone()) {Ok(text)=>value(r,alloc(&text)),Err(error)=>fail_postgres(r,error)} }
 }
 pub extern "C" fn postgres_notification_process_id(ctx: *mut SpectraHostCallContext) -> i32 {
-    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_notification(a[0] as u64, |n| n.process_id as i64) {Ok(pid)=>value(r,pid),Err(error)=>fail_postgres(r,error)} }
+    unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=1{return HOST_STATUS_INVALID_ARGUMENT}; match with_notification(a[0], |n| n.process_id as i64) {Ok(pid)=>value(r,pid),Err(error)=>fail_postgres(r,error)} }
 }
 pub extern "C" fn postgres_notification_close(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
-        let removed = store().lock().unwrap().postgres_channels.remove(&(a[0] as u64));
+        let removed = store().lock().unwrap().postgres_channels.remove(&a[0]);
         bool_result(r, removed.is_some())
     }
 }
@@ -696,7 +689,7 @@ pub extern "C" fn postgres_notification_free(ctx: *mut SpectraHostCallContext) -
     unsafe {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT };
         if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
-        let removed = store().lock().unwrap().postgres_notifications.remove(&(a[0] as u64));
+        let removed = store().lock().unwrap().postgres_notifications.remove(&a[0]);
         bool_result(r, removed.is_some())
     }
 }
@@ -738,7 +731,7 @@ pub extern "C" fn redis_open(ctx: *mut SpectraHostCallContext) -> i32 {
         let config = match RedisConfig::from_url(&url) { Ok(config) => config, Err(error) => return fail_redis(r, error) };
         let span = redis_operation_span("db.redis.connect");
         match RedisConnection::open(config) {
-            Ok(connection) => { let mut state = store().lock().unwrap(); let id = state.next; state.next += 1; state.redis_connections.insert(id, connection); finish_redis_span(span, true); value(r, id as i64) }
+            Ok(connection) => { let mut state = store().lock().unwrap(); let id = state.redis_connections.insert(connection); finish_redis_span(span, true); value(r, id) }
             Err(error) => { finish_redis_span(span, false); fail_redis(r, error) }
         }
     }
@@ -747,19 +740,19 @@ pub extern "C" fn redis_close(ctx: *mut SpectraHostCallContext) -> i32 {
     unsafe {
         let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; };
         if a.len() != 1 { return HOST_STATUS_INVALID_ARGUMENT; }
-        let connection = store().lock().unwrap().redis_connections.remove(&(a[0] as u64));
+        let connection = store().lock().unwrap().redis_connections.remove(&a[0]);
         let span = redis_operation_span("db.redis.close");
         match connection { Some(connection) => { let result = connection.close(); finish_redis_span(span, result.is_ok()); match result { Ok(()) => bool_result(r, true), Err(error) => fail_redis(r, error) } }, None => { finish_redis_span(span, false); fail_redis(r, RedisError::invalid_handle()) } }
     }
 }
-fn redis_connection(id: u64) -> Result<RedisConnection, RedisError> { store().lock().map_err(|_| RedisError::new("DB2507_LOCK", "Redis handle store lock poisoned"))?.redis_connections.get(&id).cloned().ok_or_else(RedisError::invalid_handle) }
+fn redis_connection(id: i64) -> Result<RedisConnection, RedisError> { store().lock().map_err(|_| RedisError::new("DB2507_LOCK", "Redis handle store lock poisoned"))?.redis_connections.get(&id).cloned().ok_or_else(RedisError::invalid_handle) }
 pub extern "C" fn redis_get(ctx: *mut SpectraHostCallContext) -> i32 { redis_key_op(ctx, "db.redis.get", |c, key| c.get_blocking(key).map(|value| value.map(|v| v.into_bytes().ok()).flatten())) }
-pub extern "C" fn redis_set(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } let Some(key)=string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT; }; let Some(value)=string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT; }; let connection=match redis_connection(a[0] as u64){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span("db.redis.set"); let result=connection.set_blocking(&key,RedisValue::Text(value),None); finish_redis_span(span,result.is_ok()); match result {Ok(())=>bool_result(r,true),Err(e)=>fail_redis(r,e)} } }
+pub extern "C" fn redis_set(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a, r)) = args(ctx) else { return HOST_STATUS_INVALID_ARGUMENT; }; if a.len()!=3 { return HOST_STATUS_INVALID_ARGUMENT; } let Some(key)=string(a[1]) else { return HOST_STATUS_INVALID_ARGUMENT; }; let Some(value)=string(a[2]) else { return HOST_STATUS_INVALID_ARGUMENT; }; let connection=match redis_connection(a[0]){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span("db.redis.set"); let result=connection.set_blocking(&key,RedisValue::Text(value),None); finish_redis_span(span,result.is_ok()); match result {Ok(())=>bool_result(r,true),Err(e)=>fail_redis(r,e)} } }
 pub extern "C" fn redis_delete(ctx: *mut SpectraHostCallContext) -> i32 { redis_key_op(ctx, "db.redis.delete", |c, key| c.delete_blocking(key)) }
-pub extern "C" fn redis_expire(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=3{return HOST_STATUS_INVALID_ARGUMENT}; let Some(key)=string(a[1]) else{return HOST_STATUS_INVALID_ARGUMENT}; let connection=match redis_connection(a[0] as u64){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span("db.redis.expire"); let result=connection.expire_blocking(&key,Duration::from_secs(a[2].max(0) as u64)); finish_redis_span(span,result.is_ok()); match result{Ok(v)=>bool_result(r,v),Err(e)=>fail_redis(r,e)} } }
-pub extern "C" fn redis_incr(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=3{return HOST_STATUS_INVALID_ARGUMENT}; let Some(key)=string(a[1]) else{return HOST_STATUS_INVALID_ARGUMENT}; let connection=match redis_connection(a[0] as u64){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span("db.redis.incr"); let result=connection.incr_blocking(&key,a[2]); finish_redis_span(span,result.is_ok()); match result{Ok(v)=>value(r,v),Err(e)=>fail_redis(r,e)} } }
+pub extern "C" fn redis_expire(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=3{return HOST_STATUS_INVALID_ARGUMENT}; let Some(key)=string(a[1]) else{return HOST_STATUS_INVALID_ARGUMENT}; let connection=match redis_connection(a[0]){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span("db.redis.expire"); let result=connection.expire_blocking(&key,Duration::from_secs(a[2].max(0) as u64)); finish_redis_span(span,result.is_ok()); match result{Ok(v)=>bool_result(r,v),Err(e)=>fail_redis(r,e)} } }
+pub extern "C" fn redis_incr(ctx: *mut SpectraHostCallContext) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=3{return HOST_STATUS_INVALID_ARGUMENT}; let Some(key)=string(a[1]) else{return HOST_STATUS_INVALID_ARGUMENT}; let connection=match redis_connection(a[0]){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span("db.redis.incr"); let result=connection.incr_blocking(&key,a[2]); finish_redis_span(span,result.is_ok()); match result{Ok(v)=>value(r,v),Err(e)=>fail_redis(r,e)} } }
 pub extern "C" fn redis_exists(ctx: *mut SpectraHostCallContext) -> i32 { redis_key_op(ctx, "db.redis.exists", |c, key| c.exists_blocking(key)) }
-fn redis_key_op<T: IntoRedisResult>(ctx: *mut SpectraHostCallContext, span_name: &str, operation: impl FnOnce(&RedisConnection, &str) -> Result<T, RedisError>) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; let Some(key)=string(a[1]) else{return HOST_STATUS_INVALID_ARGUMENT}; let connection=match redis_connection(a[0] as u64){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span(span_name); annotate_redis_span(span, &connection); let result=operation(&connection,&key); finish_redis_span(span,result.is_ok()); match result{Ok(v)=>v.into_result(r),Err(e)=>fail_redis(r,e)} } }
+fn redis_key_op<T: IntoRedisResult>(ctx: *mut SpectraHostCallContext, span_name: &str, operation: impl FnOnce(&RedisConnection, &str) -> Result<T, RedisError>) -> i32 { unsafe { let Some((a,r))=args(ctx) else{return HOST_STATUS_INVALID_ARGUMENT}; if a.len()!=2{return HOST_STATUS_INVALID_ARGUMENT}; let Some(key)=string(a[1]) else{return HOST_STATUS_INVALID_ARGUMENT}; let connection=match redis_connection(a[0]){Ok(c)=>c,Err(e)=>return fail_redis(r,e)}; let span=redis_operation_span(span_name); annotate_redis_span(span, &connection); let result=operation(&connection,&key); finish_redis_span(span,result.is_ok()); match result{Ok(v)=>v.into_result(r),Err(e)=>fail_redis(r,e)} } }
 trait IntoRedisResult { fn into_result(self, result: &mut [i64]) -> i32; }
 impl IntoRedisResult for bool { fn into_result(self,r:&mut[i64])->i32{bool_result(r,self)} }
 impl IntoRedisResult for Option<Vec<u8>> { fn into_result(self,r:&mut[i64])->i32{ match self {Some(v)=>value(r,alloc(&String::from_utf8_lossy(&v))),None=>value(r,0)} } }
@@ -776,7 +769,7 @@ pub extern "C" fn sqlite_bind_int(ctx: *mut SpectraHostCallContext) -> i32 {
         if a.len() != 3 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |statement| {
+        match with_statement(a[0], |statement| {
             statement.bind(a[1] as usize, SqliteValue::Integer(a[2]))
         }) {
             Ok(()) => bool_result(r, true),
@@ -792,7 +785,7 @@ pub extern "C" fn sqlite_bind_float(ctx: *mut SpectraHostCallContext) -> i32 {
         if a.len() != 3 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |statement| {
+        match with_statement(a[0], |statement| {
             statement.bind(
                 a[1] as usize,
                 SqliteValue::Real(f64::from_bits(a[2] as u64)),
@@ -814,7 +807,7 @@ pub extern "C" fn sqlite_bind_text(ctx: *mut SpectraHostCallContext) -> i32 {
         let Some(text) = string(a[2]) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |statement| {
+        match with_statement(a[0], |statement| {
             statement.bind(a[1] as usize, SqliteValue::Text(text))
         }) {
             Ok(()) => bool_result(r, true),
@@ -833,7 +826,7 @@ pub extern "C" fn sqlite_bind_blob(ctx: *mut SpectraHostCallContext) -> i32 {
         let Some(bytes) = string(a[2]) else {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |statement| {
+        match with_statement(a[0], |statement| {
             statement.bind(a[1] as usize, SqliteValue::Blob(bytes.into_bytes()))
         }) {
             Ok(()) => bool_result(r, true),
@@ -849,7 +842,7 @@ fn bind(ctx: *mut SpectraHostCallContext, value: SqliteValue) -> i32 {
         if a.len() < 2 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |statement| {
+        match with_statement(a[0], |statement| {
             statement.bind(a[1] as usize, value)
         }) {
             Ok(()) => bool_result(r, true),
@@ -866,7 +859,7 @@ pub extern "C" fn sqlite_step(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let span = operation_span("db.sqlite.query");
-        match with_statement(a[0] as u64, SqliteStatement::step) {
+        match with_statement(a[0], SqliteStatement::step) {
             Ok(StepResult::Row) => {
                 finish_span(span, true);
                 value(r, 1)
@@ -890,7 +883,7 @@ pub extern "C" fn sqlite_column_count(ctx: *mut SpectraHostCallContext) -> i32 {
         if a.len() != 1 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |s| s.column_count()) {
+        match with_statement(a[0], |s| s.column_count()) {
             Ok(count) => value(r, count as i64),
             Err(error) => fail(r, error),
         }
@@ -904,7 +897,7 @@ pub extern "C" fn sqlite_column_type(ctx: *mut SpectraHostCallContext) -> i32 {
         if a.len() != 2 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |s| s.column_type(a[1] as usize)) {
+        match with_statement(a[0], |s| s.column_type(a[1] as usize)) {
             Ok(kind) => value(r, kind as i64),
             Err(error) => fail(r, error),
         }
@@ -918,7 +911,7 @@ pub extern "C" fn sqlite_column_int(ctx: *mut SpectraHostCallContext) -> i32 {
         if a.len() != 2 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |s| s.column_value(a[1] as usize)) {
+        match with_statement(a[0], |s| s.column_value(a[1] as usize)) {
             Ok(SqliteValue::Integer(v)) => value(r, v),
             Ok(_) => fail(
                 r,
@@ -936,7 +929,7 @@ pub extern "C" fn sqlite_column_float(ctx: *mut SpectraHostCallContext) -> i32 {
         if a.len() != 2 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |s| s.column_value(a[1] as usize)) {
+        match with_statement(a[0], |s| s.column_value(a[1] as usize)) {
             Ok(SqliteValue::Real(v)) => value(r, v.to_bits() as i64),
             Ok(_) => fail(
                 r,
@@ -954,7 +947,7 @@ pub extern "C" fn sqlite_column_text(ctx: *mut SpectraHostCallContext) -> i32 {
         if a.len() != 2 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, |s| s.column_value(a[1] as usize)) {
+        match with_statement(a[0], |s| s.column_value(a[1] as usize)) {
             Ok(SqliteValue::Text(v)) => value(r, alloc(&v)),
             Ok(_) => fail(
                 r,
@@ -972,7 +965,7 @@ pub extern "C" fn sqlite_reset(ctx: *mut SpectraHostCallContext) -> i32 {
         if a.len() != 1 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
-        match with_statement(a[0] as u64, SqliteStatement::reset) {
+        match with_statement(a[0], SqliteStatement::reset) {
             Ok(()) => bool_result(r, true),
             Err(error) => fail(r, error),
         }
@@ -987,7 +980,7 @@ pub extern "C" fn sqlite_finalize(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_INVALID_ARGUMENT;
         };
         let mut state = store().lock().unwrap();
-        let Some(mut statement) = state.statements.remove(&(a[0] as u64)) else {
+        let Some(mut statement) = state.statements.remove(&a[0]) else {
             return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
         };
         match statement.finalize() {
@@ -1012,7 +1005,7 @@ fn transaction(
             .lock()
             .unwrap()
             .connections
-            .get(&(a[0] as u64))
+            .get(&a[0])
             .cloned();
         let Some(connection) = connection else {
             return fail(r, spectra_db::sqlite::SqliteError::invalid_handle());
