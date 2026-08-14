@@ -7958,12 +7958,31 @@ impl SemanticAnalyzer {
                     Type::Struct { name } if name.starts_with("List_") => {
                         self.type_from_mangle_part(&name["List_".len()..])
                     }
+                    Type::Struct { name } if name == "Set" => Type::TypeParameter {
+                        name: "T".to_string(),
+                    },
+                    Type::Struct { name } if name.starts_with("Set_") => {
+                        self.type_from_mangle_part(&name["Set_".len()..])
+                    }
+                    Type::Struct { name } if name == "Iterator" => Type::TypeParameter {
+                        name: "T".to_string(),
+                    },
+                    Type::Struct { name } if name.starts_with("Iterator_") => {
+                        self.type_from_mangle_part(&name["Iterator_".len()..])
+                    }
+                    Type::Struct { name } if name == "Map" => Type::TypeParameter {
+                        name: "K".to_string(),
+                    },
+                    Type::Struct { name } if name.starts_with("Map_") => {
+                        let key = name["Map_".len()..].split('_').next().unwrap_or("unknown");
+                        self.type_from_mangle_part(key)
+                    }
                     Type::Unknown => {
                         if !self.has_error_at_span(for_loop.iterable.span) {
                             self.error_with_hint(
                                 "Cannot determine the type of the for-loop iterable",
                                 for_loop.iterable.span,
-                                "Use a typed array, Range, or List<T>; unresolved expressions cannot reach lowering.",
+                                "Use a typed array, Range, List<T>, Set<T>, Map<K,V>, or Iterator<T>; unresolved expressions cannot reach lowering.",
                             );
                         }
                         Type::Unknown
@@ -7971,7 +7990,7 @@ impl SemanticAnalyzer {
                     other => {
                         self.error(
                             format!(
-                                "For-loop iterable must be an array, Range, or List<T>, found {}",
+                                "For-loop iterable must be an array, Range, List<T>, Set<T>, Map<K,V>, or Iterator<T>, found {}",
                                 type_name(&other)
                             ),
                             for_loop.span,
@@ -8135,9 +8154,7 @@ impl SemanticAnalyzer {
             return Some(("Map", vec![Type::Int, Type::Int]));
         }
         name.strip_prefix("Map_").and_then(|suffix| {
-            let mut parts = suffix.splitn(2, '_');
-            let key = parts.next()?;
-            let value = parts.next()?;
+            let (key, value) = suffix.split_once('_')?;
             Some((
                 "Map",
                 vec![self.type_from_mangle_part(key), self.type_from_mangle_part(value)],
@@ -8176,6 +8193,11 @@ impl SemanticAnalyzer {
                 Some(("Map", values)) if values.len() == 2 => {
                     substitutions.insert("K".to_string(), values[0].clone());
                     substitutions.insert("V".to_string(), values[1].clone());
+                }
+                Some(("Set", values)) | Some(("Iterator", values))
+                    if values.len() == 1 =>
+                {
+                    substitutions.insert("T".to_string(), values[0].clone());
                 }
                 _ => {}
             }
@@ -8227,6 +8249,11 @@ impl SemanticAnalyzer {
         });
 
         match operation {
+            "iter" if qualified_name == "std.range.iter" => {
+                specialized.return_type = Type::Struct {
+                    name: "Iterator_int".to_string(),
+                };
+            }
             "list_iter" | "set_iter" => {
                 if let Some((_, values)) = first_collection.as_ref() {
                     if let Some(element) = values.first() {

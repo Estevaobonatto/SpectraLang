@@ -702,6 +702,7 @@ pub const STD_RANGE_PUBLIC_FUNCTIONS: &[(&str, &str)] = &[
     ("std.range.start", "func(Range) returns int"),
     ("std.range.end", "func(Range) returns int"),
     ("std.range.is_inclusive", "func(Range) returns bool"),
+    ("std.range.iter", "func(Range) returns Iterator<int>"),
 ];
 
 /// Register all built-in standard library modules in the given registry.
@@ -921,6 +922,16 @@ fn make_std_range() -> ModuleExports {
     exports
         .functions
         .insert("is_inclusive".to_string(), pub_fn(vec![range], Type::Bool));
+
+    exports.functions.insert(
+        "iter".to_string(),
+        pub_fn(
+            vec![Type::Range],
+            Type::Struct {
+                name: "Iterator".to_string(),
+            },
+        ),
+    );
 
     exports
 }
@@ -2211,7 +2222,7 @@ fn make_std_collections_legacy() -> ModuleExports {
     );
     exports.functions.insert(
         "list_contains".to_string(),
-        pub_fn(vec![list.clone(), Type::Int], Type::Bool),
+        pub_fn(vec![list.clone(), element.clone()], Type::Bool),
     );
     exports.functions.insert(
         "list_clear".to_string(),

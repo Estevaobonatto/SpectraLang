@@ -736,10 +736,16 @@ let i2 = std.convert.bool_to_int(false)
 ## 5. std.collections — Coleções / Collections
 
 **PT-BR:**  
-O contrato de fonte de `std.collections` usa `List<T>` e `Map<K,V>` tipados. A implementação atual transporta esses valores como handles opacos na ABI do runtime; esse detalhe não faz parte do tipo que o programa SpectraLang deve manipular.
+O contrato de fonte de `std.collections` usa `List<T>`, `Map<K,V>`, `Set<T>` e
+`Iterator<T>` tipados. A implementação atual transporta esses valores como
+handles opacos na ABI do runtime; esse detalhe não faz parte do tipo que o
+programa SpectraLang deve manipular.
 
 **EN-US:**  
-The source contract of `std.collections` uses typed `List<T>` and `Map<K,V>`. The current runtime ABI transports those values as opaque handles; that representation is not a source-level type to manipulate directly.
+The source contract of `std.collections` uses typed `List<T>`, `Map<K,V>`,
+`Set<T>`, and `Iterator<T>`. The current runtime ABI transports those values as
+opaque handles; that representation is not a source-level type to manipulate
+directly.
 
 ```spectra
 import std.collections as col
@@ -913,6 +919,60 @@ col.list_free(lista)
 ```spectra
 let liberadas = col.list_free_all()
 ```
+
+### Set e Iterator / Set and Iterator (beta)
+
+`Set<T>` preserva a ordem de inserção para tornar snapshots e iteração
+determinísticos; chaves `string` usam igualdade por valor. Inserção e remoção retornam `bool`; acesso posicional é seguro
+e retorna `Option<T>`. `Iterator<T>` é consumível: `iterator_next` retorna
+`Option<T>` e `iterator_remaining` informa quantos elementos ainda podem ser
+consumidos.
+
+`Set<T>` preserves insertion order so snapshots and iteration are deterministic;
+`string` keys use value equality.
+Insertion and removal return `bool`; positional access is safe and returns
+`Option<T>`. `Iterator<T>` is consumable: `iterator_next` returns `Option<T>`
+and `iterator_remaining` reports the remaining elements.
+
+```spectra
+from std.collections import Set, Iterator
+import std.option as option
+
+let ids: Set<int> = col.set_new()
+col.set_insert(ids, 10)
+col.set_insert(ids, 20)
+let ids_iter: Iterator<int> = col.set_iter(ids)
+let first = col.iterator_next(ids_iter)
+if option.is_some(first) {
+    println(option.option_unwrap(first))
+}
+col.iterator_free(ids_iter)
+col.set_free(ids)
+```
+
+As funções `list_iter`, `set_iter` e `map_iter` criam iteradores snapshot;
+`map_iter` percorre as chaves em uma ordem estável para o snapshot atual. A expressão `for`
+consome o mesmo protocolo para ranges, arrays, listas, sets, mapas e iteradores
+explícitos. `std.range.iter` é o adaptador público para ranges.
+
+The `list_iter`, `set_iter`, and `map_iter` functions create snapshot
+iterators; `map_iter` visits keys in a stable order for the current snapshot. The `for` expression
+uses the same protocol for ranges, arrays, lists, sets, maps, and explicit
+iterators. `std.range.iter` is the public range adapter.
+
+| Função / Function | Assinatura / Signature | Resultado / Result |
+|---|---|---|
+| `set_new` | `set_new<T>() -> Set<T>` | conjunto vazio / empty set |
+| `set_insert` | `set_insert<T>(set: Set<T>, value: T) -> bool` | `true` se inseriu / inserted |
+| `set_contains` | `set_contains<T>(set: Set<T>, value: T) -> bool` | presença / membership |
+| `set_remove` | `set_remove<T>(set: Set<T>, value: T) -> bool` | `true` se removeu / removed |
+| `set_len` | `set_len<T>(set: Set<T>) -> int` | cardinalidade / cardinality |
+| `set_get` | `set_get<T>(set: Set<T>, index: int) -> Option<T>` | snapshot posicional |
+| `list_iter` / `set_iter` | `List<T>` / `Set<T> -> Iterator<T>` | snapshot iterator |
+| `map_iter` | `Map<K,V> -> Iterator<K>` | iterator de chaves / key iterator |
+| `iterator_next` | `iterator_next<T>(iterator: Iterator<T>) -> Option<T>` | próximo valor / next value |
+| `iterator_remaining` | `iterator_remaining<T>(iterator: Iterator<T>) -> int` | itens restantes / remaining |
+| `iterator_free` | `iterator_free<T>(iterator: Iterator<T>) -> unit` | libera o handle / drops handle |
 
 ### Funções de Alta Ordem / Higher-Order Functions
 

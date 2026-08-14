@@ -68,6 +68,11 @@ for shutdown and test isolation.
 | `spectra.std.collections.list_free_all` | Drops every list managed by the runtime. | *(none)* | number of freed lists |
 | `spectra.std.collections.list_get` / `list_pop` / `list_pop_front` / `list_remove_at` | Absence-safe reads/removals for the public `std.collections` surface. | list handle, optional index | tagged `Option<T>` payload |
 | `spectra.std.compat.collections.list_get` / `list_pop` / `list_pop_front` / `list_remove_at` | Compatibility reads/removals with the historical `-1` sentinel. | list handle, optional index | integer payload |
+| `spectra.std.collections.set_new` / `set_insert` / `set_contains` / `set_remove` | Creates and mutates an insertion-ordered typed set. | handle, optional value | handle or bool |
+| `spectra.std.collections.set_len` / `set_get` / `set_clear` / `set_free` | Reads, clears, and releases a set. | handle, optional index/value | length, tagged `Option<T>`, or `0` |
+| `spectra.std.collections.list_iter` / `set_iter` / `map_iter` | Creates deterministic snapshot iterators for collections. Map iteration yields keys. | collection handle | iterator handle |
+| `spectra.std.collections.iterator_next` / `iterator_remaining` / `iterator_free` | Consumes, inspects, and releases an `Iterator<T>`. | iterator handle | tagged `Option<T>`, length, or `0` |
+| `spectra.std.range.iter` | Adapts an integer range to the common iterator protocol. | range handle | `Iterator<int>` handle |
 
 The explicit `_option` names remain aliases for the absence-safe operations:
 `list_get_option`, `list_pop_option`, `list_pop_front_option`,

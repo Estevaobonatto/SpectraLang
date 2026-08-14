@@ -587,7 +587,7 @@ fn test_lower_stored_range_for_loop_uses_counted_loop() {
 }
 
 #[test]
-fn test_lower_literal_range_for_loop_uses_counted_loop() {
+fn test_lower_literal_range_for_loop_uses_iterator_protocol() {
     let module = make_module(
         "test",
         vec![make_function(
@@ -625,7 +625,11 @@ fn test_lower_literal_range_for_loop_uses_counted_loop() {
         })
         .collect();
 
-    assert!(!hosts.contains(&"spectra.std.range.create"));
+    assert!(hosts.contains(&"spectra.std.range.create"));
+    assert!(hosts.contains(&"spectra.std.range.iter"));
+    assert!(hosts.contains(&"spectra.std.collections.iterator_remaining"));
+    assert!(hosts.contains(&"spectra.std.collections.iterator_next"));
+    assert!(hosts.contains(&"spectra.std.option.option_unwrap"));
     assert!(!hosts.contains(&"spectra.std.range.len"));
     assert!(!hosts.contains(&"spectra.std.range.at"));
 }

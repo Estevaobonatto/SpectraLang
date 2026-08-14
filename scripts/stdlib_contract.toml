@@ -226,6 +226,12 @@ owner = "runtime"
 roadmap = "R-2003"
 reason = "IO host status and lowering discrepancies belong to the base stdlib hardening track."
 
+[[follow_up]]
+prefix = "std.collections.iterator_from_values"
+owner = "midend"
+roadmap = "R-2902"
+reason = "Compiler-only array materialization adapter for Iterator<T>; intentionally absent from the source semantic exports."
+
 [[namespace]]
 prefix = "std.io"
 owner = "runtime"

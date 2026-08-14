@@ -204,6 +204,18 @@ def main() -> int:
             ],
             360,
         ),
+        (
+            "typed-collections-iterator",
+            [
+                "python",
+                "scripts/validate_stability_collections.py",
+                "--binary",
+                str(binary),
+                "--report",
+                "target/stability/collections-release.json",
+            ],
+            360,
+        ),
         ("feature-maturity", ["python", "scripts/validate_feature_maturity.py", "--binary", str(binary)], 120),
         ("stdlib-contract", stdlib_contract_command, 420),
         ("stdlib-bug-hunt", ["python", "scripts/validate_stdlib_core_bug_hunt.py", "--binary", str(binary)], 180),

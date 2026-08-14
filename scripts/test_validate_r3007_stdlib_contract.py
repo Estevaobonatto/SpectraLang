@@ -144,9 +144,10 @@ class R3007ContractTests(unittest.TestCase):
         inventory = audit.discover_sources(audit.ROOT, self.manifest)
         report = audit.build_report(audit.ROOT, self.manifest, inventory, [])
         coverage = report["catalog_coverage"]
-        self.assertEqual(coverage["status"], "partial")
-        self.assertGreater(coverage["inventory_symbol_count"], coverage["catalog_symbol_count"])
-        self.assertTrue(any(item["kind"] == "catalog_migration_gap" for item in report["warnings"]))
+        self.assertEqual(coverage["status"], "complete")
+        self.assertEqual(coverage["missing_symbols"], [])
+        self.assertGreaterEqual(coverage["catalog_symbol_count"], coverage["inventory_symbol_count"])
+        self.assertFalse(any(item["kind"] == "catalog_migration_gap" for item in report["warnings"]))
 
 
 if __name__ == "__main__":

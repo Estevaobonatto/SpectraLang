@@ -505,6 +505,7 @@ pub extern "C" fn spectra_rt_manual_frame_exit(frame_id: usize) {
 
     for ptr in allocations {
         guard.allocations.remove(&ptr);
+        crate::stdlib::forget_string_value(ptr);
     }
 }
 
@@ -998,6 +999,7 @@ pub extern "C" fn spectra_rt_manual_free(ptr: *mut u8) {
 
     if let Some(entry) = guard.allocations.remove(&ptr_value) {
         guard.remove_from_frame(entry.frame_id, ptr_value);
+        crate::stdlib::forget_string_value(ptr_value);
     }
 }
 
@@ -1052,6 +1054,7 @@ pub extern "C" fn spectra_rt_manual_clear() {
     let table = allocation_table();
     let mut guard = table.lock().unwrap_or_else(|e| e.into_inner());
     guard.clear_all();
+    crate::stdlib::clear_string_values();
 }
 
 /// Registers a host function that JITed code can invoke by name.

@@ -8,6 +8,7 @@ use crate::memory::ManualBox;
 use crate::reactor::{self, Interest, ReactorEvent};
 use crate::tracing::{self, SpanKind, SpanStatus};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
@@ -39,6 +40,102 @@ const MATH_ROUND_F: &str = "spectra.std.math.round_f";
 
 fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|err| err.into_inner())
+}
+
+#[derive(Default)]
+struct StringValueRegistry {
+    values: HashMap<SpectraHostValue, String>,
+}
+
+fn string_value_registry() -> &'static Mutex<StringValueRegistry> {
+    static REGISTRY: OnceLock<Mutex<StringValueRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(StringValueRegistry::default()))
+}
+
+fn register_string_value(pointer: SpectraHostValue, value: &str) {
+    if pointer == 0 {
+        return;
+    }
+    lock_unpoisoned(string_value_registry())
+        .values
+        .insert(pointer, value.to_string());
+}
+
+pub(crate) fn forget_string_value(pointer: usize) {
+    if pointer == 0 {
+        return;
+    }
+    lock_unpoisoned(string_value_registry())
+        .values
+        .remove(&(pointer as SpectraHostValue));
+}
+
+pub(crate) fn clear_string_values() {
+    lock_unpoisoned(string_value_registry()).values.clear();
+}
+
+fn registered_string_value(value: SpectraHostValue) -> Option<String> {
+    lock_unpoisoned(string_value_registry())
+        .values
+        .get(&value)
+        .cloned()
+}
+
+#[derive(Clone, Debug)]
+enum CollectionKey {
+    Scalar(SpectraHostValue),
+    String {
+        value: String,
+        raw: SpectraHostValue,
+    },
+}
+
+impl PartialEq for CollectionKey {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Scalar(left), Self::Scalar(right)) => left == right,
+            (Self::String { value: left, .. }, Self::String { value: right, .. }) => left == right,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for CollectionKey {}
+
+impl Hash for CollectionKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Scalar(value) => {
+                0_u8.hash(state);
+                value.hash(state);
+            }
+            Self::String { value, .. } => {
+                1_u8.hash(state);
+                value.hash(state);
+            }
+        }
+    }
+}
+
+impl CollectionKey {
+    fn raw_value(&self) -> SpectraHostValue {
+        match self {
+            Self::Scalar(value) => *value,
+            // String keys retain their original pointer for iteration. Their
+            // equality/hash identity is the owned text above.
+            Self::String { raw, .. } => *raw,
+        }
+    }
+}
+
+fn collection_key(value: SpectraHostValue) -> CollectionKey {
+    registered_string_value(value)
+        .map(|text| CollectionKey::String { value: text, raw: value })
+        .unwrap_or(CollectionKey::Scalar(value))
+}
+
+fn collection_values_equal(left: SpectraHostValue, right: SpectraHostValue) -> bool {
+    collection_key(left) == collection_key(right)
 }
 
 const IO_PRINT: &str = "spectra.std.io.print";
@@ -219,6 +316,7 @@ const RANGE_EQ: &str = "spectra.std.range.eq";
 const RANGE_START: &str = "spectra.std.range.start";
 const RANGE_END: &str = "spectra.std.range.end";
 const RANGE_IS_INCLUSIVE: &str = "spectra.std.range.is_inclusive";
+const RANGE_ITER: &str = "spectra.std.range.iter";
 
 // ── std.tensor ──────────────────────────────────────────────────────────────
 const TENSOR_ZEROS: &str = "spectra.std.tensor.zeros";
@@ -2666,7 +2764,9 @@ pub fn map_set_fast(handle: usize, key: i64, value: i64) -> i32 {
     let map_arc = with_map_registry(|reg| reg.get(handle));
     match map_arc {
         Some(map_arc) => {
-            lock_unpoisoned(&map_arc).data.insert(key, value);
+            lock_unpoisoned(&map_arc)
+                .data
+                .insert(collection_key(key), value);
             HOST_STATUS_SUCCESS
         }
         None => HOST_STATUS_NOT_FOUND,
@@ -2683,7 +2783,7 @@ pub fn map_get_fast(handle: usize, key: i64) -> i64 {
     match map_arc {
         Some(map_arc) => lock_unpoisoned(&map_arc)
             .data
-            .get(&key)
+            .get(&collection_key(key))
             .copied()
             .unwrap_or(0),
         None => 0,
@@ -2698,7 +2798,10 @@ pub fn map_contains_fast(handle: usize, key: i64) -> i64 {
     let map_arc = with_map_registry(|reg| reg.get(handle));
     match map_arc {
         Some(map_arc) => {
-            if lock_unpoisoned(&map_arc).data.contains_key(&key) {
+            if lock_unpoisoned(&map_arc)
+                .data
+                .contains_key(&collection_key(key))
+            {
                 1
             } else {
                 0
@@ -2715,7 +2818,10 @@ pub fn map_contains_fast(handle: usize, key: i64) -> i64 {
 pub fn map_remove_fast(handle: usize, key: i64) -> i64 {
     let map_arc = with_map_registry(|reg| reg.get(handle));
     match map_arc {
-        Some(map_arc) => lock_unpoisoned(&map_arc).data.remove(&key).unwrap_or(0),
+        Some(map_arc) => lock_unpoisoned(&map_arc)
+            .data
+            .remove(&collection_key(key))
+            .unwrap_or(0),
         None => 0,
     }
 }
@@ -3099,7 +3205,9 @@ impl ListRegistry {
             .get(id)
             .map_err(|_| HOST_STATUS_NOT_FOUND)?
             .data
-            .contains(&value))
+            .iter()
+            .copied()
+            .any(|candidate| collection_values_equal(candidate, value)))
     }
 
     fn clear_list(&mut self, handle: usize) -> Result<(), i32> {
@@ -3195,7 +3303,7 @@ impl ListRegistry {
             .map_err(|_| HOST_STATUS_NOT_FOUND)?
             .data
             .iter()
-            .position(|&v| v == value)
+            .position(|&v| collection_values_equal(v, value))
             .map(|i| i as i64)
             .ok_or(HOST_STATUS_NOT_FOUND)
     }
@@ -14189,7 +14297,9 @@ unsafe fn read_spectra_string(ptr_val: SpectraHostValue) -> Option<String> {
         bytes.push(b);
         offset += 1;
     }
-    String::from_utf8(bytes).ok()
+    let value = String::from_utf8(bytes).ok()?;
+    register_string_value(ptr_val, &value);
+    Some(value)
 }
 
 /// Allocate a new Spectra string using the runtime manual allocator.
@@ -14207,7 +14317,9 @@ unsafe fn alloc_spectra_string(s: &str) -> SpectraHostValue {
         *raw.add(i) = b as i64;
     }
     *raw.add(bytes.len()) = 0; // null terminator
-    raw as i64
+    let pointer = raw as i64;
+    register_string_value(pointer, s);
+    pointer
 }
 
 /// Allocate the common two-word representation used by compiler-generated
@@ -16470,6 +16582,7 @@ fn register_range() {
     register_host_function(RANGE_START, std_range_start);
     register_host_function(RANGE_END, std_range_end);
     register_host_function(RANGE_IS_INCLUSIVE, std_range_is_inclusive);
+    register_host_function(RANGE_ITER, std_range_iter);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16599,6 +16712,24 @@ extern "C" fn std_range_is_inclusive(ctx: *mut SpectraHostCallContext) -> i32 {
         return HOST_STATUS_INVALID_ARGUMENT;
     };
     write_host_result(ctx, range.inclusive as i64)
+}
+
+extern "C" fn std_range_iter(ctx: *mut SpectraHostCallContext) -> i32 {
+    let Ok(args) = host_args(ctx, 1) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let Some(range) = load_range(args[0]) else {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    };
+    let length = match range_len_value(range).and_then(|value| usize::try_from(value).ok()) {
+        Some(length) => length,
+        None => return HOST_STATUS_INVALID_ARGUMENT,
+    };
+    let handle = match insert_range_iterator(range, length) {
+        Ok(handle) => handle,
+        Err(code) => return code,
+    };
+    write_host_result(ctx, handle as i64)
 }
 
 // ── std.string new functions ─────────────────────────────────────────────────
@@ -16934,6 +17065,7 @@ const ITER_MAP: &str = "spectra.std.collections.map_iter";
 const ITER_NEXT: &str = "spectra.std.collections.iterator_next";
 const ITER_REMAINING: &str = "spectra.std.collections.iterator_remaining";
 const ITER_FREE: &str = "spectra.std.collections.iterator_free";
+const ITER_FROM_VALUES: &str = "spectra.std.collections.iterator_from_values";
 
 fn register_set() {
     register_host_function(SET_NEW, std_set_new);
@@ -16953,6 +17085,7 @@ fn register_iterator() {
     register_host_function(ITER_NEXT, std_iterator_next);
     register_host_function(ITER_REMAINING, std_iterator_remaining);
     register_host_function(ITER_FREE, std_iterator_free);
+    register_host_function(ITER_FROM_VALUES, std_iterator_from_values);
 }
 
 #[derive(Default)]
@@ -16985,7 +17118,12 @@ impl SetRegistry {
     fn insert_value(&mut self, handle: usize, value: SpectraHostValue) -> Result<bool, i32> {
         let id = Self::id(handle)?;
         let set = self.sets.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
-        if set.data.contains(&value) {
+        if set
+            .data
+            .iter()
+            .copied()
+            .any(|candidate| collection_values_equal(candidate, value))
+        {
             return Ok(false);
         }
         set.data.push(value);
@@ -16999,13 +17137,19 @@ impl SetRegistry {
             .get(id)
             .map_err(|_| HOST_STATUS_NOT_FOUND)?
             .data
-            .contains(&value))
+            .iter()
+            .copied()
+            .any(|candidate| collection_values_equal(candidate, value)))
     }
 
     fn remove_value(&mut self, handle: usize, value: SpectraHostValue) -> Result<bool, i32> {
         let id = Self::id(handle)?;
         let set = self.sets.get_mut(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
-        let Some(index) = set.data.iter().position(|candidate| *candidate == value) else {
+        let Some(index) = set
+            .data
+            .iter()
+            .position(|candidate| collection_values_equal(*candidate, value))
+        else {
             return Ok(false);
         };
         set.data.remove(index);
@@ -17182,10 +17326,30 @@ extern "C" fn std_set_free(ctx: *mut SpectraHostCallContext) -> i32 {
     }
 }
 
-#[derive(Default)]
+enum IteratorSource {
+    Values {
+        items: Vec<SpectraHostValue>,
+        cursor: usize,
+    },
+    Range {
+        current: i64,
+        remaining: usize,
+    },
+}
+
 struct StdIterator {
-    items: Vec<SpectraHostValue>,
-    cursor: usize,
+    source: IteratorSource,
+}
+
+impl Default for StdIterator {
+    fn default() -> Self {
+        Self {
+            source: IteratorSource::Values {
+                items: Vec::new(),
+                cursor: 0,
+            },
+        }
+    }
 }
 
 struct IteratorRegistry {
@@ -17213,11 +17377,29 @@ impl IteratorRegistry {
             .iterators
             .get_mut(id)
             .map_err(|_| HOST_STATUS_NOT_FOUND)?;
-        let Some(value) = iterator.items.get(iterator.cursor).copied() else {
-            return Ok(None);
-        };
-        iterator.cursor += 1;
-        Ok(Some(value))
+        match &mut iterator.source {
+            IteratorSource::Values { items, cursor } => {
+                let Some(value) = items.get(*cursor).copied() else {
+                    return Ok(None);
+                };
+                *cursor += 1;
+                Ok(Some(value))
+            }
+            IteratorSource::Range {
+                current,
+                remaining,
+            } => {
+                if *remaining == 0 {
+                    return Ok(None);
+                }
+                let value = *current;
+                *remaining -= 1;
+                if *remaining > 0 {
+                    *current = current.saturating_add(1);
+                }
+                Ok(Some(value))
+            }
+        }
     }
 
     fn remaining(&self, handle: usize) -> Result<usize, i32> {
@@ -17226,7 +17408,10 @@ impl IteratorRegistry {
             .iterators
             .get(id)
             .map_err(|_| HOST_STATUS_NOT_FOUND)?;
-        Ok(iterator.items.len().saturating_sub(iterator.cursor))
+        Ok(match &iterator.source {
+            IteratorSource::Values { items, cursor } => items.len().saturating_sub(*cursor),
+            IteratorSource::Range { remaining, .. } => *remaining,
+        })
     }
 
     fn remove(&mut self, handle: usize) -> Result<(), i32> {
@@ -17254,7 +17439,22 @@ where
 fn insert_iterator(items: Vec<SpectraHostValue>) -> Result<usize, i32> {
     let iterator = initialize()
         .memory()
-        .allocate_manual(StdIterator { items, cursor: 0 })
+        .allocate_manual(StdIterator {
+            source: IteratorSource::Values { items, cursor: 0 },
+        })
+        .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
+    Ok(with_iterator_registry(|registry| registry.insert(iterator)))
+}
+
+fn insert_range_iterator(range: IntRange, remaining: usize) -> Result<usize, i32> {
+    let iterator = initialize()
+        .memory()
+        .allocate_manual(StdIterator {
+            source: IteratorSource::Range {
+                current: range.start,
+                remaining,
+            },
+        })
         .map_err(|_| HOST_STATUS_INTERNAL_ERROR)?;
     Ok(with_iterator_registry(|registry| registry.insert(iterator)))
 }
@@ -17348,7 +17548,39 @@ extern "C" fn std_iterator_free(ctx: *mut SpectraHostCallContext) -> i32 {
     }
 }
 
-// ── std.collections map (HashMap<i64, i64>) ──────────────────────────────────
+/// Internal lowering adapter for fixed-size arrays. The first argument is the
+/// number of values followed by the scalar ABI values in iteration order.
+/// Keeping the materialization in the compiler avoids making the runtime guess
+/// the layout of arbitrary nested/aggregate IR arrays.
+extern "C" fn std_iterator_from_values(ctx: *mut SpectraHostCallContext) -> i32 {
+    if ctx.is_null() {
+        return HOST_STATUS_INVALID_ARGUMENT;
+    }
+    unsafe {
+        let ctx_ref = &mut *ctx;
+        if ctx_ref.arg_len == 0 || ctx_ref.args.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        if ctx_ref.result_len == 0 || ctx_ref.results.is_null() {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let args = slice::from_raw_parts(ctx_ref.args, ctx_ref.arg_len);
+        let Ok(count) = usize::try_from(args[0]) else {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        };
+        if count != args.len().saturating_sub(1) {
+            return HOST_STATUS_INVALID_ARGUMENT;
+        }
+        let handle = match insert_iterator(args[1..].to_vec()) {
+            Ok(handle) => handle,
+            Err(code) => return code,
+        };
+        slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len)[0] = handle as i64;
+    }
+    HOST_STATUS_SUCCESS
+}
+
+// ── std.collections map ─────────────────────────────────────────────────────
 
 const MAP_NEW: &str = "spectra.std.collections.map_new";
 const MAP_SET: &str = "spectra.std.collections.map_set";
@@ -17384,7 +17616,7 @@ struct MapRegistry {
 
 #[derive(Default)]
 struct StdMap {
-    data: HashMap<i64, i64>,
+    data: HashMap<CollectionKey, SpectraHostValue>,
 }
 
 impl MapRegistry {
@@ -17414,13 +17646,20 @@ impl MapRegistry {
     ) -> Result<Option<SpectraHostValue>, i32> {
         let id = Self::id(handle)?;
         let map = self.maps.get(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
-        Ok(lock_unpoisoned(map).data.get(&key).copied())
+        Ok(lock_unpoisoned(map)
+            .data
+            .get(&collection_key(key))
+            .copied())
     }
 
     fn keys_snapshot(&self, handle: usize) -> Result<Vec<SpectraHostValue>, i32> {
         let id = Self::id(handle)?;
         let map = self.maps.get(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
-        let mut keys = lock_unpoisoned(map).data.keys().copied().collect::<Vec<_>>();
+        let mut keys = lock_unpoisoned(map)
+            .data
+            .keys()
+            .map(CollectionKey::raw_value)
+            .collect::<Vec<_>>();
         keys.sort_unstable();
         Ok(keys)
     }
@@ -17437,7 +17676,7 @@ impl MapRegistry {
     ) -> Result<Option<SpectraHostValue>, i32> {
         let id = Self::id(handle)?;
         let map = self.maps.get(id).map_err(|_| HOST_STATUS_NOT_FOUND)?;
-        Ok(lock_unpoisoned(map).data.remove(&key))
+        Ok(lock_unpoisoned(map).data.remove(&collection_key(key)))
     }
 }
 
@@ -17492,7 +17731,7 @@ extern "C" fn std_map_set(ctx: *mut SpectraHostCallContext) -> i32 {
             return HOST_STATUS_NOT_FOUND;
         };
         let mut map = lock_unpoisoned(&map_arc);
-        map.data.insert(key, value);
+        map.data.insert(collection_key(key), value);
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {
             let results = slice::from_raw_parts_mut(ctx_ref.results, ctx_ref.result_len);
             results[0] = 0;
@@ -17523,7 +17762,7 @@ extern "C" fn std_map_get(ctx: *mut SpectraHostCallContext) -> i32 {
         let value = match map_arc {
             Some(map_arc) => lock_unpoisoned(&map_arc)
                 .data
-                .get(&key)
+                .get(&collection_key(key))
                 .copied()
                 .unwrap_or(0),
             None => 0,
@@ -17569,7 +17808,9 @@ extern "C" fn std_map_contains(ctx: *mut SpectraHostCallContext) -> i32 {
         let key = args[1];
         let map_arc = with_map_registry(|reg| reg.get(handle));
         let found = match map_arc {
-            Some(map_arc) => lock_unpoisoned(&map_arc).data.contains_key(&key),
+            Some(map_arc) => lock_unpoisoned(&map_arc)
+                .data
+                .contains_key(&collection_key(key)),
             None => false,
         };
         results[0] = if found { 1 } else { 0 };
@@ -17593,7 +17834,10 @@ extern "C" fn std_map_remove(ctx: *mut SpectraHostCallContext) -> i32 {
         let key = args[1];
         let map_arc = with_map_registry(|reg| reg.get(handle));
         let removed = match map_arc {
-            Some(map_arc) => lock_unpoisoned(&map_arc).data.remove(&key).unwrap_or(0),
+            Some(map_arc) => lock_unpoisoned(&map_arc)
+                .data
+                .remove(&collection_key(key))
+                .unwrap_or(0),
             None => 0,
         };
         if ctx_ref.result_len > 0 && !ctx_ref.results.is_null() {

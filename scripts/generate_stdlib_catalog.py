@@ -110,6 +110,12 @@ def runtime_only_signature(path: str, semantic: dict[str, dict[str, str]]) -> tu
     if path in tensor_literal:
         return "function", tensor_literal[path]
 
+    if path == "std.collections.iterator_from_values":
+        # Compiler-only adapter used to materialize fixed-size IR arrays into
+        # the common iterator protocol. It is catalogued so the runtime
+        # binding remains auditable, but it is not a source-level export.
+        return "function", "fn(int, ...int) -> Iterator<int>"
+
     raise RuntimeError(f"no explicit signature rule for runtime-only symbol {path}")
 
 
@@ -185,7 +191,10 @@ def main() -> int:
             "path": path,
             "kind": kind,
             "namespace": namespace_for(path, kind),
-            "signature": old.get("signature", signature),
+            # Signatures are compiler-owned and must never be preserved from
+            # a stale catalog entry. ABI/docs metadata may be migrated, but a
+            # changed semantic contract must be visible in the generated file.
+            "signature": signature,
             "abi": old.get(
                 "abi",
                 "semantic descriptor" if kind != "function" else "host(ctx: SpectraHostCallContext) -> i32",

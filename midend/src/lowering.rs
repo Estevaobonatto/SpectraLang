@@ -147,6 +147,7 @@ struct ArrayInfo {
 }
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 struct RangeInfo {
     start: Value,
     end: Value,
@@ -237,6 +238,7 @@ impl RangeScopeStack {
         }
     }
 
+    #[allow(dead_code)]
     fn get(&self, name: &str) -> Option<RangeInfo> {
         for scope in self.scopes.iter().rev() {
             if let Some(info) = scope.get(name) {
@@ -5479,6 +5481,7 @@ impl ASTLowering {
         }
     }
 
+    #[allow(dead_code)]
     fn lower_counted_range_for_loop(
         &mut self,
         for_stmt: &spectra_compiler::ast::ForLoop,
@@ -5555,6 +5558,7 @@ impl ASTLowering {
         self.builder.set_current_block(exit_block);
     }
 
+    #[allow(dead_code)]
     fn lower_range_for_loop(
         &mut self,
         for_stmt: &spectra_compiler::ast::ForLoop,
@@ -5672,6 +5676,315 @@ impl ASTLowering {
         )
     }
 
+    fn lower_iterator_for_loop(
+        &mut self,
+        for_stmt: &spectra_compiler::ast::ForLoop,
+        iterator_value: Value,
+        element_type: IRType,
+        owns_iterator: bool,
+        ir_func: &mut IRFunction,
+    ) {
+        if Self::ir_type_contains_unknown(&element_type) {
+            self.error("for-loop iterator has an unresolved element type");
+            return;
+        }
+
+        let option_type = IRType::Enum {
+            name: format!("Option_{}", self.ir_type_to_ast_name(&element_type)),
+            variants: vec![
+                ("Some".to_string(), Some(vec![element_type.clone()])),
+                ("None".to_string(), None),
+            ],
+        };
+        let iterator_header = ir_func.add_block("iterator.header");
+        let iterator_body = ir_func.add_block("iterator.body");
+        let iterator_exit = ir_func.add_block("iterator.exit");
+
+        self.builder.build_branch(ir_func, iterator_header);
+        self.builder.set_current_block(iterator_header);
+        let remaining = self.require_value(
+            self.builder.build_typed_host_call(
+                ir_func,
+                "spectra.std.collections.iterator_remaining".to_string(),
+                vec![iterator_value],
+                IRType::Int,
+                true,
+            ),
+            "iterator.remaining host call did not produce its declared result",
+        );
+        let zero = self.builder.build_const_int(ir_func, 0);
+        let has_next = self.builder.build_gt(ir_func, remaining, zero);
+        self.builder
+            .build_cond_branch(ir_func, has_next, iterator_body, iterator_exit);
+
+        self.builder.set_current_block(iterator_body);
+        self.loop_stack.push(LoopContext {
+            header_block: iterator_header,
+            exit_block: iterator_exit,
+        });
+        self.value_map.push_scope();
+        self.variable_types.push_scope();
+        self.array_map.push_scope();
+        self.range_map.push_scope();
+        self.struct_var_map.push_scope();
+
+        let option_value = self.require_value(
+            self.builder.build_typed_host_call(
+                ir_func,
+                "spectra.std.collections.iterator_next".to_string(),
+                vec![iterator_value],
+                option_type,
+                true,
+            ),
+            "iterator.next host call did not produce its declared result",
+        );
+        let element_value = self.require_value(
+            self.builder.build_typed_host_call(
+                ir_func,
+                "spectra.std.option.option_unwrap".to_string(),
+                vec![option_value],
+                element_type.clone(),
+                true,
+            ),
+            "iterator option unwrap did not produce its declared element",
+        );
+        self.value_map
+            .insert(for_stmt.iterator.clone(), element_value);
+        self.variable_types
+            .insert(for_stmt.iterator.clone(), element_type.clone());
+        if let IRType::Struct { name, .. } = &element_type {
+            self.struct_var_map
+                .insert(for_stmt.iterator.clone(), (element_value, name.clone()));
+        }
+
+        self.lower_block_with_scope(&for_stmt.body.statements, ir_func, false);
+        if let Some(current_block) = self.builder.get_current_block() {
+            if let Some(block) = ir_func.get_block_mut(current_block) {
+                if block.terminator.is_none() {
+                    self.builder.build_branch(ir_func, iterator_header);
+                }
+            }
+        }
+
+        self.struct_var_map.pop_scope();
+        self.range_map.pop_scope();
+        self.array_map.pop_scope();
+        self.variable_types.pop_scope();
+        self.value_map.pop_scope();
+        self.loop_stack.pop();
+        self.builder.set_current_block(iterator_exit);
+        if owns_iterator {
+            let _ = self.builder.build_host_call(
+                ir_func,
+                "spectra.std.collections.iterator_free".to_string(),
+                vec![iterator_value],
+                false,
+            );
+        }
+    }
+
+    fn lower_for_loop_via_iterator(
+        &mut self,
+        for_stmt: &spectra_compiler::ast::ForLoop,
+        ir_func: &mut IRFunction,
+    ) {
+        let iterable_value = self.lower_expression(&for_stmt.iterable, ir_func);
+        let iterable_type = self.infer_expr_ir_type(&for_stmt.iterable);
+        let mangle_type = |part: &str| -> IRType {
+            match part {
+                "int" => IRType::Int,
+                "float" => IRType::Float,
+                "bool" => IRType::Bool,
+                "string" => IRType::String,
+                "char" => IRType::Char,
+                "i8" => IRType::ExactInt {
+                    signed: true,
+                    width: IRIntWidth::I8,
+                },
+                "i16" => IRType::ExactInt {
+                    signed: true,
+                    width: IRIntWidth::I16,
+                },
+                "i32" => IRType::ExactInt {
+                    signed: true,
+                    width: IRIntWidth::I32,
+                },
+                "i64" => IRType::ExactInt {
+                    signed: true,
+                    width: IRIntWidth::I64,
+                },
+                "u8" => IRType::ExactInt {
+                    signed: false,
+                    width: IRIntWidth::I8,
+                },
+                "u16" => IRType::ExactInt {
+                    signed: false,
+                    width: IRIntWidth::I16,
+                },
+                "u32" => IRType::ExactInt {
+                    signed: false,
+                    width: IRIntWidth::I32,
+                },
+                "u64" => IRType::ExactInt {
+                    signed: false,
+                    width: IRIntWidth::I64,
+                },
+                other => IRType::Struct {
+                    name: other.to_string(),
+                    fields: Vec::new(),
+                },
+            }
+        };
+
+        let (iterator_value, element_type, owns_iterator) = match iterable_type {
+            IRType::Range => {
+                (
+                    self.require_value(
+                    self.builder.build_typed_host_call(
+                        ir_func,
+                        "spectra.std.range.iter".to_string(),
+                        vec![iterable_value],
+                        IRType::Struct {
+                            name: "Iterator_int".to_string(),
+                            fields: Vec::new(),
+                        },
+                        true,
+                    ),
+                    "range.iter host call did not produce its declared iterator",
+                    ),
+                    IRType::Int,
+                    true,
+                )
+            }
+            IRType::Array { element_type, size } => {
+                if size == 0 {
+                    self.error("cannot iterate an array with unknown runtime length");
+                    return;
+                }
+                let element_type = *element_type;
+                let mut args = vec![self.builder.build_const_int(ir_func, size as i64)];
+                for index in 0..size {
+                    let index_value = self.builder.build_const_int(ir_func, index as i64);
+                    let element_ptr = self.builder.build_getelementptr(
+                        ir_func,
+                        iterable_value,
+                        index_value,
+                        element_type.clone(),
+                    );
+                    args.push(self.builder.build_load_typed(
+                        ir_func,
+                        element_ptr,
+                        element_type.clone(),
+                    ));
+                }
+                (
+                    self.require_value(
+                    self.builder.build_typed_host_call(
+                        ir_func,
+                        "spectra.std.collections.iterator_from_values".to_string(),
+                        args,
+                        IRType::Struct {
+                            name: format!("Iterator_{}", self.ir_type_to_ast_name(&element_type)),
+                            fields: Vec::new(),
+                        },
+                        true,
+                    ),
+                    "array iterator host call did not produce its declared iterator",
+                    ),
+                    element_type,
+                    true,
+                )
+            }
+            IRType::Struct { name, .. } if name.starts_with("List_") => {
+                let suffix = &name["List_".len()..];
+                let element_type = mangle_type(suffix);
+                (
+                    self.require_value(
+                    self.builder.build_typed_host_call(
+                        ir_func,
+                        "spectra.std.collections.list_iter".to_string(),
+                        vec![iterable_value],
+                        IRType::Struct {
+                            name: format!("Iterator_{suffix}"),
+                            fields: Vec::new(),
+                        },
+                        true,
+                    ),
+                    "list.iter host call did not produce its declared iterator",
+                    ),
+                    element_type,
+                    true,
+                )
+            }
+            IRType::Struct { name, .. } if name.starts_with("Set_") => {
+                let suffix = &name["Set_".len()..];
+                let element_type = mangle_type(suffix);
+                (
+                    self.require_value(
+                    self.builder.build_typed_host_call(
+                        ir_func,
+                        "spectra.std.collections.set_iter".to_string(),
+                        vec![iterable_value],
+                        IRType::Struct {
+                            name: format!("Iterator_{suffix}"),
+                            fields: Vec::new(),
+                        },
+                        true,
+                    ),
+                    "set.iter host call did not produce its declared iterator",
+                    ),
+                    element_type,
+                    true,
+                )
+            }
+            IRType::Struct { name, .. } if name.starts_with("Map_") => {
+                let suffix = &name["Map_".len()..];
+                let Some((key, _value)) = suffix.split_once('_') else {
+                    self.error(format!("cannot resolve map key type for {name}"));
+                    return;
+                };
+                let element_type = mangle_type(key);
+                (
+                    self.require_value(
+                    self.builder.build_typed_host_call(
+                        ir_func,
+                        "spectra.std.collections.map_iter".to_string(),
+                        vec![iterable_value],
+                        IRType::Struct {
+                            name: format!("Iterator_{key}"),
+                            fields: Vec::new(),
+                        },
+                        true,
+                    ),
+                    "map.iter host call did not produce its declared iterator",
+                    ),
+                    element_type,
+                    true,
+                )
+            }
+            IRType::Struct { name, .. } if name.starts_with("Iterator_") => {
+                let suffix = &name["Iterator_".len()..];
+                (iterable_value, mangle_type(suffix), false)
+            }
+            other => {
+                self.error(format!(
+                    "for-loop lowering requires an Iterator<T>-compatible source, found {:?}",
+                    other
+                ));
+                return;
+            }
+        };
+
+        self.lower_iterator_for_loop(
+            for_stmt,
+            iterator_value,
+            element_type,
+            owns_iterator,
+            ir_func,
+        );
+    }
+
+    #[allow(dead_code)]
     fn lower_non_range_for_loop(
         &mut self,
         for_stmt: &spectra_compiler::ast::ForLoop,
@@ -6370,32 +6683,7 @@ impl ASTLowering {
                 self.builder.set_current_block(exit_block);
             }
             StatementKind::For(for_stmt) => {
-                if let ExpressionKind::Range {
-                    start,
-                    end,
-                    inclusive,
-                } = &for_stmt.iterable.kind
-                {
-                    let start_val = self.lower_expression(start, ir_func);
-                    let end_val = self.lower_expression(end, ir_func);
-                    self.lower_counted_range_for_loop(
-                        for_stmt, start_val, end_val, *inclusive, ir_func,
-                    );
-                } else if let ExpressionKind::Identifier(name) = &for_stmt.iterable.kind {
-                    if let Some(info) = self.range_map.get(name) {
-                        self.lower_counted_range_for_loop(
-                            for_stmt,
-                            info.start,
-                            info.end,
-                            info.inclusive,
-                            ir_func,
-                        );
-                    } else {
-                        self.lower_non_range_for_loop(for_stmt, ir_func);
-                    }
-                } else {
-                    self.lower_non_range_for_loop(for_stmt, ir_func);
-                }
+                self.lower_for_loop_via_iterator(for_stmt, ir_func);
             }
             StatementKind::Loop(loop_stmt) => {
                 let body_block = ir_func.add_block("loop.body");
@@ -11469,6 +11757,14 @@ fn lookup_std_host_function(path: &[String]) -> Option<HostFunctionDescriptor> {
             ("range", "is_inclusive") => Some(HostFunctionDescriptor {
                 runtime_name: "spectra.std.range.is_inclusive",
                 return_type: IRType::Bool,
+                returns_value: true,
+            }),
+            ("range", "iter") => Some(HostFunctionDescriptor {
+                runtime_name: "spectra.std.range.iter",
+                return_type: IRType::Struct {
+                    name: "Iterator_int".to_string(),
+                    fields: Vec::new(),
+                },
                 returns_value: true,
             }),
             // ── std.time ──────────────────────────────────────────────────

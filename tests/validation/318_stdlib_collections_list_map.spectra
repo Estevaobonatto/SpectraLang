@@ -66,7 +66,7 @@ public func main() returns int {
     if collections.map_len(map) != 2 {
         return 11
     }
-    if collections.map_contains(map, 0) != 1 or collections.map_contains(map, 8) != 0 {
+    if collections.map_contains(map, 0) != true or collections.map_contains(map, 8) != false {
         return 12
     }
     let map_zero = collections.map_get(map, 0)
